@@ -7,10 +7,12 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject private var storage = StorageService.shared
+    @ObservedObject private var authService = AuthService.shared
     @State private var settings: UserSettings
     @State private var showClearDataAlert = false
     @State private var showSyncOptions = false
     @State private var syncMessage: String?
+    @State private var showAuthSheet = false
     
     init() {
         _settings = State(initialValue: StorageService.shared.settings)
@@ -19,6 +21,50 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Account Section
+                Section {
+                    if authService.isAuthenticated {
+                        AccountView()
+                    } else {
+                        Button {
+                            showAuthSheet = true
+                        } label: {
+                            HStack(spacing: 16) {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.accentColor.opacity(0.15))
+                                        .frame(width: 44, height: 44)
+                                    
+                                    Image(systemName: "person.circle")
+                                        .font(.title2)
+                                        .foregroundColor(.accentColor)
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Sign In")
+                                        .font(.headline)
+                                        .foregroundColor(.primary)
+                                    Text("Sync your lists across all devices")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Account")
+                } footer: {
+                    if !authService.isAuthenticated {
+                        Text("Sign in to sync your watchlist, watched items, and likes across all your devices")
+                    }
+                }
+                
                 // Region & Language
                 Section("Region & Language") {
                     Picker("Region", selection: $settings.region) {
@@ -94,8 +140,13 @@ struct SettingsView: View {
                             } else {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.green)
-                                Text("Connected")
-                                    .foregroundColor(.secondary)
+                                if authService.isAuthenticated {
+                                    Text("Signed in")
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Text("Device sync")
+                                        .foregroundColor(.secondary)
+                                }
                             }
                         }
                         
@@ -136,7 +187,11 @@ struct SettingsView: View {
                 } header: {
                     Text("Cloud Sync")
                 } footer: {
-                    Text("Sync your watchlist, watched, and liked items across devices")
+                    if authService.isAuthenticated {
+                        Text("Your lists sync across all devices signed into this account")
+                    } else {
+                        Text("Sign in above to sync across devices, or use device-only sync")
+                    }
                 }
                 
                 // Data Management
@@ -212,6 +267,9 @@ struct SettingsView: View {
                 Button("OK") { syncMessage = nil }
             } message: {
                 Text(syncMessage ?? "")
+            }
+            .sheet(isPresented: $showAuthSheet) {
+                AuthView()
             }
         }
     }
