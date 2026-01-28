@@ -363,7 +363,8 @@ struct YouTubePlayerView: UIViewRepresentable {
         let muteParam = isMuted ? 1 : 0
         let autoPlayParam = autoPlay ? 1 : 0
         
-        // Use YouTube IFrame Player API with proper error handling
+        // Use youtube-nocookie.com domain to bypass embedding restrictions (error 152)
+        // This privacy-enhanced mode also helps with playback restrictions
         let html = """
         <!DOCTYPE html>
         <html>
@@ -372,87 +373,59 @@ struct YouTubePlayerView: UIViewRepresentable {
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
-                #player { position: absolute; top: 50%; left: 50%; width: 177.78vh; height: 100vh; min-width: 100%; min-height: 56.25vw; transform: translate(-50%, -50%); }
+                #player-container { position: absolute; top: 50%; left: 50%; width: 177.78vh; height: 100vh; min-width: 100%; min-height: 56.25vw; transform: translate(-50%, -50%); }
+                #player { width: 100%; height: 100%; border: none; }
                 .error-container { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: #fff; justify-content: center; align-items: center; flex-direction: column; }
                 .error-container.show { display: flex; }
             </style>
         </head>
         <body>
-            <div id="player"></div>
+            <div id="player-container">
+                <iframe id="player"
+                    src="https://www.youtube-nocookie.com/embed/\(videoKey)?autoplay=\(autoPlayParam)&mute=\(muteParam)&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1&loop=1&playlist=\(videoKey)&iv_load_policy=3&disablekb=1&fs=0&enablejsapi=1&origin=https://www.youtube-nocookie.com"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen>
+                </iframe>
+            </div>
             <div id="error" class="error-container">
                 <p>Trailer unavailable</p>
             </div>
             <script>
-                var tag = document.createElement('script');
-                tag.src = "https://www.youtube.com/iframe_api";
-                var firstScriptTag = document.getElementsByTagName('script')[0];
-                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                var player = document.getElementById('player');
+                var hasNotifiedReady = false;
                 
-                var player;
-                var hasError = false;
-                
-                function onYouTubeIframeAPIReady() {
-                    player = new YT.Player('player', {
-                        videoId: '\(videoKey)',
-                        playerVars: {
-                            'autoplay': \(autoPlayParam),
-                            'mute': \(muteParam),
-                            'controls': 0,
-                            'showinfo': 0,
-                            'rel': 0,
-                            'modestbranding': 1,
-                            'playsinline': 1,
-                            'loop': 1,
-                            'playlist': '\(videoKey)',
-                            'iv_load_policy': 3,
-                            'disablekb': 1,
-                            'fs': 0,
-                            'origin': 'https://www.youtube.com'
-                        },
-                        events: {
-                            'onReady': onPlayerReady,
-                            'onStateChange': onPlayerStateChange,
-                            'onError': onPlayerError
-                        }
-                    });
-                }
-                
-                function onPlayerReady(event) {
-                    if (!hasError) {
+                player.onload = function() {
+                    if (!hasNotifiedReady) {
+                        hasNotifiedReady = true;
                         try {
                             window.webkit.messageHandlers.playerReady.postMessage('ready');
                         } catch(e) {}
-                        if (\(autoPlayParam) === 1) {
-                            event.target.playVideo();
-                        }
                     }
-                }
+                };
                 
-                function onPlayerStateChange(event) {
-                    try {
-                        window.webkit.messageHandlers.playerStateChange.postMessage(event.data);
-                    } catch(e) {}
-                    // Loop video when ended
-                    if (event.data === YT.PlayerState.ENDED) {
-                        event.target.seekTo(0);
-                        event.target.playVideo();
-                    }
-                }
-                
-                function onPlayerError(event) {
-                    hasError = true;
-                    document.getElementById('player').style.display = 'none';
+                player.onerror = function() {
+                    document.getElementById('player-container').style.display = 'none';
                     document.getElementById('error').classList.add('show');
                     try {
-                        window.webkit.messageHandlers.playerError.postMessage('Error: ' + event.data);
+                        window.webkit.messageHandlers.playerError.postMessage('Error loading video');
                     } catch(e) {}
-                }
+                };
+                
+                // Fallback: notify ready after a short delay if onload doesn't fire
+                setTimeout(function() {
+                    if (!hasNotifiedReady) {
+                        hasNotifiedReady = true;
+                        try {
+                            window.webkit.messageHandlers.playerReady.postMessage('ready');
+                        } catch(e) {}
+                    }
+                }, 2000);
             </script>
         </body>
         </html>
         """
         
-        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube-nocookie.com"))
     }
     
     func makeCoordinator() -> Coordinator {
