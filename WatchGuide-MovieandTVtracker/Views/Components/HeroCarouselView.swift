@@ -39,7 +39,11 @@ struct HeroCarouselView: View {
                             trailer: trailers[item.id],
                             isCurrentSlide: index == currentIndex,
                             autoPlayEnabled: autoPlayEnabled,
-                            isPlayingTrailer: $isPlayingTrailer
+                            isPlayingTrailer: $isPlayingTrailer,
+                            onTrailerEnded: {
+                                // Advance to next item when trailer ends
+                                advanceToNextItem()
+                            }
                         )
                         .tag(index)
                         .onTapGesture {
@@ -75,6 +79,14 @@ struct HeroCarouselView: View {
             // Restart auto-scroll timer after manual swipe
             restartAutoScroll()
         }
+    }
+    
+    private func advanceToNextItem() {
+        withAnimation(.easeInOut(duration: 0.5)) {
+            currentIndex = (currentIndex + 1) % max(items.count, 1)
+        }
+        isPlayingTrailer = false
+        restartAutoScroll()
     }
     
     private func startAutoScroll() {
@@ -143,6 +155,7 @@ struct HeroSlideView: View {
     let isCurrentSlide: Bool
     let autoPlayEnabled: Bool
     @Binding var isPlayingTrailer: Bool
+    var onTrailerEnded: (() -> Void)?
     
     @State private var showTrailer = false
     @State private var trailerReady = false
@@ -164,6 +177,12 @@ struct HeroSlideView: View {
                         trailerFailed = true
                         showTrailer = false
                         isPlayingTrailer = false
+                    },
+                    onEnded: {
+                        // Trailer finished playing, advance to next
+                        showTrailer = false
+                        isPlayingTrailer = false
+                        onTrailerEnded?()
                     }
                 )
                 .frame(width: width, height: 400)
@@ -326,12 +345,14 @@ struct YouTubePlayerView: UIViewRepresentable {
     var isMuted: Bool = false
     var onReady: (() -> Void)?
     var onError: ((String) -> Void)?
+    var onEnded: (() -> Void)?
     
     func makeUIView(context: Context) -> WKWebView {
         let contentController = WKUserContentController()
         contentController.add(context.coordinator, name: "playerReady")
         contentController.add(context.coordinator, name: "playerError")
         contentController.add(context.coordinator, name: "playerStateChange")
+        contentController.add(context.coordinator, name: "playerEnded")
         
         let preferences = WKWebpagePreferences()
         preferences.allowsContentJavaScript = true
@@ -365,6 +386,7 @@ struct YouTubePlayerView: UIViewRepresentable {
         
         // Use youtube-nocookie.com domain to bypass embedding restrictions (error 152)
         // This privacy-enhanced mode also helps with playback restrictions
+        // Removed loop=1 and playlist parameter to allow video to end naturally
         let html = """
         <!DOCTYPE html>
         <html>
@@ -381,37 +403,71 @@ struct YouTubePlayerView: UIViewRepresentable {
         </head>
         <body>
             <div id="player-container">
-                <iframe id="player"
-                    src="https://www.youtube-nocookie.com/embed/\(videoKey)?autoplay=\(autoPlayParam)&mute=\(muteParam)&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1&loop=1&playlist=\(videoKey)&iv_load_policy=3&disablekb=1&fs=0&enablejsapi=1&origin=https://www.youtube-nocookie.com"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowfullscreen>
-                </iframe>
+                <div id="player"></div>
             </div>
             <div id="error" class="error-container">
                 <p>Trailer unavailable</p>
             </div>
+            <script src="https://www.youtube.com/iframe_api"></script>
             <script>
-                var player = document.getElementById('player');
+                var player;
                 var hasNotifiedReady = false;
                 
-                player.onload = function() {
+                function onYouTubeIframeAPIReady() {
+                    player = new YT.Player('player', {
+                        videoId: '\(videoKey)',
+                        playerVars: {
+                            'autoplay': \(autoPlayParam),
+                            'mute': \(muteParam),
+                            'controls': 0,
+                            'showinfo': 0,
+                            'rel': 0,
+                            'modestbranding': 1,
+                            'playsinline': 1,
+                            'iv_load_policy': 3,
+                            'disablekb': 1,
+                            'fs': 0,
+                            'origin': 'https://www.youtube.com'
+                        },
+                        events: {
+                            'onReady': onPlayerReady,
+                            'onStateChange': onPlayerStateChange,
+                            'onError': onPlayerError
+                        }
+                    });
+                }
+                
+                function onPlayerReady(event) {
                     if (!hasNotifiedReady) {
                         hasNotifiedReady = true;
                         try {
                             window.webkit.messageHandlers.playerReady.postMessage('ready');
                         } catch(e) {}
                     }
-                };
+                }
                 
-                player.onerror = function() {
+                function onPlayerStateChange(event) {
+                    try {
+                        window.webkit.messageHandlers.playerStateChange.postMessage(event.data.toString());
+                    } catch(e) {}
+                    
+                    // YT.PlayerState.ENDED = 0
+                    if (event.data === 0) {
+                        try {
+                            window.webkit.messageHandlers.playerEnded.postMessage('ended');
+                        } catch(e) {}
+                    }
+                }
+                
+                function onPlayerError(event) {
                     document.getElementById('player-container').style.display = 'none';
                     document.getElementById('error').classList.add('show');
                     try {
-                        window.webkit.messageHandlers.playerError.postMessage('Error loading video');
+                        window.webkit.messageHandlers.playerError.postMessage('Error: ' + event.data);
                     } catch(e) {}
-                };
+                }
                 
-                // Fallback: notify ready after a short delay if onload doesn't fire
+                // Fallback: notify ready after a short delay if API doesn't fire
                 setTimeout(function() {
                     if (!hasNotifiedReady) {
                         hasNotifiedReady = true;
@@ -419,34 +475,44 @@ struct YouTubePlayerView: UIViewRepresentable {
                             window.webkit.messageHandlers.playerReady.postMessage('ready');
                         } catch(e) {}
                     }
-                }, 2000);
+                }, 3000);
             </script>
         </body>
         </html>
         """
         
-        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube-nocookie.com"))
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
     }
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(onReady: onReady, onError: onError)
+        Coordinator(onReady: onReady, onError: onError, onEnded: onEnded)
     }
     
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var currentVideoKey: String?
         var onReady: (() -> Void)?
         var onError: ((String) -> Void)?
+        var onEnded: (() -> Void)?
         
-        init(onReady: (() -> Void)?, onError: ((String) -> Void)?) {
+        init(onReady: (() -> Void)?, onError: ((String) -> Void)?, onEnded: (() -> Void)?) {
             self.onReady = onReady
             self.onError = onError
+            self.onEnded = onEnded
         }
         
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "playerReady" {
-                onReady?()
+                DispatchQueue.main.async {
+                    self.onReady?()
+                }
             } else if message.name == "playerError", let errorMsg = message.body as? String {
-                onError?(errorMsg)
+                DispatchQueue.main.async {
+                    self.onError?(errorMsg)
+                }
+            } else if message.name == "playerEnded" {
+                DispatchQueue.main.async {
+                    self.onEnded?()
+                }
             }
             // playerStateChange can be used for debugging if needed
         }
