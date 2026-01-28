@@ -15,7 +15,7 @@ struct ContentView: View {
         case browse = "Browse"
         case search = "Search"
         case lists = "Lists"
-        case chron = "Chron"
+        case ai = "AI"
         case settings = "Settings"
         
         var iconName: String {
@@ -23,7 +23,7 @@ struct ContentView: View {
             case .browse: return "rectangle.grid.2x2.fill"
             case .search: return "magnifyingglass"
             case .lists: return "list.bullet"
-            case .chron: return "sparkles"
+            case .ai: return "sparkles"
             case .settings: return "gearshape.fill"
             }
         }
@@ -49,11 +49,11 @@ struct ContentView: View {
                 }
                 .tag(Tab.lists)
             
-            AIAssistantView()
+            AIRecommendView()
                 .tabItem {
-                    Label(Tab.chron.rawValue, systemImage: Tab.chron.iconName)
+                    Label(Tab.ai.rawValue, systemImage: Tab.ai.iconName)
                 }
-                .tag(Tab.chron)
+                .tag(Tab.ai)
             
             SettingsView()
                 .tabItem {
