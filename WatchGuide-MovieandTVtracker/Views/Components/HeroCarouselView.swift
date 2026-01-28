@@ -534,6 +534,7 @@ struct YouTubePlayerView: UIViewRepresentable {
                 var hasNotifiedError = false;
                 var hasEnded = false;
                 var playbackStarted = false;
+                var proxyLocked = false;
                 var loadTimeout;
                 var proxyTimeout;
                 
@@ -561,8 +562,19 @@ struct YouTubePlayerView: UIViewRepresentable {
                     }
                 }
                 
+                function lockProxy() {
+                    // Once a proxy starts working, lock it and stop all retry attempts
+                    proxyLocked = true;
+                    playbackStarted = true;
+                    clearTimeout(proxyTimeout);
+                    clearTimeout(loadTimeout);
+                }
+                
                 function tryProxy(index) {
-                    if (hasNotifiedError || hasNotifiedReady || playbackStarted) return;
+                    // CRITICAL: If proxy is locked (working), never try another
+                    if (proxyLocked || hasNotifiedError || hasNotifiedReady || playbackStarted) {
+                        return;
+                    }
                     
                     if (index >= proxies.length) {
                         showError('All proxies failed');
@@ -583,15 +595,15 @@ struct YouTubePlayerView: UIViewRepresentable {
                         player.src = proxy + '/embed/' + videoKey + '?autoplay=' + autoPlay + '&mute=' + mute + '&quality=hd720&local=true';
                     } catch(e) {
                         console.error('Failed to set player src:', e);
-                        tryProxy(index + 1);
+                        if (!proxyLocked) tryProxy(index + 1);
                         return;
                     }
                     
                     // Set timeout for this proxy - if no load in 8 seconds, try next
-                    // But only if playback hasn't started
+                    // But only if proxy hasn't been locked
                     clearTimeout(proxyTimeout);
                     proxyTimeout = setTimeout(function() {
-                        if (!hasNotifiedReady && !hasNotifiedError && !playbackStarted) {
+                        if (!proxyLocked && !hasNotifiedReady && !hasNotifiedError && !playbackStarted) {
                             console.log('Proxy ' + index + ' timed out, trying next...');
                             tryProxy(index + 1);
                         }
@@ -599,14 +611,11 @@ struct YouTubePlayerView: UIViewRepresentable {
                 }
                 
                 var player = document.getElementById('player');
-                var playbackStarted = false;
                 
                 if (player) {
                     player.onload = function() {
-                        // Mark that this proxy worked - stop trying others
-                        playbackStarted = true;
-                        clearTimeout(proxyTimeout);
-                        clearTimeout(loadTimeout);
+                        // IMMEDIATELY lock the proxy - this one works!
+                        lockProxy();
                         
                         var loading = document.getElementById('loading');
                         if (loading) loading.style.display = 'none';
@@ -622,8 +631,8 @@ struct YouTubePlayerView: UIViewRepresentable {
                     };
                     
                     player.onerror = function(e) {
-                        // Only try next proxy if playback hasn't started
-                        if (!playbackStarted && !hasNotifiedReady) {
+                        // Only try next proxy if not locked
+                        if (!proxyLocked && !playbackStarted && !hasNotifiedReady) {
                             clearTimeout(proxyTimeout);
                             console.error('Player error:', e);
                             tryProxy(currentProxyIndex + 1);
@@ -633,7 +642,7 @@ struct YouTubePlayerView: UIViewRepresentable {
                 
                 // Overall timeout - if nothing works in 25 seconds, give up
                 loadTimeout = setTimeout(function() {
-                    if (!hasNotifiedReady && !hasNotifiedError && !playbackStarted) {
+                    if (!proxyLocked && !hasNotifiedReady && !hasNotifiedError && !playbackStarted) {
                         showError('Timeout');
                     }
                 }, 25000);
