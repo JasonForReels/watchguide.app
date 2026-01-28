@@ -13,8 +13,8 @@ actor MDBListService {
     private let oauthBaseURL = "https://mdblist.com/oauth"
     
     // OAuth credentials
-    private let clientId = "yrYmrtdSHTR12MBp9fdjHWFTsE4BXWAZ0LXiIA4R"
-    private let clientSecret = "S8u0AAPpm2xJiYUMPrh7O4AMsXXCHlrIodMaC46ZhnMed4VqtBtDb7BbFvnwdg254vsqP6RyxqFwMFJK1hsTtZv8BeZaVyoeicx2PBZxpHDtq6z63Z2xjTinUzl4ar6n"
+    private let clientId = "XH4s24sCDpn4sH4yJm35l0Y4PTjGJJ0uxldubxKX"
+    private let clientSecret = "8i0oYHEN5RauJdlMwWMIzBT7HviFGn3lLzGbjAM9OgbUNA3Cwc0VHtJjEybYIxY5WQ8LaXukT2Nr4Wd3ewgFPEx4k4weA1cqFuXjRQ6VxUB6YnbJmL0KHFEiygdMxC5w"
     private let redirectURI = "watchguide://mdblist/callback"
     
     private init() {}
