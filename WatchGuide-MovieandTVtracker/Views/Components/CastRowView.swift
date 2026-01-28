@@ -1,0 +1,132 @@
+//
+//  CastRowView.swift
+//  WatchGuide-MovieandTVtracker
+//
+
+import SwiftUI
+
+struct CastRowView: View {
+    let cast: [CastMember]
+    let onPersonTap: ((CastMember) -> Void)?
+    
+    init(cast: [CastMember], onPersonTap: ((CastMember) -> Void)? = nil) {
+        self.cast = cast
+        self.onPersonTap = onPersonTap
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Cast")
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 16) {
+                    ForEach(cast.prefix(20)) { member in
+                        CastMemberCard(member: member)
+                            .onTapGesture {
+                                onPersonTap?(member)
+                            }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+struct CastMemberCard: View {
+    let member: CastMember
+    @State private var isHovered = false
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            ProfileImageView(profilePath: member.profilePath, size: 80)
+                .shadow(color: .black.opacity(0.15), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
+                .scaleEffect(isHovered ? 1.05 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+            
+            VStack(spacing: 2) {
+                Text(member.name)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                
+                if let character = member.character, !character.isEmpty {
+                    Text(character)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: 80)
+        }
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+}
+
+// MARK: - Crew Row
+struct CrewRowView: View {
+    let crew: [CrewMember]
+    
+    var filteredCrew: [CrewMember] {
+        let importantJobs = ["Director", "Writer", "Screenplay", "Creator", "Executive Producer", "Producer"]
+        return crew.filter { member in
+            importantJobs.contains(member.job ?? "")
+        }
+    }
+    
+    var body: some View {
+        if !filteredCrew.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Crew")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                    .padding(.horizontal)
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 16) {
+                        ForEach(filteredCrew.prefix(10), id: \.uniqueId) { member in
+                            CrewMemberCard(member: member)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
+    }
+}
+
+struct CrewMemberCard: View {
+    let member: CrewMember
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            ProfileImageView(profilePath: member.profilePath, size: 70)
+            
+            VStack(spacing: 2) {
+                Text(member.name)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                
+                if let job = member.job {
+                    Text(job)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: 70)
+        }
+    }
+}
+
+#Preview {
+    CastRowView(cast: [])
+}
