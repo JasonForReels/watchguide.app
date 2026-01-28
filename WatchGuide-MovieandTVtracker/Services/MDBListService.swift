@@ -15,7 +15,7 @@ actor MDBListService {
     // OAuth credentials
     private let clientId = "XH4s24sCDpn4sH4yJm35l0Y4PTjGJJ0uxldubxKX"
     private let clientSecret = "8i0oYHEN5RauJdlMwWMIzBT7HviFGn3lLzGbjAM9OgbUNA3Cwc0VHtJjEybYIxY5WQ8LaXukT2Nr4Wd3ewgFPEx4k4weA1cqFuXjRQ6VxUB6YnbJmL0KHFEiygdMxC5w"
-    private let redirectURI = "watchguide://mdblist/callback"
+    private let redirectURI = "watchguide://oauth/callback"
     
     private init() {}
     

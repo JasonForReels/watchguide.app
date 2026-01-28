@@ -38,7 +38,7 @@ struct WatchGuide_MovieandTVtrackerApp: App {
         guard url.scheme == "watchguide" else { return }
         
         // Handle MDBList OAuth callback
-        if url.host == "mdblist" && url.path == "/callback" {
+        if url.host == "oauth" && url.path == "/callback" {
             handleMDBListCallback(url)
         }
     }
