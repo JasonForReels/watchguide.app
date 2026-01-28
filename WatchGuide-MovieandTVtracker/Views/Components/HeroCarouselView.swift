@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import WebKit
 
 struct HeroCarouselView: View {
     let items: [MediaItem]
@@ -11,6 +12,12 @@ struct HeroCarouselView: View {
     
     @State private var currentIndex = 0
     @State private var timer: Timer?
+    @State private var trailers: [Int: Video] = [:] // mediaId -> trailer
+    @State private var isPlayingTrailer = false
+    
+    private var autoPlayEnabled: Bool {
+        StorageService.shared.settings.autoPlayTrailers
+    }
     
     var body: some View {
         GeometryReader { geometry in
@@ -26,11 +33,18 @@ struct HeroCarouselView: View {
                 // Main carousel
                 TabView(selection: $currentIndex) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        HeroSlideView(item: item, width: geometry.size.width)
-                            .tag(index)
-                            .onTapGesture {
-                                onItemTap(item)
-                            }
+                        HeroSlideView(
+                            item: item,
+                            width: geometry.size.width,
+                            trailer: trailers[item.id],
+                            isCurrentSlide: index == currentIndex,
+                            autoPlayEnabled: autoPlayEnabled,
+                            isPlayingTrailer: $isPlayingTrailer
+                        )
+                        .tag(index)
+                        .onTapGesture {
+                            onItemTap(item)
+                        }
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
@@ -50,23 +64,74 @@ struct HeroCarouselView: View {
         .frame(height: 400)
         .onAppear {
             startAutoScroll()
+            loadTrailers()
         }
         .onDisappear {
             stopAutoScroll()
         }
+        .onChange(of: currentIndex) { _, _ in
+            // Reset trailer state when switching slides
+            isPlayingTrailer = false
+            // Restart auto-scroll timer after manual swipe
+            restartAutoScroll()
+        }
     }
     
     private func startAutoScroll() {
-        timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
-            withAnimation {
-                currentIndex = (currentIndex + 1) % items.count
+        guard !isPlayingTrailer else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 6.0, repeats: true) { _ in
+            if !isPlayingTrailer {
+                withAnimation {
+                    currentIndex = (currentIndex + 1) % max(items.count, 1)
+                }
             }
         }
+    }
+    
+    private func restartAutoScroll() {
+        stopAutoScroll()
+        startAutoScroll()
     }
     
     private func stopAutoScroll() {
         timer?.invalidate()
         timer = nil
+    }
+    
+    private func loadTrailers() {
+        Task {
+            for item in items.prefix(10) {
+                do {
+                    let videos: VideosResponse
+                    if item.resolvedMediaType == .movie {
+                        videos = try await TMDBService.shared.getMovieVideos(id: item.id)
+                    } else {
+                        videos = try await TMDBService.shared.getTVShowVideos(id: item.id)
+                    }
+                    
+                    // Find the best trailer (official trailer preferred)
+                    let trailer = videos.results
+                        .filter { $0.site.lowercased() == "youtube" && ($0.type == "Trailer" || $0.type == "Teaser") }
+                        .sorted { v1, v2 in
+                            // Prefer official trailers
+                            if v1.official == true && v2.official != true { return true }
+                            if v2.official == true && v1.official != true { return false }
+                            // Then prefer "Trailer" over "Teaser"
+                            if v1.type == "Trailer" && v2.type != "Trailer" { return true }
+                            return false
+                        }
+                        .first
+                    
+                    if let trailer = trailer {
+                        await MainActor.run {
+                            trailers[item.id] = trailer
+                        }
+                    }
+                } catch {
+                    print("Error loading trailer for \(item.displayTitle): \(error)")
+                }
+            }
+        }
     }
 }
 
@@ -74,56 +139,107 @@ struct HeroCarouselView: View {
 struct HeroSlideView: View {
     let item: MediaItem
     let width: CGFloat
+    let trailer: Video?
+    let isCurrentSlide: Bool
+    let autoPlayEnabled: Bool
+    @Binding var isPlayingTrailer: Bool
+    
+    @State private var showTrailer = false
+    @State private var trailerReady = false
     
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // Backdrop image
-            AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
-                switch phase {
-                case .empty:
-                    Rectangle()
-                        .fill(Color(.systemGray5))
-                        .overlay {
-                            ProgressView()
-                        }
-                case .success(let image):
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                case .failure:
-                    Rectangle()
-                        .fill(Color(.systemGray5))
-                        .overlay {
-                            Image(systemName: "film")
-                                .font(.largeTitle)
-                                .foregroundColor(.secondary)
-                        }
-                @unknown default:
-                    Rectangle()
-                        .fill(Color(.systemGray5))
+            // Video or Backdrop
+            if showTrailer, let trailer = trailer, autoPlayEnabled && isCurrentSlide {
+                YouTubePlayerView(
+                    videoKey: trailer.key,
+                    autoPlay: true,
+                    isMuted: true,
+                    onReady: {
+                        trailerReady = true
+                    }
+                )
+                .frame(width: width, height: 400)
+                .clipped()
+                .transition(.opacity)
+            } else {
+                // Backdrop image
+                AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
+                    switch phase {
+                    case .empty:
+                        Rectangle()
+                            .fill(Color(.systemGray5))
+                            .overlay {
+                                ProgressView()
+                            }
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    case .failure:
+                        Rectangle()
+                            .fill(Color(.systemGray5))
+                            .overlay {
+                                Image(systemName: "film")
+                                    .font(.largeTitle)
+                                    .foregroundColor(.secondary)
+                            }
+                    @unknown default:
+                        Rectangle()
+                            .fill(Color(.systemGray5))
+                    }
                 }
+                .frame(width: width, height: 400)
+                .clipped()
             }
-            .frame(width: width, height: 400)
-            .clipped()
             
-            // Gradient overlay
+            // Gradient overlay (lighter when video is playing)
             LinearGradient(
-                colors: [.clear, .black.opacity(0.7), .black.opacity(0.9)],
+                colors: [.clear, .black.opacity(showTrailer ? 0.5 : 0.7), .black.opacity(showTrailer ? 0.7 : 0.9)],
                 startPoint: .top,
                 endPoint: .bottom
             )
             
             // Content
             VStack(alignment: .leading, spacing: 12) {
-                // Media type badge
-                Text(item.resolvedMediaType == .movie ? "Movie" : "TV Show")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .clipShape(Capsule())
+                HStack {
+                    // Media type badge
+                    Text(item.resolvedMediaType == .movie ? "Movie" : "TV Show")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .clipShape(Capsule())
+                    
+                    Spacer()
+                    
+                    // Trailer indicator / toggle
+                    if trailer != nil && autoPlayEnabled {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                showTrailer.toggle()
+                                isPlayingTrailer = showTrailer
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: showTrailer ? "stop.fill" : "play.fill")
+                                    .font(.caption)
+                                Text(showTrailer ? "Stop" : "Trailer")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Capsule())
+                        }
+                        .foregroundColor(.white)
+                    }
+                }
+                
+                Spacer()
                 
                 // Title
                 Text(item.displayTitle)
@@ -150,8 +266,8 @@ struct HeroSlideView: View {
                 }
                 .font(.subheadline)
                 
-                // Overview
-                if let overview = item.overview, !overview.isEmpty {
+                // Overview (hide when trailer is playing)
+                if !showTrailer, let overview = item.overview, !overview.isEmpty {
                     Text(overview)
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.8))
@@ -160,6 +276,144 @@ struct HeroSlideView: View {
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .onChange(of: isCurrentSlide) { _, newValue in
+            if !newValue {
+                // Stop trailer when sliding away
+                showTrailer = false
+            } else if autoPlayEnabled && trailer != nil {
+                // Auto-start trailer when sliding to this item (with delay)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    if isCurrentSlide {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            showTrailer = true
+                            isPlayingTrailer = true
+                        }
+                    }
+                }
+            }
+        }
+        .onAppear {
+            // Start trailer if this is the first slide and autoplay is enabled
+            if isCurrentSlide && autoPlayEnabled && trailer != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    if isCurrentSlide {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            showTrailer = true
+                            isPlayingTrailer = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - YouTube Player View
+struct YouTubePlayerView: UIViewRepresentable {
+    let videoKey: String
+    var autoPlay: Bool = false
+    var isMuted: Bool = true
+    var onReady: (() -> Void)?
+    
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.scrollView.isScrollEnabled = false
+        webView.isOpaque = false
+        webView.backgroundColor = .black
+        webView.scrollView.backgroundColor = .black
+        webView.navigationDelegate = context.coordinator
+        
+        return webView
+    }
+    
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        // Only load if video key changed
+        guard context.coordinator.currentVideoKey != videoKey else { return }
+        context.coordinator.currentVideoKey = videoKey
+        
+        let muteParam = isMuted ? 1 : 0
+        let autoPlayParam = autoPlay ? 1 : 0
+        
+        let html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+            <style>
+                * { margin: 0; padding: 0; }
+                html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+                #player { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+            </style>
+        </head>
+        <body>
+            <div id="player"></div>
+            <script>
+                var tag = document.createElement('script');
+                tag.src = "https://www.youtube.com/iframe_api";
+                var firstScriptTag = document.getElementsByTagName('script')[0];
+                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                
+                var player;
+                function onYouTubeIframeAPIReady() {
+                    player = new YT.Player('player', {
+                        videoId: '\(videoKey)',
+                        playerVars: {
+                            'autoplay': \(autoPlayParam),
+                            'mute': \(muteParam),
+                            'controls': 0,
+                            'showinfo': 0,
+                            'rel': 0,
+                            'modestbranding': 1,
+                            'playsinline': 1,
+                            'loop': 1,
+                            'playlist': '\(videoKey)'
+                        },
+                        events: {
+                            'onReady': onPlayerReady,
+                            'onStateChange': onPlayerStateChange
+                        }
+                    });
+                }
+                
+                function onPlayerReady(event) {
+                    event.target.playVideo();
+                    window.webkit.messageHandlers.playerReady.postMessage('ready');
+                }
+                
+                function onPlayerStateChange(event) {
+                    // Loop video when it ends
+                    if (event.data === YT.PlayerState.ENDED) {
+                        player.seekTo(0);
+                        player.playVideo();
+                    }
+                }
+            </script>
+        </body>
+        </html>
+        """
+        
+        webView.loadHTMLString(html, baseURL: nil)
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onReady: onReady)
+    }
+    
+    class Coordinator: NSObject, WKNavigationDelegate {
+        var currentVideoKey: String?
+        var onReady: (() -> Void)?
+        
+        init(onReady: (() -> Void)?) {
+            self.onReady = onReady
+        }
+        
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            onReady?()
         }
     }
 }
