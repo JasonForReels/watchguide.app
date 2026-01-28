@@ -222,18 +222,18 @@ struct HeroSlideView: View {
                     
                     Spacer()
                     
-                    // Trailer indicator / toggle (hide if trailer failed)
-                    if trailer != nil && autoPlayEnabled && !trailerFailed {
+                    // Trailer play button (hide if already playing or failed)
+                    if trailer != nil && autoPlayEnabled && !trailerFailed && !showTrailer {
                         Button {
                             withAnimation(.easeInOut(duration: 0.3)) {
-                                showTrailer.toggle()
-                                isPlayingTrailer = showTrailer
+                                showTrailer = true
+                                isPlayingTrailer = true
                             }
                         } label: {
                             HStack(spacing: 4) {
-                                Image(systemName: showTrailer ? "stop.fill" : "play.fill")
+                                Image(systemName: "play.fill")
                                     .font(.caption)
-                                Text(showTrailer ? "Stop" : "Trailer")
+                                Text("Trailer")
                                     .font(.caption)
                                     .fontWeight(.medium)
                             }
