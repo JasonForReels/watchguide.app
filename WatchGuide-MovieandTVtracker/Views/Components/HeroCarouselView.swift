@@ -338,7 +338,7 @@ struct HeroSlideView: View {
     }
 }
 
-// MARK: - YouTube Player View
+// MARK: - YouTube Player View with Multiple Proxy Fallback
 struct YouTubePlayerView: UIViewRepresentable {
     let videoKey: String
     var autoPlay: Bool = false
@@ -347,12 +347,22 @@ struct YouTubePlayerView: UIViewRepresentable {
     var onError: ((String) -> Void)?
     var onEnded: (() -> Void)?
     
+    // Multiple Invidious/Piped proxies to try in order
+    static let proxyURLs = [
+        "https://inv.nadeko.net",
+        "https://invidious.jing.rocks",
+        "https://yewtu.be",
+        "https://vid.puffyan.us",
+        "https://invidious.nerdvpn.de"
+    ]
+    
     func makeUIView(context: Context) -> WKWebView {
         let contentController = WKUserContentController()
         contentController.add(context.coordinator, name: "playerReady")
         contentController.add(context.coordinator, name: "playerError")
         contentController.add(context.coordinator, name: "playerStateChange")
         contentController.add(context.coordinator, name: "playerEnded")
+        contentController.add(context.coordinator, name: "tryNextProxy")
         
         let preferences = WKWebpagePreferences()
         preferences.allowsContentJavaScript = true
@@ -380,12 +390,18 @@ struct YouTubePlayerView: UIViewRepresentable {
         // Only load if video key changed
         guard context.coordinator.currentVideoKey != videoKey else { return }
         context.coordinator.currentVideoKey = videoKey
+        context.coordinator.currentProxyIndex = 0
+        context.coordinator.webView = webView
         
+        loadWithProxy(webView: webView, proxyIndex: 0, context: context)
+    }
+    
+    private func loadWithProxy(webView: WKWebView, proxyIndex: Int, context: Context) {
         let muteParam = isMuted ? 1 : 0
         let autoPlayParam = autoPlay ? 1 : 0
         
-        // Use Invidious proxy (inv.nadeko.net) which reliably bypasses YouTube embedding restrictions
-        // Invidious is an open-source alternative YouTube frontend that allows unrestricted embedding
+        let proxiesJSON = Self.proxyURLs.map { "\"\($0)\"" }.joined(separator: ",")
+        
         let html = """
         <!DOCTYPE html>
         <html>
@@ -396,35 +412,72 @@ struct YouTubePlayerView: UIViewRepresentable {
                 html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
                 #player-container { position: absolute; top: 50%; left: 50%; width: 177.78vh; height: 100vh; min-width: 100%; min-height: 56.25vw; transform: translate(-50%, -50%); }
                 #player { width: 100%; height: 100%; border: none; background: #000; }
-                .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+                .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; text-align: center; }
                 .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 10px; }
                 @keyframes spin { to { transform: rotate(360deg); } }
                 .error-container { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: #fff; justify-content: center; align-items: center; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
                 .error-container.show { display: flex; }
+                .proxy-status { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 8px; }
             </style>
         </head>
         <body>
             <div id="loading" class="loading">
                 <div class="spinner"></div>
                 <div>Loading trailer...</div>
+                <div id="proxy-status" class="proxy-status"></div>
             </div>
             <div id="player-container">
-                <iframe id="player" 
-                    src="https://inv.nadeko.net/embed/\(videoKey)?autoplay=\(autoPlayParam)&mute=\(muteParam)&quality=hd720&local=true" 
-                    allow="autoplay; fullscreen; picture-in-picture; encrypted-media" 
-                    allowfullscreen>
-                </iframe>
+                <iframe id="player" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe>
             </div>
             <div id="error" class="error-container">
                 <p>Trailer unavailable</p>
             </div>
             <script>
+                var proxies = [\(proxiesJSON)];
+                var currentProxyIndex = \(proxyIndex);
+                var videoKey = '\(videoKey)';
+                var autoPlay = \(autoPlayParam);
+                var mute = \(muteParam);
                 var hasNotifiedReady = false;
                 var hasEnded = false;
                 var loadTimeout;
+                var proxyTimeout;
                 
-                // Hide loading when iframe loads
+                function updateStatus(msg) {
+                    document.getElementById('proxy-status').textContent = msg;
+                }
+                
+                function tryProxy(index) {
+                    if (index >= proxies.length) {
+                        // All proxies failed
+                        document.getElementById('player-container').style.display = 'none';
+                        document.getElementById('loading').style.display = 'none';
+                        document.getElementById('error').classList.add('show');
+                        try {
+                            window.webkit.messageHandlers.playerError.postMessage('All proxies failed');
+                        } catch(e) {}
+                        return;
+                    }
+                    
+                    currentProxyIndex = index;
+                    var proxy = proxies[index];
+                    updateStatus('Trying server ' + (index + 1) + '/' + proxies.length + '...');
+                    
+                    var player = document.getElementById('player');
+                    player.src = proxy + '/embed/' + videoKey + '?autoplay=' + autoPlay + '&mute=' + mute + '&quality=hd720&local=true';
+                    
+                    // Set timeout for this proxy - if no load in 6 seconds, try next
+                    clearTimeout(proxyTimeout);
+                    proxyTimeout = setTimeout(function() {
+                        if (!hasNotifiedReady) {
+                            console.log('Proxy ' + index + ' timed out, trying next...');
+                            tryProxy(index + 1);
+                        }
+                    }, 6000);
+                }
+                
                 document.getElementById('player').onload = function() {
+                    clearTimeout(proxyTimeout);
                     document.getElementById('loading').style.display = 'none';
                     if (!hasNotifiedReady) {
                         hasNotifiedReady = true;
@@ -436,41 +489,41 @@ struct YouTubePlayerView: UIViewRepresentable {
                 };
                 
                 document.getElementById('player').onerror = function() {
-                    document.getElementById('player-container').style.display = 'none';
-                    document.getElementById('loading').style.display = 'none';
-                    document.getElementById('error').classList.add('show');
-                    try {
-                        window.webkit.messageHandlers.playerError.postMessage('Error loading video');
-                    } catch(e) {}
+                    clearTimeout(proxyTimeout);
+                    // Try next proxy
+                    tryProxy(currentProxyIndex + 1);
                 };
                 
-                // Timeout for loading - if not loaded in 8 seconds, show error
+                // Overall timeout - if nothing works in 30 seconds, give up
                 loadTimeout = setTimeout(function() {
                     if (!hasNotifiedReady) {
-                        // Try to notify ready anyway - video might be playing
-                        hasNotifiedReady = true;
+                        document.getElementById('player-container').style.display = 'none';
                         document.getElementById('loading').style.display = 'none';
+                        document.getElementById('error').classList.add('show');
                         try {
-                            window.webkit.messageHandlers.playerReady.postMessage('ready');
+                            window.webkit.messageHandlers.playerError.postMessage('Timeout');
                         } catch(e) {}
                     }
-                }, 8000);
+                }, 30000);
                 
                 // Estimate video end based on typical trailer length (2-3 minutes)
                 setTimeout(function() {
-                    if (!hasEnded) {
+                    if (!hasEnded && hasNotifiedReady) {
                         hasEnded = true;
                         try {
                             window.webkit.messageHandlers.playerEnded.postMessage('ended');
                         } catch(e) {}
                     }
-                }, 150000); // 2.5 minutes fallback
+                }, 150000);
+                
+                // Start with first proxy
+                tryProxy(0);
             </script>
         </body>
         </html>
         """
         
-        webView.loadHTMLString(html, baseURL: URL(string: "https://inv.nadeko.net"))
+        webView.loadHTMLString(html, baseURL: URL(string: Self.proxyURLs[0]))
     }
     
     func makeCoordinator() -> Coordinator {
@@ -479,6 +532,8 @@ struct YouTubePlayerView: UIViewRepresentable {
     
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var currentVideoKey: String?
+        var currentProxyIndex: Int = 0
+        var webView: WKWebView?
         var onReady: (() -> Void)?
         var onError: ((String) -> Void)?
         var onEnded: (() -> Void)?
@@ -503,19 +558,18 @@ struct YouTubePlayerView: UIViewRepresentable {
                     self.onEnded?()
                 }
             }
-            // playerStateChange can be used for debugging if needed
         }
         
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // Don't call onReady here - wait for YouTube API callback
+            // Don't call onReady here - wait for JavaScript callback
         }
         
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            onError?(error.localizedDescription)
+            // Let JavaScript handle proxy fallback
         }
         
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            onError?(error.localizedDescription)
+            // Let JavaScript handle proxy fallback
         }
     }
 }

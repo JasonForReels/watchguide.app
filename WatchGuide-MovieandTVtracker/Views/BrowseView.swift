@@ -92,18 +92,40 @@ class BrowseViewModel: ObservableObject {
         // Load company hubs
         companyHubs = StorageService.shared.companyHubs.filter { $0.isEnabled }
         
-        // Load hero items (trending)
-        do {
-            let trending = try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day")
-            heroItems = Array(trending.results.prefix(10))
-        } catch {
-            print("Error loading hero: \(error)")
-        }
+        // Load hero items based on user's selected source
+        await loadHeroItems()
         
         // Load all rows concurrently
         await loadBrowseRows()
         
         isLoading = false
+    }
+    
+    private func loadHeroItems() async {
+        let source = StorageService.shared.settings.heroCarouselSource
+        
+        do {
+            let items: [MediaItem]
+            switch source {
+            case .trendingMovies:
+                items = try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results
+            case .trendingTV:
+                items = try await TMDBService.shared.getTrending(mediaType: .tv, timeWindow: "day").results
+            case .popularMovies:
+                items = try await TMDBService.shared.getPopularMovies().results
+            case .popularTV:
+                items = try await TMDBService.shared.getPopularTV().results
+            case .nowPlayingMovies:
+                items = try await TMDBService.shared.getNowPlayingMovies().results
+            case .topRatedMovies:
+                items = try await TMDBService.shared.getTopRatedMovies().results
+            case .upcomingMovies:
+                items = try await TMDBService.shared.getUpcomingMovies().results
+            }
+            heroItems = Array(items.prefix(10))
+        } catch {
+            print("Error loading hero: \(error)")
+        }
     }
     
     func refresh() async {

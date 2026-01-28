@@ -37,6 +37,12 @@ struct SettingsView: View {
                     Toggle("Compact Mode", isOn: $settings.compactMode)
                     Toggle("Auto-play Trailers", isOn: $settings.autoPlayTrailers)
                     Toggle("Include Adult Content", isOn: $settings.includeAdult)
+                    
+                    Picker("Hero Carousel", selection: $settings.heroCarouselSource) {
+                        ForEach(HeroCarouselSource.allCases, id: \.rawValue) { source in
+                            Text(source.displayName).tag(source)
+                        }
+                    }
                 }
                 
                 // Browse Rows

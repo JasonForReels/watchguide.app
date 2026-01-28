@@ -161,6 +161,29 @@ struct MDBListItem: Identifiable, Codable {
     }
 }
 
+// MARK: - Hero Carousel Source
+enum HeroCarouselSource: String, Codable, CaseIterable {
+    case trendingMovies = "trending_movies"
+    case trendingTV = "trending_tv"
+    case popularMovies = "popular_movies"
+    case popularTV = "popular_tv"
+    case nowPlayingMovies = "now_playing_movies"
+    case topRatedMovies = "top_rated_movies"
+    case upcomingMovies = "upcoming_movies"
+    
+    var displayName: String {
+        switch self {
+        case .trendingMovies: return "Trending Movies"
+        case .trendingTV: return "Trending TV Shows"
+        case .popularMovies: return "Popular Movies"
+        case .popularTV: return "Popular TV Shows"
+        case .nowPlayingMovies: return "Now Playing"
+        case .topRatedMovies: return "Top Rated Movies"
+        case .upcomingMovies: return "Upcoming Movies"
+        }
+    }
+}
+
 // MARK: - User Settings
 struct UserSettings: Codable, Equatable {
     var region: String
@@ -168,6 +191,7 @@ struct UserSettings: Codable, Equatable {
     var preferredLanguage: String
     var autoPlayTrailers: Bool
     var compactMode: Bool
+    var heroCarouselSource: HeroCarouselSource
     
     init() {
         self.region = Locale.current.region?.identifier ?? "US"
@@ -175,6 +199,7 @@ struct UserSettings: Codable, Equatable {
         self.preferredLanguage = Locale.current.language.languageCode?.identifier ?? "en"
         self.autoPlayTrailers = false
         self.compactMode = false
+        self.heroCarouselSource = .trendingMovies
     }
 }
 
