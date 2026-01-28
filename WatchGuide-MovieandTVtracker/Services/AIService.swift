@@ -8,9 +8,12 @@ import Foundation
 actor AIService {
     static let shared = AIService()
     
-    // Poe.com OpenAI-compatible API
-    private let apiKey = "_Z3Mx1FKsVupSDjN7BSlQ5EJG2sqwlDQ2hzQMqpaiuw"
-    private let baseURL = "https://api.poe.com/bot/gpt-4o-mini-search"
+    // OpenRouter API for GPT-4o-mini
+    private let baseURL = "https://openrouter.ai/api/v1/chat/completions"
+    
+    private var apiKey: String {
+        ApiKeyManager.shared.get(key: "OPENROUTER_API_KEY") ?? ""
+    }
     
     private init() {}
     
@@ -43,41 +46,33 @@ actor AIService {
             throw AIError.noApiKey
         }
         
-        // Build the full message with context
-        var fullMessage = ""
+        // Build messages array for OpenRouter
+        var messages: [[String: String]] = []
         
-        // Add system prompt as context
+        // Add system prompt
         let systemPrompt = buildSystemPrompt(likedItems: likedItems)
-        fullMessage += "System context: \(systemPrompt)\n\n"
+        messages.append(["role": "system", "content": systemPrompt])
         
         // Add conversation history (last 6 messages for context)
         let recentHistory = conversationHistory.suffix(6)
-        if !recentHistory.isEmpty {
-            fullMessage += "Previous conversation:\n"
-            for msg in recentHistory {
-                let role = msg.role == "user" ? "User" : "Assistant"
-                fullMessage += "\(role): \(msg.content)\n"
-            }
-            fullMessage += "\n"
+        for msg in recentHistory {
+            messages.append(["role": msg.role, "content": msg.content])
         }
         
         // Add current message
-        fullMessage += "User: \(message)"
+        messages.append(["role": "user", "content": message])
         
-        // Build request for Poe API
+        // Build request for OpenRouter API
         let requestBody: [String: Any] = [
-            "query": [
-                ["role": "user", "content": fullMessage]
-            ],
-            "user_id": "",
-            "conversation_id": "",
-            "message_id": ""
+            "model": "openai/gpt-4o-mini",
+            "messages": messages
         ]
         
         var request = URLRequest(url: URL(string: baseURL)!)
         request.httpMethod = "POST"
         request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.addValue("WatchGuide", forHTTPHeaderField: "X-Title")
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         request.timeoutInterval = 60
         
@@ -89,7 +84,7 @@ actor AIService {
         
         // Debug: print the response for troubleshooting
         if let responseString = String(data: data, encoding: .utf8) {
-            print("Poe API Response (\(httpResponse.statusCode)): \(responseString)")
+            print("OpenRouter API Response (\(httpResponse.statusCode)): \(responseString)")
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
@@ -99,36 +94,15 @@ actor AIService {
             throw AIError.httpError(httpResponse.statusCode)
         }
         
-        // Parse Poe API response (Server-Sent Events format)
-        guard let responseString = String(data: data, encoding: .utf8) else {
+        // Parse OpenRouter response (OpenAI-compatible format)
+        let decoder = JSONDecoder()
+        let openAIResponse = try decoder.decode(OpenAIResponse.self, from: data)
+        
+        guard let content = openAIResponse.choices.first?.message.content else {
             throw AIError.noContent
         }
         
-        // Extract text from SSE response
-        var fullText = ""
-        let lines = responseString.components(separatedBy: "\n")
-        for line in lines {
-            if line.hasPrefix("data: ") {
-                let jsonString = String(line.dropFirst(6))
-                if jsonString == "[DONE]" { continue }
-                if let jsonData = jsonString.data(using: .utf8),
-                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                   let text = json["text"] as? String {
-                    fullText = text // Poe sends cumulative text
-                }
-            }
-        }
-        
-        if fullText.isEmpty {
-            // Try parsing as regular JSON response
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let text = json["text"] as? String {
-                return text
-            }
-            throw AIError.noContent
-        }
-        
-        return fullText
+        return content
     }
     
     // MARK: - Build System Prompt
@@ -181,7 +155,7 @@ enum AIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noApiKey:
-            return "Poe API key not configured"
+            return "OpenRouter API key not configured. Please add your API key in Settings."
         case .invalidResponse:
             return "Invalid response from AI service"
         case .httpError(let code):
