@@ -315,9 +315,15 @@ struct YouTubePlayerView: UIViewRepresentable {
     var autoPlay: Bool = false
     var isMuted: Bool = true
     var onReady: (() -> Void)?
+    var onError: ((String) -> Void)?
     
     func makeUIView(context: Context) -> WKWebView {
+        let contentController = WKUserContentController()
+        contentController.add(context.coordinator, name: "playerReady")
+        contentController.add(context.coordinator, name: "playerError")
+        
         let configuration = WKWebViewConfiguration()
+        configuration.userContentController = contentController
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         
@@ -339,81 +345,83 @@ struct YouTubePlayerView: UIViewRepresentable {
         let muteParam = isMuted ? 1 : 0
         let autoPlayParam = autoPlay ? 1 : 0
         
+        // Use embed URL approach which is more reliable
         let html = """
         <!DOCTYPE html>
         <html>
         <head>
             <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
             <style>
-                * { margin: 0; padding: 0; }
+                * { margin: 0; padding: 0; box-sizing: border-box; }
                 html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
-                #player { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+                .video-container { position: relative; width: 100%; height: 100%; }
+                iframe { position: absolute; top: 50%; left: 50%; width: 177.78vh; height: 100vh; min-width: 100%; min-height: 56.25vw; transform: translate(-50%, -50%); border: none; }
             </style>
         </head>
         <body>
-            <div id="player"></div>
+            <div class="video-container">
+                <iframe 
+                    id="player"
+                    src="https://www.youtube.com/embed/\(videoKey)?autoplay=\(autoPlayParam)&mute=\(muteParam)&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1&loop=1&playlist=\(videoKey)&enablejsapi=1"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen>
+                </iframe>
+            </div>
             <script>
-                var tag = document.createElement('script');
-                tag.src = "https://www.youtube.com/iframe_api";
-                var firstScriptTag = document.getElementsByTagName('script')[0];
-                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                // Notify when loaded
+                document.getElementById('player').onload = function() {
+                    try {
+                        window.webkit.messageHandlers.playerReady.postMessage('ready');
+                    } catch(e) {}
+                };
                 
-                var player;
-                function onYouTubeIframeAPIReady() {
-                    player = new YT.Player('player', {
-                        videoId: '\(videoKey)',
-                        playerVars: {
-                            'autoplay': \(autoPlayParam),
-                            'mute': \(muteParam),
-                            'controls': 0,
-                            'showinfo': 0,
-                            'rel': 0,
-                            'modestbranding': 1,
-                            'playsinline': 1,
-                            'loop': 1,
-                            'playlist': '\(videoKey)'
-                        },
-                        events: {
-                            'onReady': onPlayerReady,
-                            'onStateChange': onPlayerStateChange
-                        }
-                    });
-                }
-                
-                function onPlayerReady(event) {
-                    event.target.playVideo();
-                    window.webkit.messageHandlers.playerReady.postMessage('ready');
-                }
-                
-                function onPlayerStateChange(event) {
-                    // Loop video when it ends
-                    if (event.data === YT.PlayerState.ENDED) {
-                        player.seekTo(0);
-                        player.playVideo();
-                    }
-                }
+                // Handle errors
+                window.onerror = function(msg, url, line) {
+                    try {
+                        window.webkit.messageHandlers.playerError.postMessage(msg);
+                    } catch(e) {}
+                    return true;
+                };
             </script>
         </body>
         </html>
         """
         
-        webView.loadHTMLString(html, baseURL: nil)
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
     }
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(onReady: onReady)
+        Coordinator(onReady: onReady, onError: onError)
     }
     
-    class Coordinator: NSObject, WKNavigationDelegate {
+    class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var currentVideoKey: String?
         var onReady: (() -> Void)?
+        var onError: ((String) -> Void)?
         
-        init(onReady: (() -> Void)?) {
+        init(onReady: (() -> Void)?, onError: ((String) -> Void)?) {
             self.onReady = onReady
+            self.onError = onError
+        }
+        
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == "playerReady" {
+                onReady?()
+            } else if message.name == "playerError", let errorMsg = message.body as? String {
+                onError?(errorMsg)
+            }
         }
         
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             onReady?()
+        }
+        
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            onError?(error.localizedDescription)
+        }
+        
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            onError?(error.localizedDescription)
         }
     }
 }
