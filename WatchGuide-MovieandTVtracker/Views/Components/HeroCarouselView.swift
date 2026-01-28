@@ -155,7 +155,7 @@ struct HeroSlideView: View {
                 YouTubePlayerView(
                     videoKey: trailer.key,
                     autoPlay: true,
-                    isMuted: true,
+                    isMuted: false,
                     onReady: {
                         trailerReady = true
                     },
@@ -323,7 +323,7 @@ struct HeroSlideView: View {
 struct YouTubePlayerView: UIViewRepresentable {
     let videoKey: String
     var autoPlay: Bool = false
-    var isMuted: Bool = true
+    var isMuted: Bool = false
     var onReady: (() -> Void)?
     var onError: ((String) -> Void)?
     
@@ -383,7 +383,7 @@ struct YouTubePlayerView: UIViewRepresentable {
             <div id="player-container">
                 <iframe id="player"
                     src="https://www.youtube-nocookie.com/embed/\(videoKey)?autoplay=\(autoPlayParam)&mute=\(muteParam)&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1&loop=1&playlist=\(videoKey)&iv_load_policy=3&disablekb=1&fs=0&enablejsapi=1&origin=https://www.youtube-nocookie.com"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     allowfullscreen>
                 </iframe>
             </div>
