@@ -476,6 +476,8 @@ struct YouTubePlayerView: UIViewRepresentable {
         let autoPlayValue = autoPlay ? 1 : 0
         let muteValue = isMuted ? 1 : 0
         
+        // Use direct iframe embed with youtube-nocookie.com for better embedding support
+        // This avoids error 150/153 which occurs with the IFrame API on some videos
         let html = """
         <!DOCTYPE html>
         <html>
@@ -494,12 +496,13 @@ struct YouTubePlayerView: UIViewRepresentable {
                     min-height: 56.25vw;
                     transform: translate(-50%, -50%);
                 }
-                #player {
+                iframe {
                     position: absolute;
                     top: 0;
                     left: 0;
                     width: 100%;
                     height: 100%;
+                    border: none;
                 }
                 .loading {
                     position: absolute;
@@ -530,46 +533,22 @@ struct YouTubePlayerView: UIViewRepresentable {
                 <div>Loading trailer...</div>
             </div>
             <div id="player-wrapper">
-                <div id="player"></div>
+                <iframe 
+                    id="player"
+                    src="https://www.youtube-nocookie.com/embed/\(sanitizedKey)?autoplay=\(autoPlayValue)&mute=\(muteValue)&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0&showinfo=0&enablejsapi=1&widget_referrer=https://watchguide.app"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen>
+                </iframe>
             </div>
             
             <script>
-                var tag = document.createElement('script');
-                tag.src = "https://www.youtube.com/iframe_api";
-                var firstScriptTag = document.getElementsByTagName('script')[0];
-                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-                
-                var player;
                 var hasNotifiedReady = false;
                 var hasNotifiedError = false;
                 var hasNotifiedEnded = false;
+                var player = document.getElementById('player');
                 
-                function onYouTubeIframeAPIReady() {
-                    player = new YT.Player('player', {
-                        videoId: '\(sanitizedKey)',
-                        playerVars: {
-                            'autoplay': \(autoPlayValue),
-                            'mute': \(muteValue),
-                            'controls': 0,
-                            'disablekb': 1,
-                            'fs': 0,
-                            'iv_load_policy': 3,
-                            'modestbranding': 1,
-                            'playsinline': 1,
-                            'rel': 0,
-                            'showinfo': 0,
-                            'enablejsapi': 1,
-                            'origin': window.location.origin
-                        },
-                        events: {
-                            'onReady': onPlayerReady,
-                            'onStateChange': onPlayerStateChange,
-                            'onError': onPlayerError
-                        }
-                    });
-                }
-                
-                function onPlayerReady(event) {
+                // Listen for iframe load
+                player.addEventListener('load', function() {
                     document.getElementById('loading').classList.add('hidden');
                     
                     if (!hasNotifiedReady) {
@@ -578,59 +557,69 @@ struct YouTubePlayerView: UIViewRepresentable {
                             window.webkit.messageHandlers.playerReady.postMessage('ready');
                         } catch(e) {}
                     }
-                    
-                    if (\(autoPlayValue) === 1) {
-                        event.target.playVideo();
-                    }
-                }
+                });
                 
-                function onPlayerStateChange(event) {
-                    try {
-                        window.webkit.messageHandlers.playerStateChange.postMessage(event.data);
-                    } catch(e) {}
+                // Listen for messages from YouTube iframe (postMessage API)
+                window.addEventListener('message', function(event) {
+                    if (event.origin.indexOf('youtube') === -1) return;
                     
-                    // YT.PlayerState.ENDED = 0
-                    if (event.data === 0 && !hasNotifiedEnded) {
+                    try {
+                        var data = JSON.parse(event.data);
+                        
+                        // Check for player state changes
+                        if (data.event === 'onStateChange') {
+                            try {
+                                window.webkit.messageHandlers.playerStateChange.postMessage(data.info);
+                            } catch(e) {}
+                            
+                            // State 0 = ended
+                            if (data.info === 0 && !hasNotifiedEnded) {
+                                hasNotifiedEnded = true;
+                                try {
+                                    window.webkit.messageHandlers.playerEnded.postMessage('ended');
+                                } catch(e) {}
+                            }
+                        }
+                        
+                        // Check for errors
+                        if (data.event === 'onError' && !hasNotifiedError) {
+                            hasNotifiedError = true;
+                            try {
+                                window.webkit.messageHandlers.playerError.postMessage('Video error: ' + data.info);
+                            } catch(e) {}
+                        }
+                    } catch(e) {
+                        // Not JSON, ignore
+                    }
+                });
+                
+                // Fallback: notify ready after timeout if iframe hasn't loaded
+                setTimeout(function() {
+                    document.getElementById('loading').classList.add('hidden');
+                    if (!hasNotifiedReady && !hasNotifiedError) {
+                        hasNotifiedReady = true;
+                        try {
+                            window.webkit.messageHandlers.playerReady.postMessage('ready');
+                        } catch(e) {}
+                    }
+                }, 3000);
+                
+                // Auto-advance after estimated video duration (fallback for when postMessage doesn't work)
+                // Most trailers are 2-3 minutes, we'll use a 3 minute timeout as fallback
+                setTimeout(function() {
+                    if (!hasNotifiedEnded) {
                         hasNotifiedEnded = true;
                         try {
                             window.webkit.messageHandlers.playerEnded.postMessage('ended');
                         } catch(e) {}
                     }
-                }
-                
-                function onPlayerError(event) {
-                    if (hasNotifiedError) return;
-                    hasNotifiedError = true;
-                    
-                    var errorMsg = 'Unknown error';
-                    switch(event.data) {
-                        case 2: errorMsg = 'Invalid video ID'; break;
-                        case 5: errorMsg = 'HTML5 player error'; break;
-                        case 100: errorMsg = 'Video not found'; break;
-                        case 101:
-                        case 150: errorMsg = 'Embedding not allowed'; break;
-                    }
-                    
-                    try {
-                        window.webkit.messageHandlers.playerError.postMessage(errorMsg);
-                    } catch(e) {}
-                }
-                
-                // Fallback timeout
-                setTimeout(function() {
-                    if (!hasNotifiedReady && !hasNotifiedError) {
-                        hasNotifiedError = true;
-                        try {
-                            window.webkit.messageHandlers.playerError.postMessage('Timeout loading player');
-                        } catch(e) {}
-                    }
-                }, 15000);
+                }, 180000); // 3 minutes
             </script>
         </body>
         </html>
         """
         
-        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube-nocookie.com"))
     }
     
     func makeCoordinator() -> Coordinator {
