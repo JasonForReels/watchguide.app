@@ -483,6 +483,7 @@ struct YouTubePlayerView: UIViewRepresentable {
                 var hasNotifiedReady = false;
                 var hasNotifiedError = false;
                 var hasEnded = false;
+                var playbackStarted = false;
                 var loadTimeout;
                 var proxyTimeout;
                 
@@ -511,7 +512,7 @@ struct YouTubePlayerView: UIViewRepresentable {
                 }
                 
                 function tryProxy(index) {
-                    if (hasNotifiedError) return;
+                    if (hasNotifiedError || hasNotifiedReady || playbackStarted) return;
                     
                     if (index >= proxies.length) {
                         showError('All proxies failed');
@@ -537,9 +538,10 @@ struct YouTubePlayerView: UIViewRepresentable {
                     }
                     
                     // Set timeout for this proxy - if no load in 8 seconds, try next
+                    // But only if playback hasn't started
                     clearTimeout(proxyTimeout);
                     proxyTimeout = setTimeout(function() {
-                        if (!hasNotifiedReady && !hasNotifiedError) {
+                        if (!hasNotifiedReady && !hasNotifiedError && !playbackStarted) {
                             console.log('Proxy ' + index + ' timed out, trying next...');
                             tryProxy(index + 1);
                         }
@@ -547,9 +549,15 @@ struct YouTubePlayerView: UIViewRepresentable {
                 }
                 
                 var player = document.getElementById('player');
+                var playbackStarted = false;
+                
                 if (player) {
                     player.onload = function() {
+                        // Mark that this proxy worked - stop trying others
+                        playbackStarted = true;
                         clearTimeout(proxyTimeout);
+                        clearTimeout(loadTimeout);
+                        
                         var loading = document.getElementById('loading');
                         if (loading) loading.style.display = 'none';
                         
@@ -561,19 +569,21 @@ struct YouTubePlayerView: UIViewRepresentable {
                                 console.error('Failed to send ready message:', e);
                             }
                         }
-                        clearTimeout(loadTimeout);
                     };
                     
                     player.onerror = function(e) {
-                        clearTimeout(proxyTimeout);
-                        console.error('Player error:', e);
-                        tryProxy(currentProxyIndex + 1);
+                        // Only try next proxy if playback hasn't started
+                        if (!playbackStarted && !hasNotifiedReady) {
+                            clearTimeout(proxyTimeout);
+                            console.error('Player error:', e);
+                            tryProxy(currentProxyIndex + 1);
+                        }
                     };
                 }
                 
                 // Overall timeout - if nothing works in 25 seconds, give up
                 loadTimeout = setTimeout(function() {
-                    if (!hasNotifiedReady && !hasNotifiedError) {
+                    if (!hasNotifiedReady && !hasNotifiedError && !playbackStarted) {
                         showError('Timeout');
                     }
                 }, 25000);
