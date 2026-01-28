@@ -384,9 +384,8 @@ struct YouTubePlayerView: UIViewRepresentable {
         let muteParam = isMuted ? 1 : 0
         let autoPlayParam = autoPlay ? 1 : 0
         
-        // Use youtube-nocookie.com domain to bypass embedding restrictions (error 152)
-        // This privacy-enhanced mode also helps with playback restrictions
-        // Removed loop=1 and playlist parameter to allow video to end naturally
+        // Use piped.video proxy to bypass YouTube embedding restrictions (error 150/153)
+        // Piped is a privacy-focused YouTube proxy that allows embedding without restrictions
         let html = """
         <!DOCTYPE html>
         <html>
@@ -403,71 +402,38 @@ struct YouTubePlayerView: UIViewRepresentable {
         </head>
         <body>
             <div id="player-container">
-                <div id="player"></div>
+                <iframe id="player" 
+                    src="https://piped.video/embed/\(videoKey)?autoplay=\(autoPlayParam)&muted=\(muteParam)&loop=0&controls=0" 
+                    allow="autoplay; fullscreen; picture-in-picture" 
+                    allowfullscreen>
+                </iframe>
             </div>
             <div id="error" class="error-container">
                 <p>Trailer unavailable</p>
             </div>
-            <script src="https://www.youtube.com/iframe_api"></script>
             <script>
-                var player;
                 var hasNotifiedReady = false;
+                var hasEnded = false;
                 
-                function onYouTubeIframeAPIReady() {
-                    player = new YT.Player('player', {
-                        videoId: '\(videoKey)',
-                        playerVars: {
-                            'autoplay': \(autoPlayParam),
-                            'mute': \(muteParam),
-                            'controls': 0,
-                            'showinfo': 0,
-                            'rel': 0,
-                            'modestbranding': 1,
-                            'playsinline': 1,
-                            'iv_load_policy': 3,
-                            'disablekb': 1,
-                            'fs': 0,
-                            'origin': 'https://www.youtube.com'
-                        },
-                        events: {
-                            'onReady': onPlayerReady,
-                            'onStateChange': onPlayerStateChange,
-                            'onError': onPlayerError
-                        }
-                    });
-                }
-                
-                function onPlayerReady(event) {
+                // Notify ready after iframe loads
+                document.getElementById('player').onload = function() {
                     if (!hasNotifiedReady) {
                         hasNotifiedReady = true;
                         try {
                             window.webkit.messageHandlers.playerReady.postMessage('ready');
                         } catch(e) {}
                     }
-                }
+                };
                 
-                function onPlayerStateChange(event) {
-                    try {
-                        window.webkit.messageHandlers.playerStateChange.postMessage(event.data.toString());
-                    } catch(e) {}
-                    
-                    // YT.PlayerState.ENDED = 0
-                    if (event.data === 0) {
-                        try {
-                            window.webkit.messageHandlers.playerEnded.postMessage('ended');
-                        } catch(e) {}
-                    }
-                }
-                
-                function onPlayerError(event) {
+                document.getElementById('player').onerror = function() {
                     document.getElementById('player-container').style.display = 'none';
                     document.getElementById('error').classList.add('show');
                     try {
-                        window.webkit.messageHandlers.playerError.postMessage('Error: ' + event.data);
+                        window.webkit.messageHandlers.playerError.postMessage('Error loading video');
                     } catch(e) {}
-                }
+                };
                 
-                // Fallback: notify ready after a short delay if API doesn't fire
+                // Fallback: notify ready after a short delay
                 setTimeout(function() {
                     if (!hasNotifiedReady) {
                         hasNotifiedReady = true;
@@ -475,13 +441,24 @@ struct YouTubePlayerView: UIViewRepresentable {
                             window.webkit.messageHandlers.playerReady.postMessage('ready');
                         } catch(e) {}
                     }
-                }, 3000);
+                }, 2000);
+                
+                // Estimate video end based on typical trailer length (2-3 minutes)
+                // This is a fallback since we can't directly communicate with piped iframe
+                setTimeout(function() {
+                    if (!hasEnded) {
+                        hasEnded = true;
+                        try {
+                            window.webkit.messageHandlers.playerEnded.postMessage('ended');
+                        } catch(e) {}
+                    }
+                }, 150000); // 2.5 minutes fallback
             </script>
         </body>
         </html>
         """
         
-        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
+        webView.loadHTMLString(html, baseURL: URL(string: "https://piped.video"))
     }
     
     func makeCoordinator() -> Coordinator {

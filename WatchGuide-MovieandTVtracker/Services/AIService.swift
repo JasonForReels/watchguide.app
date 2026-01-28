@@ -8,11 +8,11 @@ import Foundation
 actor AIService {
     static let shared = AIService()
     
-    // OpenRouter API for GPT-4o-mini
-    private let baseURL = "https://openrouter.ai/api/v1/chat/completions"
+    // Poe API endpoint
+    private let baseURL = "https://api.poe.com/bot/"
     
     private var apiKey: String {
-        ApiKeyManager.shared.get(key: "OPENROUTER_API_KEY") ?? ""
+        ApiKeyManager.shared.get(key: "POE_API_KEY") ?? ""
     }
     
     private init() {}
@@ -46,33 +46,45 @@ actor AIService {
             throw AIError.noApiKey
         }
         
-        // Build messages array for OpenRouter
-        var messages: [[String: String]] = []
-        
-        // Add system prompt
+        // Build the full message with context
         let systemPrompt = buildSystemPrompt(likedItems: likedItems)
-        messages.append(["role": "system", "content": systemPrompt])
         
-        // Add conversation history (last 6 messages for context)
+        // Build conversation context
+        var conversationContext = ""
         let recentHistory = conversationHistory.suffix(6)
         for msg in recentHistory {
-            messages.append(["role": msg.role, "content": msg.content])
+            let role = msg.role == "user" ? "User" : "Assistant"
+            conversationContext += "\(role): \(msg.content)\n\n"
         }
         
-        // Add current message
-        messages.append(["role": "user", "content": message])
+        let fullMessage = """
+        \(systemPrompt)
         
-        // Build request for OpenRouter API
+        Conversation so far:
+        \(conversationContext)
+        
+        User: \(message)
+        
+        Assistant:
+        """
+        
+        // Poe API request format
         let requestBody: [String: Any] = [
-            "model": "openai/gpt-4o-mini",
-            "messages": messages
+            "query": [
+                [
+                    "role": "user",
+                    "content": fullMessage
+                ]
+            ],
+            "user_id": "watchguide_user",
+            "conversation_id": UUID().uuidString
         ]
         
-        var request = URLRequest(url: URL(string: baseURL)!)
+        // Use Claude-instant on Poe (fast and free)
+        var request = URLRequest(url: URL(string: "\(baseURL)Claude-instant")!)
         request.httpMethod = "POST"
-        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.addValue(apiKey, forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.addValue("WatchGuide", forHTTPHeaderField: "X-Title")
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         request.timeoutInterval = 60
         
@@ -84,7 +96,7 @@ actor AIService {
         
         // Debug: print the response for troubleshooting
         if let responseString = String(data: data, encoding: .utf8) {
-            print("OpenRouter API Response (\(httpResponse.statusCode)): \(responseString)")
+            print("Poe API Response (\(httpResponse.statusCode)): \(responseString)")
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
@@ -94,11 +106,11 @@ actor AIService {
             throw AIError.httpError(httpResponse.statusCode)
         }
         
-        // Parse OpenRouter response (OpenAI-compatible format)
+        // Parse Poe response
         let decoder = JSONDecoder()
-        let openAIResponse = try decoder.decode(OpenAIResponse.self, from: data)
+        let poeResponse = try decoder.decode(PoeResponse.self, from: data)
         
-        guard let content = openAIResponse.choices.first?.message.content else {
+        guard let content = poeResponse.text else {
             throw AIError.noContent
         }
         
@@ -168,23 +180,18 @@ enum AIError: LocalizedError {
     }
 }
 
-// MARK: - OpenAI Response Models
-struct OpenAIResponse: Codable {
-    let choices: [Choice]
+// MARK: - Poe Response Models
+struct PoeResponse: Codable {
+    let text: String?
+    let status: String?
     
-    struct Choice: Codable {
-        let message: Message
-    }
-    
-    struct Message: Codable {
-        let content: String
+    enum CodingKeys: String, CodingKey {
+        case text
+        case status
     }
 }
 
-struct OpenAIErrorResponse: Codable {
-    let error: ErrorDetail
-    
-    struct ErrorDetail: Codable {
-        let message: String
-    }
+struct PoeErrorResponse: Codable {
+    let error: String?
+    let message: String?
 }
