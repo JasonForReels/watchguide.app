@@ -10,8 +10,7 @@ actor AIService {
     
     // Poe.com OpenAI-compatible API
     private let apiKey = "_Z3Mx1FKsVupSDjN7BSlQ5EJG2sqwlDQ2hzQMqpaiuw"
-    private let baseURL = "https://api.poe.com/v1/chat/completions"
-    private let model = "gpt-4o-mini-search"
+    private let baseURL = "https://api.poe.com/bot/gpt-4o-mini-search"
     
     private init() {}
     
@@ -44,27 +43,35 @@ actor AIService {
             throw AIError.noApiKey
         }
         
-        var messages: [[String: String]] = []
+        // Build the full message with context
+        var fullMessage = ""
         
-        // System prompt with context
+        // Add system prompt as context
         let systemPrompt = buildSystemPrompt(likedItems: likedItems)
-        messages.append(["role": "system", "content": systemPrompt])
+        fullMessage += "System context: \(systemPrompt)\n\n"
         
-        // Add conversation history (last 10 messages)
-        let recentHistory = conversationHistory.suffix(10)
-        for msg in recentHistory {
-            messages.append(["role": msg.role, "content": msg.content])
+        // Add conversation history (last 6 messages for context)
+        let recentHistory = conversationHistory.suffix(6)
+        if !recentHistory.isEmpty {
+            fullMessage += "Previous conversation:\n"
+            for msg in recentHistory {
+                let role = msg.role == "user" ? "User" : "Assistant"
+                fullMessage += "\(role): \(msg.content)\n"
+            }
+            fullMessage += "\n"
         }
         
         // Add current message
-        messages.append(["role": "user", "content": message])
+        fullMessage += "User: \(message)"
         
-        // Build request
+        // Build request for Poe API
         let requestBody: [String: Any] = [
-            "model": model,
-            "messages": messages,
-            "max_tokens": 1024,
-            "temperature": 0.7
+            "query": [
+                ["role": "user", "content": fullMessage]
+            ],
+            "user_id": "",
+            "conversation_id": "",
+            "message_id": ""
         ]
         
         var request = URLRequest(url: URL(string: baseURL)!)
@@ -72,6 +79,7 @@ actor AIService {
         request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        request.timeoutInterval = 60
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
@@ -79,20 +87,48 @@ actor AIService {
             throw AIError.invalidResponse
         }
         
+        // Debug: print the response for troubleshooting
+        if let responseString = String(data: data, encoding: .utf8) {
+            print("Poe API Response (\(httpResponse.statusCode)): \(responseString)")
+        }
+        
         guard (200...299).contains(httpResponse.statusCode) else {
-            if let errorResponse = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data) {
-                throw AIError.apiError(errorResponse.error.message)
+            if let responseString = String(data: data, encoding: .utf8) {
+                throw AIError.apiError("Error \(httpResponse.statusCode): \(responseString)")
             }
             throw AIError.httpError(httpResponse.statusCode)
         }
         
-        let decoded = try JSONDecoder().decode(OpenAIResponse.self, from: data)
-        
-        guard let content = decoded.choices.first?.message.content else {
+        // Parse Poe API response (Server-Sent Events format)
+        guard let responseString = String(data: data, encoding: .utf8) else {
             throw AIError.noContent
         }
         
-        return content
+        // Extract text from SSE response
+        var fullText = ""
+        let lines = responseString.components(separatedBy: "\n")
+        for line in lines {
+            if line.hasPrefix("data: ") {
+                let jsonString = String(line.dropFirst(6))
+                if jsonString == "[DONE]" { continue }
+                if let jsonData = jsonString.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                   let text = json["text"] as? String {
+                    fullText = text // Poe sends cumulative text
+                }
+            }
+        }
+        
+        if fullText.isEmpty {
+            // Try parsing as regular JSON response
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let text = json["text"] as? String {
+                return text
+            }
+            throw AIError.noContent
+        }
+        
+        return fullText
     }
     
     // MARK: - Build System Prompt
