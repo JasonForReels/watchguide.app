@@ -63,12 +63,15 @@ actor AIService {
         // Add the current user message
         messages.append(["role": "user", "content": message])
         
-        // OpenRouter API request format
+        // OpenRouter API request format with Hermes 3 405B free model and web search
         let requestBody: [String: Any] = [
-            "model": "openai/gpt-4o-mini",
+            "model": "nousresearch/hermes-3-llama-3.1-405b:free",
             "messages": messages,
             "max_tokens": 1024,
-            "temperature": 0.7
+            "temperature": 0.7,
+            "plugins": [
+                ["id": "web"]
+            ]
         ]
         
         var request = URLRequest(url: URL(string: baseURL)!)
@@ -77,7 +80,7 @@ actor AIService {
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.addValue("WatchGuide App", forHTTPHeaderField: "X-Title")
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        request.timeoutInterval = 60
+        request.timeoutInterval = 90 // Longer timeout for web search
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
@@ -113,13 +116,16 @@ actor AIService {
         var prompt = """
         You are Chron, a friendly and knowledgeable AI assistant for WatchGuide, a movie and TV discovery app. Your role is to help users discover great content, answer questions about movies and TV shows, and provide personalized recommendations.
         
+        You have web search capabilities, so you can look up current information about movies, TV shows, release dates, cast, reviews, and entertainment news.
+        
         Guidelines:
         - Be concise but informative
         - When recommending content, explain why it might appeal to the user
         - If asked about specific titles, provide accurate information about plot, cast, ratings, and where to watch
+        - Use web search to get the latest information about new releases, streaming availability, and current entertainment news
         - Consider the user's preferences based on their liked items when making recommendations
         - Be conversational and friendly
-        - If you don't know something specific, admit it rather than making up information
+        - If you don't know something specific, use web search to find accurate information
         - Format responses nicely with bullet points or numbered lists when appropriate
         
         """
