@@ -322,10 +322,15 @@ struct YouTubePlayerView: UIViewRepresentable {
         contentController.add(context.coordinator, name: "playerReady")
         contentController.add(context.coordinator, name: "playerError")
         
+        let preferences = WKWebpagePreferences()
+        preferences.allowsContentJavaScript = true
+        
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = contentController
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
+        configuration.defaultWebpagePreferences = preferences
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.scrollView.isScrollEnabled = false
@@ -333,6 +338,8 @@ struct YouTubePlayerView: UIViewRepresentable {
         webView.backgroundColor = .black
         webView.scrollView.backgroundColor = .black
         webView.navigationDelegate = context.coordinator
+        webView.allowsBackForwardNavigationGestures = false
+        webView.configuration.allowsAirPlayForMediaPlayback = true
         
         return webView
     }
