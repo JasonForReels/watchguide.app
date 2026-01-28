@@ -25,9 +25,12 @@ actor SupabaseService {
     }
     
     // MARK: - User ID for sync (prefer authenticated user, fallback to device ID)
-    private var syncId: String {
+    private func getSyncId() async -> String {
         // If user is authenticated, use their user ID for true cross-device sync
-        if let userId = MainActor.assumeIsolated({ AuthService.shared.userId }) {
+        let userId: String? = await MainActor.run {
+            AuthService.shared.userId
+        }
+        if let userId = userId {
             return userId
         }
         // Fallback to device ID for anonymous sync
@@ -35,8 +38,10 @@ actor SupabaseService {
     }
     
     // Access token for authenticated requests
-    private var accessToken: String? {
-        MainActor.assumeIsolated { AuthService.shared.accessToken }
+    private func getAccessToken() async -> String? {
+        await MainActor.run {
+            AuthService.shared.accessToken
+        }
     }
     
     // MARK: - Device ID for anonymous sync
@@ -75,7 +80,7 @@ actor SupabaseService {
         request.addValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
         
         // Use access token if authenticated, otherwise use anon key
-        if let token = accessToken {
+        if let token = await getAccessToken() {
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         } else {
             request.addValue("Bearer \(supabaseAnonKey)", forHTTPHeaderField: "Authorization")
@@ -135,7 +140,7 @@ actor SupabaseService {
         request.addValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
         
         // Use access token if authenticated, otherwise use anon key
-        if let token = accessToken {
+        if let token = await getAccessToken() {
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         } else {
             request.addValue("Bearer \(supabaseAnonKey)", forHTTPHeaderField: "Authorization")
@@ -163,8 +168,9 @@ actor SupabaseService {
     
     /// Fetch all items from a specific list type
     func fetchItems(listType: SyncListType) async throws -> [SyncedMediaItem] {
+        let currentSyncId = await getSyncId()
         let queryItems = [
-            URLQueryItem(name: "device_id", value: "eq.\(syncId)"),
+            URLQueryItem(name: "device_id", value: "eq.\(currentSyncId)"),
             URLQueryItem(name: "list_type", value: "eq.\(listType.rawValue)"),
             URLQueryItem(name: "order", value: "added_at.desc")
         ]
@@ -174,9 +180,10 @@ actor SupabaseService {
     
     /// Add an item to a list
     func addItem(_ item: SavedMediaItem, listType: SyncListType) async throws {
+        let currentSyncId = await getSyncId()
         let syncItem = SyncedMediaItem(
             id: nil,
-            deviceId: syncId,
+            deviceId: currentSyncId,
             listType: listType.rawValue,
             mediaId: item.mediaId,
             mediaType: item.mediaType.rawValue,
@@ -198,8 +205,9 @@ actor SupabaseService {
     
     /// Remove an item from a list
     func removeItem(mediaId: Int, mediaType: MediaType, listType: SyncListType) async throws {
+        let currentSyncId = await getSyncId()
         let queryItems = [
-            URLQueryItem(name: "device_id", value: "eq.\(syncId)"),
+            URLQueryItem(name: "device_id", value: "eq.\(currentSyncId)"),
             URLQueryItem(name: "list_type", value: "eq.\(listType.rawValue)"),
             URLQueryItem(name: "media_id", value: "eq.\(mediaId)"),
             URLQueryItem(name: "media_type", value: "eq.\(mediaType.rawValue)")
@@ -214,8 +222,10 @@ actor SupabaseService {
         watched: [SavedMediaItem],
         liked: [SavedMediaItem]
     ) async throws {
+        let currentSyncId = await getSyncId()
+        
         // First, delete all existing items for this user/device
-        let deleteQuery = [URLQueryItem(name: "device_id", value: "eq.\(syncId)")]
+        let deleteQuery = [URLQueryItem(name: "device_id", value: "eq.\(currentSyncId)")]
         try await requestNoResponse(endpoint: "media_items", method: "DELETE", queryItems: deleteQuery)
         
         // Upload all items
@@ -224,7 +234,7 @@ actor SupabaseService {
         for item in wantToWatch {
             allItems.append(SyncedMediaItem(
                 id: nil,
-                deviceId: syncId,
+                deviceId: currentSyncId,
                 listType: SyncListType.wantToWatch.rawValue,
                 mediaId: item.mediaId,
                 mediaType: item.mediaType.rawValue,
@@ -241,7 +251,7 @@ actor SupabaseService {
         for item in watched {
             allItems.append(SyncedMediaItem(
                 id: nil,
-                deviceId: syncId,
+                deviceId: currentSyncId,
                 listType: SyncListType.watched.rawValue,
                 mediaId: item.mediaId,
                 mediaType: item.mediaType.rawValue,
@@ -258,7 +268,7 @@ actor SupabaseService {
         for item in liked {
             allItems.append(SyncedMediaItem(
                 id: nil,
-                deviceId: syncId,
+                deviceId: currentSyncId,
                 listType: SyncListType.liked.rawValue,
                 mediaId: item.mediaId,
                 mediaType: item.mediaType.rawValue,
@@ -283,8 +293,9 @@ actor SupabaseService {
     
     /// Download all data from cloud (full download)
     func downloadAllData() async throws -> (wantToWatch: [SavedMediaItem], watched: [SavedMediaItem], liked: [SavedMediaItem]) {
+        let currentSyncId = await getSyncId()
         let queryItems = [
-            URLQueryItem(name: "device_id", value: "eq.\(syncId)"),
+            URLQueryItem(name: "device_id", value: "eq.\(currentSyncId)"),
             URLQueryItem(name: "order", value: "added_at.desc")
         ]
         
