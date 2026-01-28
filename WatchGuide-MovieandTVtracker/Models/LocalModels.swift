@@ -150,14 +150,69 @@ struct MDBListItem: Identifiable, Codable {
     var items: [SavedMediaItem]
     var lastSynced: Date?
     let createdAt: Date
+    var showOnHome: Bool
+    var customName: String?
     
-    init(name: String, listId: String) {
+    init(name: String, listId: String, showOnHome: Bool = false) {
         self.id = UUID().uuidString
         self.name = name
         self.listId = listId
         self.items = []
         self.lastSynced = nil
         self.createdAt = Date()
+        self.showOnHome = showOnHome
+        self.customName = nil
+    }
+    
+    var displayName: String {
+        customName ?? name
+    }
+}
+
+// MARK: - Custom Home Row
+struct CustomHomeRow: Identifiable, Codable {
+    let id: String
+    var name: String
+    var rowType: CustomRowType
+    var sortOrder: Int
+    var isEnabled: Bool
+    let createdAt: Date
+    
+    // For MDBList rows
+    var mdbListId: String?
+    
+    // For custom hub rows
+    var hubImageURL: String?
+    var items: [SavedMediaItem]?
+    
+    enum CustomRowType: String, Codable {
+        case mdbList = "mdblist"
+        case customHub = "custom_hub"
+    }
+    
+    init(name: String, rowType: CustomRowType, sortOrder: Int = 0) {
+        self.id = UUID().uuidString
+        self.name = name
+        self.rowType = rowType
+        self.sortOrder = sortOrder
+        self.isEnabled = true
+        self.createdAt = Date()
+        self.mdbListId = nil
+        self.hubImageURL = nil
+        self.items = nil
+    }
+    
+    static func mdbListRow(name: String, listId: String, sortOrder: Int = 0) -> CustomHomeRow {
+        var row = CustomHomeRow(name: name, rowType: .mdbList, sortOrder: sortOrder)
+        row.mdbListId = listId
+        return row
+    }
+    
+    static func hubRow(name: String, imageURL: String?, sortOrder: Int = 0) -> CustomHomeRow {
+        var row = CustomHomeRow(name: name, rowType: .customHub, sortOrder: sortOrder)
+        row.hubImageURL = imageURL
+        row.items = []
+        return row
     }
 }
 

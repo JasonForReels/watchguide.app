@@ -21,5 +21,22 @@
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>MDBList OAuth Callback</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>watchguide</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>chatgpt</string>
+		<string>googlegemini</string>
+		<string>grok</string>
+	</array>
 </dict>
 </plist>

@@ -17,6 +17,7 @@ class StorageService: ObservableObject {
     @Published private(set) var customLists: [CustomList] = []
     @Published private(set) var companyHubs: [CompanyHub] = []
     @Published private(set) var mdbLists: [MDBListItem] = []
+    @Published private(set) var customHomeRows: [CustomHomeRow] = []
     @Published private(set) var settings: UserSettings = UserSettings()
     @Published private(set) var searchHistory: [SearchHistoryItem] = []
     @Published private(set) var browseRows: [BrowseRowConfig] = BrowseRowConfig.defaultRows
@@ -44,6 +45,7 @@ class StorageService: ObservableObject {
     private let customListsURL: URL
     private let companyHubsURL: URL
     private let mdbListsURL: URL
+    private let customHomeRowsURL: URL
     private let settingsURL: URL
     private let searchHistoryURL: URL
     private let browseRowsURL: URL
@@ -56,6 +58,7 @@ class StorageService: ObservableObject {
         customListsURL = documentsDirectory.appendingPathComponent("custom_lists.json")
         companyHubsURL = documentsDirectory.appendingPathComponent("company_hubs.json")
         mdbListsURL = documentsDirectory.appendingPathComponent("mdb_lists.json")
+        customHomeRowsURL = documentsDirectory.appendingPathComponent("custom_home_rows.json")
         settingsURL = documentsDirectory.appendingPathComponent("settings.json")
         searchHistoryURL = documentsDirectory.appendingPathComponent("search_history.json")
         browseRowsURL = documentsDirectory.appendingPathComponent("browse_rows.json")
@@ -75,6 +78,7 @@ class StorageService: ObservableObject {
         customLists = load(from: customListsURL) ?? []
         companyHubs = load(from: companyHubsURL) ?? []
         mdbLists = load(from: mdbListsURL) ?? []
+        customHomeRows = load(from: customHomeRowsURL) ?? []
         settings = load(from: settingsURL) ?? UserSettings()
         searchHistory = load(from: searchHistoryURL) ?? []
         browseRows = load(from: browseRowsURL) ?? BrowseRowConfig.defaultRows
@@ -369,6 +373,46 @@ class StorageService: ObservableObject {
     func deleteMDBList(id: String) {
         mdbLists.removeAll { $0.id == id }
         save(mdbLists, to: mdbListsURL)
+        // Also remove any custom home rows that use this list
+        customHomeRows.removeAll { $0.mdbListId == id }
+        save(customHomeRows, to: customHomeRowsURL)
+    }
+    
+    func getMDBListsForHome() -> [MDBListItem] {
+        return mdbLists.filter { $0.showOnHome }
+    }
+    
+    // MARK: - Custom Home Rows
+    func addCustomHomeRow(_ row: CustomHomeRow) {
+        var newRow = row
+        newRow.sortOrder = customHomeRows.count
+        customHomeRows.append(newRow)
+        save(customHomeRows, to: customHomeRowsURL)
+    }
+    
+    func updateCustomHomeRow(_ row: CustomHomeRow) {
+        if let index = customHomeRows.firstIndex(where: { $0.id == row.id }) {
+            customHomeRows[index] = row
+            save(customHomeRows, to: customHomeRowsURL)
+        }
+    }
+    
+    func deleteCustomHomeRow(id: String) {
+        customHomeRows.removeAll { $0.id == id }
+        save(customHomeRows, to: customHomeRowsURL)
+    }
+    
+    func reorderCustomHomeRows(_ rows: [CustomHomeRow]) {
+        var updatedRows = rows
+        for (index, _) in updatedRows.enumerated() {
+            updatedRows[index].sortOrder = index
+        }
+        customHomeRows = updatedRows
+        save(customHomeRows, to: customHomeRowsURL)
+    }
+    
+    func getEnabledCustomHomeRows() -> [CustomHomeRow] {
+        return customHomeRows.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }
     }
     
     // MARK: - Settings

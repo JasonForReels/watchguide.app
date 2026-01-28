@@ -76,7 +76,28 @@ actor TMDBService {
     }
     
     func getUpcomingMovies(page: Int = 1) async throws -> TMDBResponse<MediaItem> {
-        try await request("/movie/upcoming", queryItems: [URLQueryItem(name: "page", value: "\(page)")])
+        // Use discover endpoint with future release dates for better upcoming movies
+        let today = Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let todayString = formatter.string(from: today)
+        
+        // Get movies releasing in the next 6 months
+        let futureDate = Calendar.current.date(byAdding: .month, value: 6, to: today) ?? today
+        let futureDateString = formatter.string(from: futureDate)
+        
+        let region = await MainActor.run { StorageService.shared.settings.region }
+        
+        let queryItems = [
+            URLQueryItem(name: "page", value: "\(page)"),
+            URLQueryItem(name: "primary_release_date.gte", value: todayString),
+            URLQueryItem(name: "primary_release_date.lte", value: futureDateString),
+            URLQueryItem(name: "sort_by", value: "primary_release_date.asc"),
+            URLQueryItem(name: "with_release_type", value: "2|3"), // Theatrical releases
+            URLQueryItem(name: "region", value: region)
+        ]
+        
+        return try await request("/discover/movie", queryItems: queryItems)
     }
     
     func getMovieDetails(id: Int) async throws -> MovieDetails {
@@ -277,10 +298,31 @@ actor TMDBService {
     func getPersonTVCredits(id: Int) async throws -> PersonCreditsResponse {
         try await request("/person/\(id)/tv_credits")
     }
+    
+    // MARK: - Find by external ID (IMDb, TVDB, etc.)
+    func findByExternalId(externalId: String, source: String = "imdb_id") async throws -> FindByIdResponse {
+        let queryItems = [
+            URLQueryItem(name: "external_source", value: source)
+        ]
+        return try await request("/find/\(externalId)", queryItems: queryItems)
+    }
 }
 
 // MARK: - Person Credits Response
 struct PersonCreditsResponse: Codable {
     let cast: [MediaItem]?
     let crew: [MediaItem]?
+}
+
+// MARK: - Find By ID Response
+struct FindByIdResponse: Codable {
+    let movieResults: [MediaItem]?
+    let tvResults: [MediaItem]?
+    let personResults: [Person]?
+    
+    enum CodingKeys: String, CodingKey {
+        case movieResults = "movie_results"
+        case tvResults = "tv_results"
+        case personResults = "person_results"
+    }
 }

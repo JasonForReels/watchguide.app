@@ -29,6 +29,19 @@ struct BrowseView: View {
                     }
                 }
                 
+                // Custom Home Rows (MDBList and Custom Hubs)
+                ForEach(viewModel.customHomeRows) { customRow in
+                    if let row = viewModel.customRowContent[customRow.id], !row.items.isEmpty {
+                        CustomHomeRowView(
+                            row: customRow,
+                            items: row.items,
+                            onItemTap: { item in
+                                selectedItem = item
+                            }
+                        )
+                    }
+                }
+                
                 // Browse Rows
                 ForEach(viewModel.rows, id: \.title) { row in
                     if !row.items.isEmpty {
@@ -42,7 +55,7 @@ struct BrowseView: View {
                     }
                 }
                 
-                // MDB Lists Rows
+                // MDB Lists Rows (for backward compatibility)
                 ForEach(viewModel.mdbListRows, id: \.title) { row in
                     if !row.items.isEmpty {
                         MediaRowView(
@@ -71,12 +84,70 @@ struct BrowseView: View {
     }
 }
 
+// MARK: - Custom Home Row View
+struct CustomHomeRowView: View {
+    let row: CustomHomeRow
+    let items: [MediaItem]
+    let onItemTap: (MediaItem) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header with optional image
+            HStack {
+                if let imageURL = row.hubImageURL, let url = URL(string: imageURL) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(height: 28)
+                                .cornerRadius(4)
+                        default:
+                            EmptyView()
+                        }
+                    }
+                }
+                
+                Text(row.name)
+                    .font(.title3)
+                    .fontWeight(.bold)
+                
+                if row.rowType == .mdbList {
+                    Image(systemName: "list.bullet.clipboard")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+                
+                Spacer()
+            }
+            .padding(.horizontal)
+            
+            // Scrolling content
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 12) {
+                    ForEach(items) { item in
+                        MediaPosterCard(item: item)
+                            .onTapGesture {
+                                onItemTap(item)
+                            }
+                    }
+                }
+                .padding(.horizontal)
+            }
+            .scrollClipDisabled()
+        }
+    }
+}
+
 // MARK: - Browse View Model
 @MainActor
 class BrowseViewModel: ObservableObject {
     @Published var heroItems: [MediaItem] = []
     @Published var rows: [MediaRow] = []
     @Published var mdbListRows: [MediaRow] = []
+    @Published var customHomeRows: [CustomHomeRow] = []
+    @Published var customRowContent: [String: MediaRow] = [:]
     @Published var companyHubs: [CompanyHub] = []
     @Published var isLoading = false
     
@@ -92,11 +163,18 @@ class BrowseViewModel: ObservableObject {
         // Load company hubs
         companyHubs = StorageService.shared.companyHubs.filter { $0.isEnabled }
         
+        // Load custom home rows
+        customHomeRows = StorageService.shared.getEnabledCustomHomeRows()
+        
         // Load hero items based on user's selected source
         await loadHeroItems()
         
         // Load all rows concurrently
-        await loadBrowseRows()
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.loadBrowseRows() }
+            group.addTask { await self.loadCustomHomeRowContent() }
+            group.addTask { await self.loadMDBListRows() }
+        }
         
         isLoading = false
     }
@@ -131,6 +209,7 @@ class BrowseViewModel: ObservableObject {
     func refresh() async {
         rows = []
         mdbListRows = []
+        customRowContent = [:]
         heroItems = []
         await loadContent()
     }
@@ -162,6 +241,107 @@ class BrowseViewModel: ObservableObject {
         
         // Sort by original order and extract rows
         rows = loadedRows.sorted(by: { $0.0 < $1.0 }).map { $0.1 }
+    }
+    
+    private func loadCustomHomeRowContent() async {
+        for customRow in customHomeRows {
+            switch customRow.rowType {
+            case .mdbList:
+                if let mdbListId = customRow.mdbListId,
+                   let mdbList = StorageService.shared.mdbLists.first(where: { $0.id == mdbListId }) {
+                    // Convert SavedMediaItems to MediaItems
+                    let items = mdbList.items.map { saved -> MediaItem in
+                        MediaItem(
+                            id: saved.mediaId,
+                            title: saved.mediaType == .movie ? saved.title : nil,
+                            name: saved.mediaType == .tv ? saved.title : nil,
+                            originalTitle: nil,
+                            originalName: nil,
+                            overview: saved.overview,
+                            posterPath: saved.posterPath,
+                            backdropPath: saved.backdropPath,
+                            releaseDate: saved.year,
+                            firstAirDate: saved.year,
+                            voteAverage: saved.voteAverage,
+                            voteCount: nil,
+                            popularity: nil,
+                            genreIds: nil,
+                            mediaType: saved.mediaType.rawValue,
+                            adult: nil,
+                            originalLanguage: nil
+                        )
+                    }
+                    customRowContent[customRow.id] = MediaRow(title: customRow.name, items: items)
+                }
+                
+            case .customHub:
+                if let items = customRow.items {
+                    let mediaItems = items.map { saved -> MediaItem in
+                        MediaItem(
+                            id: saved.mediaId,
+                            title: saved.mediaType == .movie ? saved.title : nil,
+                            name: saved.mediaType == .tv ? saved.title : nil,
+                            originalTitle: nil,
+                            originalName: nil,
+                            overview: saved.overview,
+                            posterPath: saved.posterPath,
+                            backdropPath: saved.backdropPath,
+                            releaseDate: saved.year,
+                            firstAirDate: saved.year,
+                            voteAverage: saved.voteAverage,
+                            voteCount: nil,
+                            popularity: nil,
+                            genreIds: nil,
+                            mediaType: saved.mediaType.rawValue,
+                            adult: nil,
+                            originalLanguage: nil
+                        )
+                    }
+                    customRowContent[customRow.id] = MediaRow(title: customRow.name, items: mediaItems)
+                }
+            }
+        }
+    }
+    
+    private func loadMDBListRows() async {
+        // Load MDBLists that are set to show on home but don't have a custom row
+        let mdbListsOnHome = StorageService.shared.getMDBListsForHome()
+        let customRowMDBListIds = Set(customHomeRows.compactMap { $0.mdbListId })
+        
+        var loadedRows: [MediaRow] = []
+        
+        for mdbList in mdbListsOnHome {
+            // Skip if already in custom rows
+            if customRowMDBListIds.contains(mdbList.id) { continue }
+            
+            let items = mdbList.items.map { saved -> MediaItem in
+                MediaItem(
+                    id: saved.mediaId,
+                    title: saved.mediaType == .movie ? saved.title : nil,
+                    name: saved.mediaType == .tv ? saved.title : nil,
+                    originalTitle: nil,
+                    originalName: nil,
+                    overview: saved.overview,
+                    posterPath: saved.posterPath,
+                    backdropPath: saved.backdropPath,
+                    releaseDate: saved.year,
+                    firstAirDate: saved.year,
+                    voteAverage: saved.voteAverage,
+                    voteCount: nil,
+                    popularity: nil,
+                    genreIds: nil,
+                    mediaType: saved.mediaType.rawValue,
+                    adult: nil,
+                    originalLanguage: nil
+                )
+            }
+            
+            if !items.isEmpty {
+                loadedRows.append(MediaRow(title: mdbList.displayName, items: items))
+            }
+        }
+        
+        mdbListRows = loadedRows
     }
     
     private func fetchRow(_ endpoint: BrowseRowConfig.BrowseEndpoint) async throws -> [MediaItem] {
