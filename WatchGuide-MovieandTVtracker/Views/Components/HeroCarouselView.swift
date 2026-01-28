@@ -419,7 +419,7 @@ struct HeroSlideView: View {
     }
 }
 
-// MARK: - YouTube Player View with Multiple Proxy Fallback
+// MARK: - YouTube Player View using YouTube IFrame API
 struct YouTubePlayerView: UIViewRepresentable {
     let videoKey: String
     var autoPlay: Bool = false
@@ -428,22 +428,12 @@ struct YouTubePlayerView: UIViewRepresentable {
     var onError: ((String) -> Void)?
     var onEnded: (() -> Void)?
     
-    // Multiple Invidious/Piped proxies to try in order
-    static let proxyURLs = [
-        "https://inv.nadeko.net",
-        "https://invidious.jing.rocks",
-        "https://yewtu.be",
-        "https://vid.puffyan.us",
-        "https://invidious.nerdvpn.de"
-    ]
-    
     func makeUIView(context: Context) -> WKWebView {
         let contentController = WKUserContentController()
         contentController.add(context.coordinator, name: "playerReady")
         contentController.add(context.coordinator, name: "playerError")
-        contentController.add(context.coordinator, name: "playerStateChange")
         contentController.add(context.coordinator, name: "playerEnded")
-        contentController.add(context.coordinator, name: "tryNextProxy")
+        contentController.add(context.coordinator, name: "playerStateChange")
         
         let preferences = WKWebpagePreferences()
         preferences.allowsContentJavaScript = true
@@ -453,7 +443,6 @@ struct YouTubePlayerView: UIViewRepresentable {
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.defaultWebpagePreferences = preferences
-        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.scrollView.isScrollEnabled = false
@@ -462,13 +451,11 @@ struct YouTubePlayerView: UIViewRepresentable {
         webView.scrollView.backgroundColor = .black
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = false
-        webView.configuration.allowsAirPlayForMediaPlayback = true
         
         return webView
     }
     
     func updateUIView(_ webView: WKWebView, context: Context) {
-        // Validate video key before loading
         guard !videoKey.isEmpty else {
             DispatchQueue.main.async {
                 self.onError?("Invalid video key")
@@ -479,20 +466,15 @@ struct YouTubePlayerView: UIViewRepresentable {
         // Only load if video key changed
         guard context.coordinator.currentVideoKey != videoKey else { return }
         context.coordinator.currentVideoKey = videoKey
-        context.coordinator.currentProxyIndex = 0
-        context.coordinator.webView = webView
         context.coordinator.hasErrored = false
         
-        loadWithProxy(webView: webView, proxyIndex: 0, context: context)
+        loadYouTubePlayer(webView: webView)
     }
     
-    private func loadWithProxy(webView: WKWebView, proxyIndex: Int, context: Context) {
-        let muteParam = isMuted ? 1 : 0
-        let autoPlayParam = autoPlay ? 1 : 0
-        
-        // Sanitize video key to prevent injection
+    private func loadYouTubePlayer(webView: WKWebView) {
         let sanitizedKey = videoKey.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? videoKey
-        let proxiesJSON = Self.proxyURLs.map { "\"\($0)\"" }.joined(separator: ",")
+        let autoPlayValue = autoPlay ? 1 : 0
+        let muteValue = isMuted ? 1 : 0
         
         let html = """
         <!DOCTYPE html>
@@ -502,171 +484,153 @@ struct YouTubePlayerView: UIViewRepresentable {
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
-                #player-container { position: absolute; top: 50%; left: 50%; width: 177.78vh; height: 100vh; min-width: 100%; min-height: 56.25vw; transform: translate(-50%, -50%); }
-                #player { width: 100%; height: 100%; border: none; background: #000; }
-                .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; text-align: center; z-index: 10; }
-                .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 10px; }
+                #player-wrapper {
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    width: 177.78vh;
+                    height: 100vh;
+                    min-width: 100%;
+                    min-height: 56.25vw;
+                    transform: translate(-50%, -50%);
+                }
+                #player {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                }
+                .loading {
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    color: #fff;
+                    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+                    text-align: center;
+                    z-index: 10;
+                }
+                .spinner {
+                    width: 40px;
+                    height: 40px;
+                    border: 3px solid rgba(255,255,255,0.3);
+                    border-top-color: #fff;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin: 0 auto 10px;
+                }
                 @keyframes spin { to { transform: rotate(360deg); } }
-                .error-container { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: #fff; justify-content: center; align-items: center; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, sans-serif; z-index: 20; }
-                .error-container.show { display: flex; }
-                .proxy-status { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 8px; }
+                .hidden { display: none; }
             </style>
         </head>
         <body>
             <div id="loading" class="loading">
                 <div class="spinner"></div>
                 <div>Loading trailer...</div>
-                <div id="proxy-status" class="proxy-status"></div>
             </div>
-            <div id="player-container">
-                <iframe id="player" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe>
+            <div id="player-wrapper">
+                <div id="player"></div>
             </div>
-            <div id="error" class="error-container">
-                <p>Trailer unavailable</p>
-            </div>
+            
             <script>
-                var proxies = [\(proxiesJSON)];
-                var currentProxyIndex = \(proxyIndex);
-                var videoKey = '\(sanitizedKey)';
-                var autoPlay = \(autoPlayParam);
-                var mute = \(muteParam);
+                var tag = document.createElement('script');
+                tag.src = "https://www.youtube.com/iframe_api";
+                var firstScriptTag = document.getElementsByTagName('script')[0];
+                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                
+                var player;
                 var hasNotifiedReady = false;
                 var hasNotifiedError = false;
-                var hasEnded = false;
-                var playbackStarted = false;
-                var proxyLocked = false;
-                var loadTimeout;
-                var proxyTimeout;
+                var hasNotifiedEnded = false;
                 
-                function updateStatus(msg) {
-                    var el = document.getElementById('proxy-status');
-                    if (el) el.textContent = msg;
+                function onYouTubeIframeAPIReady() {
+                    player = new YT.Player('player', {
+                        videoId: '\(sanitizedKey)',
+                        playerVars: {
+                            'autoplay': \(autoPlayValue),
+                            'mute': \(muteValue),
+                            'controls': 0,
+                            'disablekb': 1,
+                            'fs': 0,
+                            'iv_load_policy': 3,
+                            'modestbranding': 1,
+                            'playsinline': 1,
+                            'rel': 0,
+                            'showinfo': 0,
+                            'enablejsapi': 1,
+                            'origin': window.location.origin
+                        },
+                        events: {
+                            'onReady': onPlayerReady,
+                            'onStateChange': onPlayerStateChange,
+                            'onError': onPlayerError
+                        }
+                    });
                 }
                 
-                function showError(msg) {
+                function onPlayerReady(event) {
+                    document.getElementById('loading').classList.add('hidden');
+                    
+                    if (!hasNotifiedReady) {
+                        hasNotifiedReady = true;
+                        try {
+                            window.webkit.messageHandlers.playerReady.postMessage('ready');
+                        } catch(e) {}
+                    }
+                    
+                    if (\(autoPlayValue) === 1) {
+                        event.target.playVideo();
+                    }
+                }
+                
+                function onPlayerStateChange(event) {
+                    try {
+                        window.webkit.messageHandlers.playerStateChange.postMessage(event.data);
+                    } catch(e) {}
+                    
+                    // YT.PlayerState.ENDED = 0
+                    if (event.data === 0 && !hasNotifiedEnded) {
+                        hasNotifiedEnded = true;
+                        try {
+                            window.webkit.messageHandlers.playerEnded.postMessage('ended');
+                        } catch(e) {}
+                    }
+                }
+                
+                function onPlayerError(event) {
                     if (hasNotifiedError) return;
                     hasNotifiedError = true;
                     
-                    var playerContainer = document.getElementById('player-container');
-                    var loading = document.getElementById('loading');
-                    var error = document.getElementById('error');
-                    
-                    if (playerContainer) playerContainer.style.display = 'none';
-                    if (loading) loading.style.display = 'none';
-                    if (error) error.classList.add('show');
-                    
-                    try {
-                        window.webkit.messageHandlers.playerError.postMessage(msg || 'Unknown error');
-                    } catch(e) {
-                        console.error('Failed to send error message:', e);
-                    }
-                }
-                
-                function lockProxy() {
-                    // Once a proxy starts working, lock it and stop all retry attempts
-                    proxyLocked = true;
-                    playbackStarted = true;
-                    clearTimeout(proxyTimeout);
-                    clearTimeout(loadTimeout);
-                }
-                
-                function tryProxy(index) {
-                    // CRITICAL: If proxy is locked (working), never try another
-                    if (proxyLocked || hasNotifiedError || hasNotifiedReady || playbackStarted) {
-                        return;
-                    }
-                    
-                    if (index >= proxies.length) {
-                        showError('All proxies failed');
-                        return;
-                    }
-                    
-                    currentProxyIndex = index;
-                    var proxy = proxies[index];
-                    updateStatus('Trying server ' + (index + 1) + '/' + proxies.length + '...');
-                    
-                    var player = document.getElementById('player');
-                    if (!player) {
-                        showError('Player element not found');
-                        return;
+                    var errorMsg = 'Unknown error';
+                    switch(event.data) {
+                        case 2: errorMsg = 'Invalid video ID'; break;
+                        case 5: errorMsg = 'HTML5 player error'; break;
+                        case 100: errorMsg = 'Video not found'; break;
+                        case 101:
+                        case 150: errorMsg = 'Embedding not allowed'; break;
                     }
                     
                     try {
-                        player.src = proxy + '/embed/' + videoKey + '?autoplay=' + autoPlay + '&mute=' + mute + '&quality=hd720&local=true';
-                    } catch(e) {
-                        console.error('Failed to set player src:', e);
-                        if (!proxyLocked) tryProxy(index + 1);
-                        return;
-                    }
-                    
-                    // Set timeout for this proxy - if no load in 8 seconds, try next
-                    // But only if proxy hasn't been locked
-                    clearTimeout(proxyTimeout);
-                    proxyTimeout = setTimeout(function() {
-                        if (!proxyLocked && !hasNotifiedReady && !hasNotifiedError && !playbackStarted) {
-                            console.log('Proxy ' + index + ' timed out, trying next...');
-                            tryProxy(index + 1);
-                        }
-                    }, 8000);
+                        window.webkit.messageHandlers.playerError.postMessage(errorMsg);
+                    } catch(e) {}
                 }
                 
-                var player = document.getElementById('player');
-                
-                if (player) {
-                    player.onload = function() {
-                        // IMMEDIATELY lock the proxy - this one works!
-                        lockProxy();
-                        
-                        var loading = document.getElementById('loading');
-                        if (loading) loading.style.display = 'none';
-                        
-                        if (!hasNotifiedReady && !hasNotifiedError) {
-                            hasNotifiedReady = true;
-                            try {
-                                window.webkit.messageHandlers.playerReady.postMessage('ready');
-                            } catch(e) {
-                                console.error('Failed to send ready message:', e);
-                            }
-                        }
-                    };
-                    
-                    player.onerror = function(e) {
-                        // Only try next proxy if not locked
-                        if (!proxyLocked && !playbackStarted && !hasNotifiedReady) {
-                            clearTimeout(proxyTimeout);
-                            console.error('Player error:', e);
-                            tryProxy(currentProxyIndex + 1);
-                        }
-                    };
-                }
-                
-                // Overall timeout - if nothing works in 25 seconds, give up
-                loadTimeout = setTimeout(function() {
-                    if (!proxyLocked && !hasNotifiedReady && !hasNotifiedError && !playbackStarted) {
-                        showError('Timeout');
-                    }
-                }, 25000);
-                
-                // Estimate video end based on typical trailer length (2.5 minutes)
+                // Fallback timeout
                 setTimeout(function() {
-                    if (!hasEnded && hasNotifiedReady && !hasNotifiedError) {
-                        hasEnded = true;
+                    if (!hasNotifiedReady && !hasNotifiedError) {
+                        hasNotifiedError = true;
                         try {
-                            window.webkit.messageHandlers.playerEnded.postMessage('ended');
-                        } catch(e) {
-                            console.error('Failed to send ended message:', e);
-                        }
+                            window.webkit.messageHandlers.playerError.postMessage('Timeout loading player');
+                        } catch(e) {}
                     }
-                }, 150000);
-                
-                // Start with first proxy
-                tryProxy(0);
+                }, 15000);
             </script>
         </body>
         </html>
         """
         
-        webView.loadHTMLString(html, baseURL: URL(string: Self.proxyURLs[0]))
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
     }
     
     func makeCoordinator() -> Coordinator {
@@ -675,8 +639,6 @@ struct YouTubePlayerView: UIViewRepresentable {
     
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var currentVideoKey: String?
-        var currentProxyIndex: Int = 0
-        var webView: WKWebView?
         var hasErrored: Bool = false
         var onReady: (() -> Void)?
         var onError: ((String) -> Void)?
@@ -689,25 +651,28 @@ struct YouTubePlayerView: UIViewRepresentable {
         }
         
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            if message.name == "playerReady" {
+            switch message.name {
+            case "playerReady":
                 DispatchQueue.main.async {
                     self.onReady?()
                 }
-            } else if message.name == "playerError", let errorMsg = message.body as? String {
+            case "playerError":
                 guard !hasErrored else { return }
                 hasErrored = true
+                let errorMsg = message.body as? String ?? "Unknown error"
                 DispatchQueue.main.async {
                     self.onError?(errorMsg)
                 }
-            } else if message.name == "playerEnded" {
+            case "playerEnded":
                 DispatchQueue.main.async {
                     self.onEnded?()
                 }
+            case "playerStateChange":
+                // Can be used for additional state tracking if needed
+                break
+            default:
+                break
             }
-        }
-        
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // Don't call onReady here - wait for JavaScript callback
         }
         
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -722,7 +687,7 @@ struct YouTubePlayerView: UIViewRepresentable {
             guard !hasErrored else { return }
             hasErrored = true
             DispatchQueue.main.async {
-                self.onError?("Provisional navigation failed: \(error.localizedDescription)")
+                self.onError?("Failed to load: \(error.localizedDescription)")
             }
         }
     }
