@@ -8,11 +8,10 @@ import Foundation
 actor AIService {
     static let shared = AIService()
     
-    private var apiKey: String {
-        ApiKeyManager.shared.get(key: "OPENAI_API_KEY") ?? ""
-    }
-    
-    private let baseURL = "https://api.openai.com/v1/chat/completions"
+    // Poe.com OpenAI-compatible API
+    private let apiKey = "_Z3Mx1FKsVupSDjN7BSlQ5EJG2sqwlDQ2hzQMqpaiuw"
+    private let baseURL = "https://api.poe.com/v1/chat/completions"
+    private let model = "gpt-4o-mini-search"
     
     private init() {}
     
@@ -62,7 +61,7 @@ actor AIService {
         
         // Build request
         let requestBody: [String: Any] = [
-            "model": "gpt-4o-mini",
+            "model": model,
             "messages": messages,
             "max_tokens": 1024,
             "temperature": 0.7
@@ -146,7 +145,7 @@ enum AIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noApiKey:
-            return "OpenAI API key not configured"
+            return "Poe API key not configured"
         case .invalidResponse:
             return "Invalid response from AI service"
         case .httpError(let code):
