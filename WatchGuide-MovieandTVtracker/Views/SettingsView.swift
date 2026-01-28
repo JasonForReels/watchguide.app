@@ -9,6 +9,8 @@ struct SettingsView: View {
     @ObservedObject private var storage = StorageService.shared
     @State private var settings: UserSettings
     @State private var showClearDataAlert = false
+    @State private var showSyncOptions = false
+    @State private var syncMessage: String?
     
     init() {
         _settings = State(initialValue: StorageService.shared.settings)
@@ -69,6 +71,74 @@ struct SettingsView: View {
                     }
                 }
                 
+                // Cloud Sync
+                Section {
+                    Toggle("Enable Cloud Sync", isOn: Binding(
+                        get: { storage.cloudSyncEnabled },
+                        set: { storage.setCloudSyncEnabled($0) }
+                    ))
+                    .disabled(!storage.isCloudConfigured)
+                    
+                    if storage.isCloudConfigured {
+                        HStack {
+                            Text("Status")
+                            Spacer()
+                            if storage.isSyncing {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            } else if let error = storage.lastSyncError {
+                                Text(error)
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                                    .lineLimit(1)
+                            } else {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text("Connected")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        if let lastSync = storage.lastSyncTime {
+                            HStack {
+                                Text("Last Synced")
+                                Spacer()
+                                Text(lastSync.formatted(.relative(presentation: .named)))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        Button {
+                            showSyncOptions = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                Text("Sync Options")
+                            }
+                        }
+                        .disabled(storage.isSyncing)
+                    } else {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text("Link a Supabase project to enable sync")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        NavigationLink(destination: SupabaseSetupGuideView()) {
+                            HStack {
+                                Image(systemName: "book.pages")
+                                Text("Setup Guide")
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Cloud Sync")
+                } footer: {
+                    Text("Sync your watchlist, watched, and liked items across devices")
+                }
+                
                 // Data Management
                 Section("Data Management") {
                     Button(role: .destructive) {
@@ -117,6 +187,31 @@ struct SettingsView: View {
                 }
             } message: {
                 Text("This will remove all your lists, watched history, and preferences. This cannot be undone.")
+            }
+            .confirmationDialog("Sync Options", isPresented: $showSyncOptions, titleVisibility: .visible) {
+                Button("Upload to Cloud") {
+                    Task {
+                        await storage.uploadToCloud()
+                        syncMessage = storage.lastSyncError == nil ? "Upload complete!" : nil
+                    }
+                }
+                Button("Download from Cloud") {
+                    Task {
+                        await storage.downloadFromCloud()
+                        syncMessage = storage.lastSyncError == nil ? "Download complete!" : nil
+                    }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Choose how to sync your data")
+            }
+            .alert("Sync Complete", isPresented: .init(
+                get: { syncMessage != nil },
+                set: { if !$0 { syncMessage = nil } }
+            )) {
+                Button("OK") { syncMessage = nil }
+            } message: {
+                Text(syncMessage ?? "")
             }
         }
     }
@@ -303,6 +398,154 @@ struct AddCompanyHubSheet: View {
         
         storage.addCompanyHub(hub)
         dismiss()
+    }
+}
+
+// MARK: - Supabase Setup Guide View
+struct SupabaseSetupGuideView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                // Header
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "cloud.fill")
+                            .font(.largeTitle)
+                            .foregroundColor(.green)
+                        Text("Cloud Sync Setup")
+                            .font(.title)
+                            .fontWeight(.bold)
+                    }
+                    
+                    Text("Follow these steps to enable cloud syncing for your watchlist, watched items, and liked items.")
+                        .foregroundColor(.secondary)
+                }
+                .padding(.bottom, 8)
+                
+                // Step 1
+                SetupStepView(
+                    number: 1,
+                    title: "Link Supabase Project",
+                    description: "In Milq, go to Sidebar → Supabase and link your Supabase project. If you don't have one, create a free account at supabase.com.",
+                    iconName: "link"
+                )
+                
+                // Step 2
+                SetupStepView(
+                    number: 2,
+                    title: "Create Database Table",
+                    description: "In your Supabase Dashboard, go to SQL Editor → New Query and run the SQL schema below.",
+                    iconName: "tablecells"
+                )
+                
+                // SQL Code Block
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("SQL Schema")
+                        .font(.headline)
+                    
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        Text(sqlSchema)
+                            .font(.system(.caption, design: .monospaced))
+                            .padding()
+                            .background(Color(.systemGray6))
+                            .cornerRadius(8)
+                    }
+                    
+                    Button {
+                        UIPasteboard.general.string = sqlSchema
+                    } label: {
+                        Label("Copy SQL", systemImage: "doc.on.doc")
+                            .font(.subheadline)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding()
+                .background(Color(.systemGray6).opacity(0.5))
+                .cornerRadius(12)
+                
+                // Step 3
+                SetupStepView(
+                    number: 3,
+                    title: "Enable Cloud Sync",
+                    description: "Return to Settings and toggle on 'Enable Cloud Sync'. Your data will automatically sync when you add or remove items.",
+                    iconName: "checkmark.circle"
+                )
+                
+                // Step 4
+                SetupStepView(
+                    number: 4,
+                    title: "Initial Sync",
+                    description: "Use 'Sync Options' to upload your existing data to the cloud or download from cloud to this device.",
+                    iconName: "arrow.triangle.2.circlepath"
+                )
+                
+                Spacer(minLength: 40)
+            }
+            .padding()
+        }
+        .navigationTitle("Setup Guide")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+    
+    private var sqlSchema: String {
+        """
+        CREATE TABLE IF NOT EXISTS media_items (
+            id SERIAL PRIMARY KEY,
+            device_id TEXT NOT NULL,
+            list_type TEXT NOT NULL,
+            media_id INTEGER NOT NULL,
+            media_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            poster_path TEXT,
+            backdrop_path TEXT,
+            year TEXT,
+            vote_average DOUBLE PRECISION,
+            overview TEXT,
+            added_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(device_id, list_type, media_id, media_type)
+        );
+
+        ALTER TABLE media_items ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY "Allow all for anon" ON media_items
+            FOR ALL TO anon
+            USING (true) WITH CHECK (true);
+        """
+    }
+}
+
+// MARK: - Setup Step View
+struct SetupStepView: View {
+    let number: Int
+    let title: String
+    let description: String
+    let iconName: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 32, height: 32)
+                Text("\(number)")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Image(systemName: iconName)
+                        .foregroundColor(.accentColor)
+                    Text(title)
+                        .font(.headline)
+                }
+                
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+        }
     }
 }
 

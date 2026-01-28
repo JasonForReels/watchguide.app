@@ -21,6 +21,21 @@ class StorageService: ObservableObject {
     @Published private(set) var searchHistory: [SearchHistoryItem] = []
     @Published private(set) var browseRows: [BrowseRowConfig] = BrowseRowConfig.defaultRows
     
+    // MARK: - Sync State
+    @Published var isSyncing = false
+    @Published var lastSyncError: String?
+    @Published var cloudSyncEnabled = false
+    
+    var lastSyncTime: Date? {
+        UserDefaults.standard.object(forKey: "supabase_last_sync") as? Date
+    }
+    
+    var isCloudConfigured: Bool {
+        let url = ApiKeyManager.shared.get(key: "SUPABASE_URL") ?? ""
+        let key = ApiKeyManager.shared.get(key: "SUPABASE_ANON_KEY") ?? ""
+        return !url.isEmpty && !key.isEmpty
+    }
+    
     // MARK: - File URLs
     private let documentsDirectory: URL
     private let wantToWatchURL: URL
@@ -47,6 +62,9 @@ class StorageService: ObservableObject {
         
         loadAll()
         initializeDefaultHubs()
+        
+        // Load cloud sync preference
+        cloudSyncEnabled = UserDefaults.standard.bool(forKey: "cloud_sync_enabled")
     }
     
     // MARK: - Load All Data
@@ -108,11 +126,13 @@ class StorageService: ObservableObject {
         guard !wantToWatch.contains(where: { $0.id == item.id }) else { return }
         wantToWatch.insert(item, at: 0)
         save(wantToWatch, to: wantToWatchURL)
+        syncAddToCloud(item, listType: .wantToWatch)
     }
     
     func removeFromWantToWatch(_ item: SavedMediaItem) {
         wantToWatch.removeAll { $0.id == item.id }
         save(wantToWatch, to: wantToWatchURL)
+        syncRemoveFromCloud(mediaId: item.mediaId, mediaType: item.mediaType, listType: .wantToWatch)
     }
     
     func isInWantToWatch(_ mediaId: Int, mediaType: MediaType) -> Bool {
@@ -125,11 +145,13 @@ class StorageService: ObservableObject {
         guard !watched.contains(where: { $0.id == item.id }) else { return }
         watched.insert(item, at: 0)
         save(watched, to: watchedURL)
+        syncAddToCloud(item, listType: .watched)
     }
     
     func removeFromWatched(_ item: SavedMediaItem) {
         watched.removeAll { $0.id == item.id }
         save(watched, to: watchedURL)
+        syncRemoveFromCloud(mediaId: item.mediaId, mediaType: item.mediaType, listType: .watched)
     }
     
     func isInWatched(_ mediaId: Int, mediaType: MediaType) -> Bool {
@@ -142,11 +164,13 @@ class StorageService: ObservableObject {
         guard !liked.contains(where: { $0.id == item.id }) else { return }
         liked.insert(item, at: 0)
         save(liked, to: likedURL)
+        syncAddToCloud(item, listType: .liked)
     }
     
     func removeFromLiked(_ item: SavedMediaItem) {
         liked.removeAll { $0.id == item.id }
         save(liked, to: likedURL)
+        syncRemoveFromCloud(mediaId: item.mediaId, mediaType: item.mediaType, listType: .liked)
     }
     
     func isInLiked(_ mediaId: Int, mediaType: MediaType) -> Bool {
@@ -176,6 +200,97 @@ class StorageService: ObservableObject {
             removeFromLiked(item)
         } else {
             addToLiked(item)
+        }
+    }
+    
+    // MARK: - Cloud Sync Methods
+    
+    /// Enable or disable cloud sync
+    func setCloudSyncEnabled(_ enabled: Bool) {
+        cloudSyncEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "cloud_sync_enabled")
+    }
+    
+    /// Upload all local data to cloud
+    func uploadToCloud() async {
+        guard isCloudConfigured else {
+            lastSyncError = "Supabase not configured"
+            return
+        }
+        
+        isSyncing = true
+        lastSyncError = nil
+        
+        do {
+            try await SupabaseService.shared.uploadAllData(
+                wantToWatch: wantToWatch,
+                watched: watched,
+                liked: liked
+            )
+            await SupabaseService.shared.updateLastSyncTime()
+            objectWillChange.send()
+        } catch {
+            lastSyncError = error.localizedDescription
+            print("Upload failed: \(error)")
+        }
+        
+        isSyncing = false
+    }
+    
+    /// Download all cloud data to local
+    func downloadFromCloud() async {
+        guard isCloudConfigured else {
+            lastSyncError = "Supabase not configured"
+            return
+        }
+        
+        isSyncing = true
+        lastSyncError = nil
+        
+        do {
+            let data = try await SupabaseService.shared.downloadAllData()
+            
+            wantToWatch = data.wantToWatch
+            watched = data.watched
+            liked = data.liked
+            
+            save(wantToWatch, to: wantToWatchURL)
+            save(watched, to: watchedURL)
+            save(liked, to: likedURL)
+            
+            await SupabaseService.shared.updateLastSyncTime()
+            objectWillChange.send()
+        } catch {
+            lastSyncError = error.localizedDescription
+            print("Download failed: \(error)")
+        }
+        
+        isSyncing = false
+    }
+    
+    /// Sync individual item add to cloud (background)
+    private func syncAddToCloud(_ item: SavedMediaItem, listType: SyncListType) {
+        guard cloudSyncEnabled && isCloudConfigured else { return }
+        
+        Task {
+            do {
+                try await SupabaseService.shared.addItem(item, listType: listType)
+            } catch {
+                print("Cloud sync add failed: \(error)")
+            }
+        }
+    }
+    
+    /// Sync individual item remove from cloud (background)
+    private func syncRemoveFromCloud(mediaId: Int, mediaType: MediaType, listType: SyncListType) {
+        guard cloudSyncEnabled && isCloudConfigured else { return }
+        
+        Task {
+            do {
+                try await SupabaseService.shared.removeItem(mediaId: mediaId, mediaType: mediaType, listType: listType)
+            } catch {
+                print("Cloud sync remove failed: \(error)")
+            }
         }
     }
     
