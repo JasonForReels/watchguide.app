@@ -146,17 +146,24 @@ struct HeroSlideView: View {
     
     @State private var showTrailer = false
     @State private var trailerReady = false
+    @State private var trailerFailed = false
     
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             // Video or Backdrop
-            if showTrailer, let trailer = trailer, autoPlayEnabled && isCurrentSlide {
+            if showTrailer && !trailerFailed, let trailer = trailer, autoPlayEnabled && isCurrentSlide {
                 YouTubePlayerView(
                     videoKey: trailer.key,
                     autoPlay: true,
                     isMuted: true,
                     onReady: {
                         trailerReady = true
+                    },
+                    onError: { error in
+                        print("Trailer error: \(error)")
+                        trailerFailed = true
+                        showTrailer = false
+                        isPlayingTrailer = false
                     }
                 )
                 .frame(width: width, height: 400)
@@ -195,7 +202,7 @@ struct HeroSlideView: View {
             
             // Gradient overlay (lighter when video is playing)
             LinearGradient(
-                colors: [.clear, .black.opacity(showTrailer ? 0.5 : 0.7), .black.opacity(showTrailer ? 0.7 : 0.9)],
+                colors: [.clear, .black.opacity(showTrailer && !trailerFailed ? 0.5 : 0.7), .black.opacity(showTrailer && !trailerFailed ? 0.7 : 0.9)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -215,8 +222,8 @@ struct HeroSlideView: View {
                     
                     Spacer()
                     
-                    // Trailer indicator / toggle
-                    if trailer != nil && autoPlayEnabled {
+                    // Trailer indicator / toggle (hide if trailer failed)
+                    if trailer != nil && autoPlayEnabled && !trailerFailed {
                         Button {
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 showTrailer.toggle()
@@ -267,7 +274,7 @@ struct HeroSlideView: View {
                 .font(.subheadline)
                 
                 // Overview (hide when trailer is playing)
-                if !showTrailer, let overview = item.overview, !overview.isEmpty {
+                if !showTrailer || trailerFailed, let overview = item.overview, !overview.isEmpty {
                     Text(overview)
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.8))
@@ -281,10 +288,10 @@ struct HeroSlideView: View {
             if !newValue {
                 // Stop trailer when sliding away
                 showTrailer = false
-            } else if autoPlayEnabled && trailer != nil {
+            } else if autoPlayEnabled && trailer != nil && !trailerFailed {
                 // Auto-start trailer when sliding to this item (with delay)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    if isCurrentSlide {
+                    if isCurrentSlide && !trailerFailed {
                         withAnimation(.easeInOut(duration: 0.3)) {
                             showTrailer = true
                             isPlayingTrailer = true
@@ -294,10 +301,13 @@ struct HeroSlideView: View {
             }
         }
         .onAppear {
+            // Reset failed state when appearing
+            trailerFailed = false
+            
             // Start trailer if this is the first slide and autoplay is enabled
             if isCurrentSlide && autoPlayEnabled && trailer != nil {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    if isCurrentSlide {
+                    if isCurrentSlide && !trailerFailed {
                         withAnimation(.easeInOut(duration: 0.3)) {
                             showTrailer = true
                             isPlayingTrailer = true
@@ -321,6 +331,7 @@ struct YouTubePlayerView: UIViewRepresentable {
         let contentController = WKUserContentController()
         contentController.add(context.coordinator, name: "playerReady")
         contentController.add(context.coordinator, name: "playerError")
+        contentController.add(context.coordinator, name: "playerStateChange")
         
         let preferences = WKWebpagePreferences()
         preferences.allowsContentJavaScript = true
@@ -352,7 +363,7 @@ struct YouTubePlayerView: UIViewRepresentable {
         let muteParam = isMuted ? 1 : 0
         let autoPlayParam = autoPlay ? 1 : 0
         
-        // Use embed URL approach which is more reliable
+        // Use YouTube IFrame Player API with proper error handling
         let html = """
         <!DOCTYPE html>
         <html>
@@ -361,34 +372,81 @@ struct YouTubePlayerView: UIViewRepresentable {
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
-                .video-container { position: relative; width: 100%; height: 100%; }
-                iframe { position: absolute; top: 50%; left: 50%; width: 177.78vh; height: 100vh; min-width: 100%; min-height: 56.25vw; transform: translate(-50%, -50%); border: none; }
+                #player { position: absolute; top: 50%; left: 50%; width: 177.78vh; height: 100vh; min-width: 100%; min-height: 56.25vw; transform: translate(-50%, -50%); }
+                .error-container { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: #fff; justify-content: center; align-items: center; flex-direction: column; }
+                .error-container.show { display: flex; }
             </style>
         </head>
         <body>
-            <div class="video-container">
-                <iframe 
-                    id="player"
-                    src="https://www.youtube.com/embed/\(videoKey)?autoplay=\(autoPlayParam)&mute=\(muteParam)&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1&loop=1&playlist=\(videoKey)&enablejsapi=1"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowfullscreen>
-                </iframe>
+            <div id="player"></div>
+            <div id="error" class="error-container">
+                <p>Trailer unavailable</p>
             </div>
             <script>
-                // Notify when loaded
-                document.getElementById('player').onload = function() {
-                    try {
-                        window.webkit.messageHandlers.playerReady.postMessage('ready');
-                    } catch(e) {}
-                };
+                var tag = document.createElement('script');
+                tag.src = "https://www.youtube.com/iframe_api";
+                var firstScriptTag = document.getElementsByTagName('script')[0];
+                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
                 
-                // Handle errors
-                window.onerror = function(msg, url, line) {
+                var player;
+                var hasError = false;
+                
+                function onYouTubeIframeAPIReady() {
+                    player = new YT.Player('player', {
+                        videoId: '\(videoKey)',
+                        playerVars: {
+                            'autoplay': \(autoPlayParam),
+                            'mute': \(muteParam),
+                            'controls': 0,
+                            'showinfo': 0,
+                            'rel': 0,
+                            'modestbranding': 1,
+                            'playsinline': 1,
+                            'loop': 1,
+                            'playlist': '\(videoKey)',
+                            'iv_load_policy': 3,
+                            'disablekb': 1,
+                            'fs': 0,
+                            'origin': 'https://www.youtube.com'
+                        },
+                        events: {
+                            'onReady': onPlayerReady,
+                            'onStateChange': onPlayerStateChange,
+                            'onError': onPlayerError
+                        }
+                    });
+                }
+                
+                function onPlayerReady(event) {
+                    if (!hasError) {
+                        try {
+                            window.webkit.messageHandlers.playerReady.postMessage('ready');
+                        } catch(e) {}
+                        if (\(autoPlayParam) === 1) {
+                            event.target.playVideo();
+                        }
+                    }
+                }
+                
+                function onPlayerStateChange(event) {
                     try {
-                        window.webkit.messageHandlers.playerError.postMessage(msg);
+                        window.webkit.messageHandlers.playerStateChange.postMessage(event.data);
                     } catch(e) {}
-                    return true;
-                };
+                    // Loop video when ended
+                    if (event.data === YT.PlayerState.ENDED) {
+                        event.target.seekTo(0);
+                        event.target.playVideo();
+                    }
+                }
+                
+                function onPlayerError(event) {
+                    hasError = true;
+                    document.getElementById('player').style.display = 'none';
+                    document.getElementById('error').classList.add('show');
+                    try {
+                        window.webkit.messageHandlers.playerError.postMessage('Error: ' + event.data);
+                    } catch(e) {}
+                }
             </script>
         </body>
         </html>
@@ -417,10 +475,11 @@ struct YouTubePlayerView: UIViewRepresentable {
             } else if message.name == "playerError", let errorMsg = message.body as? String {
                 onError?(errorMsg)
             }
+            // playerStateChange can be used for debugging if needed
         }
         
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            onReady?()
+            // Don't call onReady here - wait for YouTube API callback
         }
         
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
