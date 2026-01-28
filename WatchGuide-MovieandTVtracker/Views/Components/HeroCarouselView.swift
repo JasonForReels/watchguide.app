@@ -121,18 +121,8 @@ struct HeroCarouselView: View {
                         videos = try await TMDBService.shared.getTVShowVideos(id: item.id)
                     }
                     
-                    // Find the best trailer (official trailer preferred)
-                    let trailer = videos.results
-                        .filter { $0.site.lowercased() == "youtube" && ($0.type == "Trailer" || $0.type == "Teaser") }
-                        .sorted { v1, v2 in
-                            // Prefer official trailers
-                            if v1.official == true && v2.official != true { return true }
-                            if v2.official == true && v1.official != true { return false }
-                            // Then prefer "Trailer" over "Teaser"
-                            if v1.type == "Trailer" && v2.type != "Trailer" { return true }
-                            return false
-                        }
-                        .first
+                    // Find the best trailer (official trailer preferred, exclude teasers/final trailers)
+                    let trailer = selectBestOfficialTrailer(from: videos.results)
                     
                     if let trailer = trailer {
                         await MainActor.run {
@@ -144,6 +134,66 @@ struct HeroCarouselView: View {
                 }
             }
         }
+    }
+    
+    private func selectBestOfficialTrailer(from videos: [Video]) -> Video? {
+        // Filter to only YouTube trailers (excluding teasers)
+        let trailers = videos.filter {
+            $0.site.lowercased() == "youtube" &&
+            $0.type == "Trailer"
+        }
+        
+        guard !trailers.isEmpty else { return nil }
+        
+        // Keywords that indicate this is NOT a standard "Official Trailer"
+        let excludeKeywords = ["final", "teaser", "tv spot", "featurette", "clip", "behind", "making of", "interview", "red band"]
+        
+        // Keywords that indicate this IS an official trailer we want
+        let preferKeywords = ["official trailer", "theatrical trailer", "main trailer"]
+        
+        // Score and sort trailers
+        let scored = trailers.map { video -> (video: Video, score: Int) in
+            var score = 0
+            let nameLower = video.name.lowercased()
+            
+            // Strong preference for official trailers
+            if video.official == true {
+                score += 100
+            }
+            
+            // Boost for preferred keywords
+            for keyword in preferKeywords {
+                if nameLower.contains(keyword) {
+                    score += 50
+                    break
+                }
+            }
+            
+            // Penalize excluded keywords (final trailer, teaser, etc.)
+            for keyword in excludeKeywords {
+                if nameLower.contains(keyword) {
+                    score -= 200
+                    break
+                }
+            }
+            
+            // Simple "trailer" in name is good
+            if nameLower.contains("trailer") && !nameLower.contains("teaser") {
+                score += 20
+            }
+            
+            // Numbered trailers (Trailer 2, Trailer 3) get lower priority
+            if nameLower.contains("trailer 2") || nameLower.contains("trailer 3") || nameLower.contains("trailer #2") || nameLower.contains("trailer #3") {
+                score -= 30
+            }
+            
+            return (video, score)
+        }
+        
+        // Sort by score descending
+        let sorted = scored.sorted { $0.score > $1.score }
+        
+        return sorted.first?.video
     }
 }
 

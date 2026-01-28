@@ -202,32 +202,73 @@ actor AIService {
     }
     
     private func selectBestTrailer(from videos: [Video], preferFirst: Bool) -> Video? {
+        // Filter to only YouTube trailers (excluding teasers, final trailers, etc.)
         let trailers = videos.filter {
             $0.site.lowercased() == "youtube" &&
-            ($0.type == "Trailer" || $0.type == "Teaser")
+            $0.type == "Trailer"
         }
         
         guard !trailers.isEmpty else { return nil }
         
-        // Sort by preference
-        let sorted = trailers.sorted { v1, v2 in
-            // Prefer official trailers
-            if v1.official == true && v2.official != true { return true }
-            if v2.official == true && v1.official != true { return false }
+        // Keywords that indicate this is NOT a standard "Official Trailer"
+        let excludeKeywords = ["final", "teaser", "tv spot", "featurette", "clip", "behind", "making of", "interview", "red band"]
+        
+        // Keywords that indicate this IS an official trailer we want
+        let preferKeywords = ["official trailer", "theatrical trailer", "main trailer"]
+        
+        // Score and sort trailers
+        let scored = trailers.map { video -> (video: Video, score: Int) in
+            var score = 0
+            let nameLower = video.name.lowercased()
             
-            // Prefer "Trailer" over "Teaser"
-            if v1.type == "Trailer" && v2.type != "Trailer" { return true }
-            if v2.type == "Trailer" && v1.type != "Trailer" { return false }
-            
-            // If preferFirst, sort by published date ascending (oldest first)
-            if preferFirst, let date1 = v1.publishedAt, let date2 = v2.publishedAt {
-                return date1 < date2
+            // Strong preference for official trailers
+            if video.official == true {
+                score += 100
             }
             
+            // Boost for preferred keywords
+            for keyword in preferKeywords {
+                if nameLower.contains(keyword) {
+                    score += 50
+                    break
+                }
+            }
+            
+            // Penalize excluded keywords (final trailer, teaser, etc.)
+            for keyword in excludeKeywords {
+                if nameLower.contains(keyword) {
+                    score -= 200
+                    break
+                }
+            }
+            
+            // Simple "trailer" in name is good
+            if nameLower.contains("trailer") && !nameLower.contains("teaser") {
+                score += 20
+            }
+            
+            // Numbered trailers (Trailer 2, Trailer 3) get lower priority than first/main
+            if nameLower.contains("trailer 2") || nameLower.contains("trailer 3") || nameLower.contains("trailer #2") || nameLower.contains("trailer #3") {
+                score -= 30
+            }
+            
+            return (video, score)
+        }
+        
+        // Sort by score descending, then by date
+        let sorted = scored.sorted { item1, item2 in
+            if item1.score != item2.score {
+                return item1.score > item2.score
+            }
+            // If scores equal and preferFirst, sort by date ascending (oldest first)
+            if preferFirst, let date1 = item1.video.publishedAt, let date2 = item2.video.publishedAt {
+                return date1 < date2
+            }
             return false
         }
         
-        return preferFirst ? sorted.last : sorted.first
+        // Return the best scoring trailer
+        return sorted.first?.video
     }
     
     private func composeTrailerSummary(title: String, year: String, trailerName: String, overview: String?) -> String {
