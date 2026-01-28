@@ -384,8 +384,8 @@ struct YouTubePlayerView: UIViewRepresentable {
         let muteParam = isMuted ? 1 : 0
         let autoPlayParam = autoPlay ? 1 : 0
         
-        // Use piped.video proxy to bypass YouTube embedding restrictions (error 150/153)
-        // Piped is a privacy-focused YouTube proxy that allows embedding without restrictions
+        // Use Invidious proxy (inv.nadeko.net) which reliably bypasses YouTube embedding restrictions
+        // Invidious is an open-source alternative YouTube frontend that allows unrestricted embedding
         let html = """
         <!DOCTYPE html>
         <html>
@@ -395,16 +395,23 @@ struct YouTubePlayerView: UIViewRepresentable {
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
                 #player-container { position: absolute; top: 50%; left: 50%; width: 177.78vh; height: 100vh; min-width: 100%; min-height: 56.25vw; transform: translate(-50%, -50%); }
-                #player { width: 100%; height: 100%; border: none; }
-                .error-container { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: #fff; justify-content: center; align-items: center; flex-direction: column; }
+                #player { width: 100%; height: 100%; border: none; background: #000; }
+                .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+                .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 10px; }
+                @keyframes spin { to { transform: rotate(360deg); } }
+                .error-container { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: #fff; justify-content: center; align-items: center; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
                 .error-container.show { display: flex; }
             </style>
         </head>
         <body>
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <div>Loading trailer...</div>
+            </div>
             <div id="player-container">
                 <iframe id="player" 
-                    src="https://piped.video/embed/\(videoKey)?autoplay=\(autoPlayParam)&muted=\(muteParam)&loop=0&controls=0" 
-                    allow="autoplay; fullscreen; picture-in-picture" 
+                    src="https://inv.nadeko.net/embed/\(videoKey)?autoplay=\(autoPlayParam)&mute=\(muteParam)&quality=hd720&local=true" 
+                    allow="autoplay; fullscreen; picture-in-picture; encrypted-media" 
                     allowfullscreen>
                 </iframe>
             </div>
@@ -414,37 +421,42 @@ struct YouTubePlayerView: UIViewRepresentable {
             <script>
                 var hasNotifiedReady = false;
                 var hasEnded = false;
+                var loadTimeout;
                 
-                // Notify ready after iframe loads
+                // Hide loading when iframe loads
                 document.getElementById('player').onload = function() {
+                    document.getElementById('loading').style.display = 'none';
                     if (!hasNotifiedReady) {
                         hasNotifiedReady = true;
                         try {
                             window.webkit.messageHandlers.playerReady.postMessage('ready');
                         } catch(e) {}
                     }
+                    clearTimeout(loadTimeout);
                 };
                 
                 document.getElementById('player').onerror = function() {
                     document.getElementById('player-container').style.display = 'none';
+                    document.getElementById('loading').style.display = 'none';
                     document.getElementById('error').classList.add('show');
                     try {
                         window.webkit.messageHandlers.playerError.postMessage('Error loading video');
                     } catch(e) {}
                 };
                 
-                // Fallback: notify ready after a short delay
-                setTimeout(function() {
+                // Timeout for loading - if not loaded in 8 seconds, show error
+                loadTimeout = setTimeout(function() {
                     if (!hasNotifiedReady) {
+                        // Try to notify ready anyway - video might be playing
                         hasNotifiedReady = true;
+                        document.getElementById('loading').style.display = 'none';
                         try {
                             window.webkit.messageHandlers.playerReady.postMessage('ready');
                         } catch(e) {}
                     }
-                }, 2000);
+                }, 8000);
                 
                 // Estimate video end based on typical trailer length (2-3 minutes)
-                // This is a fallback since we can't directly communicate with piped iframe
                 setTimeout(function() {
                     if (!hasEnded) {
                         hasEnded = true;
@@ -458,7 +470,7 @@ struct YouTubePlayerView: UIViewRepresentable {
         </html>
         """
         
-        webView.loadHTMLString(html, baseURL: URL(string: "https://piped.video"))
+        webView.loadHTMLString(html, baseURL: URL(string: "https://inv.nadeko.net"))
     }
     
     func makeCoordinator() -> Coordinator {
