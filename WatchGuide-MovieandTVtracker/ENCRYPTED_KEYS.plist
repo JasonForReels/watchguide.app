@@ -2,5 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>MDBLIST_CLIENT_ID</key>
+	<string>6EZ3dMCsZaiHLvm+2yyzYjFfaT4PtXUWE+2FLr0xMW24MOR3Vnb1i3CSO8bn/gLpLx95STlzBZayapwZQKYrNEDRPvc=</string>
+	<key>MDBLIST_CLIENT_SECRET</key>
+	<string>VS0W5Dy4di02hqiusuozrS95NDqeFo9C7n2XOrHkl3qSTvgWNW7Vc/Y/HjwvCFxUTeyLHvGTLe27PTeqk27lcQEIkGKIGmXexunOQRRvxnMVVZmOrHF9ih/sAFiO3l39iXWH3whVVjMRKBHsgwx3BF2umNYPYhJ75F/5iaCbPqoyxYCt/NKIGzHLFKjPskpwP3mRSDNRpGbMw/B5</string>
+	<key>OMDB_API_KEY</key>
+	<string>CuutpcsCzKWtTJ5VurXTHOSyuq0xPQtOSZtBR8fC78DbAdWm</string>
+	<key>TMDB_API_KEY</key>
+	<string>3+F51e6dW56QARppsG/hMQ2o9zzc6eeykd3oOMGi4dV6UXx++rZdGK8+ew9WMQwlEI6fpJiQTzvRScpa</string>
 </dict>
 </plist>
