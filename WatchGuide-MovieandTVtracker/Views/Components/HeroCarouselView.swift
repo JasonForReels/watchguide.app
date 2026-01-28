@@ -160,13 +160,23 @@ struct HeroSlideView: View {
     @State private var showTrailer = false
     @State private var trailerReady = false
     @State private var trailerFailed = false
+    @State private var trailerKey: String = ""
+    
+    private var shouldShowTrailer: Bool {
+        showTrailer && !trailerFailed && trailer != nil && autoPlayEnabled && isCurrentSlide && !trailerKey.isEmpty
+    }
     
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // Video or Backdrop
-            if showTrailer && !trailerFailed, let trailer = trailer, autoPlayEnabled && isCurrentSlide {
+            // Always show backdrop first as base layer
+            backdropView
+                .frame(width: width, height: 400)
+                .clipped()
+            
+            // Video overlay (only when ready and valid)
+            if shouldShowTrailer {
                 YouTubePlayerView(
-                    videoKey: trailer.key,
+                    videoKey: trailerKey,
                     autoPlay: true,
                     isMuted: false,
                     onReady: {
@@ -174,54 +184,29 @@ struct HeroSlideView: View {
                     },
                     onError: { error in
                         print("Trailer error: \(error)")
-                        trailerFailed = true
-                        showTrailer = false
-                        isPlayingTrailer = false
+                        DispatchQueue.main.async {
+                            trailerFailed = true
+                            showTrailer = false
+                            isPlayingTrailer = false
+                        }
                     },
                     onEnded: {
                         // Trailer finished playing, advance to next
-                        showTrailer = false
-                        isPlayingTrailer = false
-                        onTrailerEnded?()
+                        DispatchQueue.main.async {
+                            showTrailer = false
+                            isPlayingTrailer = false
+                            onTrailerEnded?()
+                        }
                     }
                 )
                 .frame(width: width, height: 400)
                 .clipped()
                 .transition(.opacity)
-            } else {
-                // Backdrop image
-                AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
-                    switch phase {
-                    case .empty:
-                        Rectangle()
-                            .fill(Color(.systemGray5))
-                            .overlay {
-                                ProgressView()
-                            }
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    case .failure:
-                        Rectangle()
-                            .fill(Color(.systemGray5))
-                            .overlay {
-                                Image(systemName: "film")
-                                    .font(.largeTitle)
-                                    .foregroundColor(.secondary)
-                            }
-                    @unknown default:
-                        Rectangle()
-                            .fill(Color(.systemGray5))
-                    }
-                }
-                .frame(width: width, height: 400)
-                .clipped()
             }
             
             // Gradient overlay (lighter when video is playing)
             LinearGradient(
-                colors: [.clear, .black.opacity(showTrailer && !trailerFailed ? 0.5 : 0.7), .black.opacity(showTrailer && !trailerFailed ? 0.7 : 0.9)],
+                colors: [.clear, .black.opacity(shouldShowTrailer ? 0.5 : 0.7), .black.opacity(shouldShowTrailer ? 0.7 : 0.9)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -244,10 +229,7 @@ struct HeroSlideView: View {
                     // Trailer play button (hide if already playing or failed)
                     if trailer != nil && autoPlayEnabled && !trailerFailed && !showTrailer {
                         Button {
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                showTrailer = true
-                                isPlayingTrailer = true
-                            }
+                            startTrailer()
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "play.fill")
@@ -293,7 +275,7 @@ struct HeroSlideView: View {
                 .font(.subheadline)
                 
                 // Overview (hide when trailer is playing)
-                if !showTrailer || trailerFailed, let overview = item.overview, !overview.isEmpty {
+                if !shouldShowTrailer, let overview = item.overview, !overview.isEmpty {
                     Text(overview)
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.8))
@@ -306,35 +288,84 @@ struct HeroSlideView: View {
         .onChange(of: isCurrentSlide) { _, newValue in
             if !newValue {
                 // Stop trailer when sliding away
-                showTrailer = false
+                stopTrailer()
             } else if autoPlayEnabled && trailer != nil && !trailerFailed {
                 // Auto-start trailer when sliding to this item (with delay)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     if isCurrentSlide && !trailerFailed {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            showTrailer = true
-                            isPlayingTrailer = true
-                        }
+                        startTrailer()
                     }
                 }
             }
         }
         .onAppear {
-            // Reset failed state when appearing
+            // Reset states when appearing
             trailerFailed = false
+            trailerReady = false
+            trailerKey = ""
             
             // Start trailer if this is the first slide and autoplay is enabled
             if isCurrentSlide && autoPlayEnabled && trailer != nil {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                     if isCurrentSlide && !trailerFailed {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            showTrailer = true
-                            isPlayingTrailer = true
-                        }
+                        startTrailer()
                     }
                 }
             }
         }
+        .onDisappear {
+            stopTrailer()
+        }
+    }
+    
+    // MARK: - Backdrop View
+    @ViewBuilder
+    private var backdropView: some View {
+        AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
+            switch phase {
+            case .empty:
+                Rectangle()
+                    .fill(Color(.systemGray5))
+                    .overlay {
+                        ProgressView()
+                    }
+            case .success(let image):
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            case .failure:
+                Rectangle()
+                    .fill(Color(.systemGray5))
+                    .overlay {
+                        Image(systemName: "film")
+                            .font(.largeTitle)
+                            .foregroundColor(.secondary)
+                    }
+            @unknown default:
+                Rectangle()
+                    .fill(Color(.systemGray5))
+            }
+        }
+    }
+    
+    // MARK: - Helper Methods
+    private func startTrailer() {
+        guard let trailer = trailer, !trailer.key.isEmpty else {
+            trailerFailed = true
+            return
+        }
+        
+        withAnimation(.easeInOut(duration: 0.3)) {
+            trailerKey = trailer.key
+            showTrailer = true
+            isPlayingTrailer = true
+        }
+    }
+    
+    private func stopTrailer() {
+        showTrailer = false
+        trailerReady = false
+        trailerKey = ""
     }
 }
 
@@ -387,11 +418,20 @@ struct YouTubePlayerView: UIViewRepresentable {
     }
     
     func updateUIView(_ webView: WKWebView, context: Context) {
+        // Validate video key before loading
+        guard !videoKey.isEmpty else {
+            DispatchQueue.main.async {
+                self.onError?("Invalid video key")
+            }
+            return
+        }
+        
         // Only load if video key changed
         guard context.coordinator.currentVideoKey != videoKey else { return }
         context.coordinator.currentVideoKey = videoKey
         context.coordinator.currentProxyIndex = 0
         context.coordinator.webView = webView
+        context.coordinator.hasErrored = false
         
         loadWithProxy(webView: webView, proxyIndex: 0, context: context)
     }
@@ -400,6 +440,8 @@ struct YouTubePlayerView: UIViewRepresentable {
         let muteParam = isMuted ? 1 : 0
         let autoPlayParam = autoPlay ? 1 : 0
         
+        // Sanitize video key to prevent injection
+        let sanitizedKey = videoKey.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? videoKey
         let proxiesJSON = Self.proxyURLs.map { "\"\($0)\"" }.joined(separator: ",")
         
         let html = """
@@ -412,10 +454,10 @@ struct YouTubePlayerView: UIViewRepresentable {
                 html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
                 #player-container { position: absolute; top: 50%; left: 50%; width: 177.78vh; height: 100vh; min-width: 100%; min-height: 56.25vw; transform: translate(-50%, -50%); }
                 #player { width: 100%; height: 100%; border: none; background: #000; }
-                .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; text-align: center; }
+                .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; text-align: center; z-index: 10; }
                 .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 10px; }
                 @keyframes spin { to { transform: rotate(360deg); } }
-                .error-container { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: #fff; justify-content: center; align-items: center; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+                .error-container { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: #fff; justify-content: center; align-items: center; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, sans-serif; z-index: 20; }
                 .error-container.show { display: flex; }
                 .proxy-status { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 8px; }
             </style>
@@ -435,27 +477,44 @@ struct YouTubePlayerView: UIViewRepresentable {
             <script>
                 var proxies = [\(proxiesJSON)];
                 var currentProxyIndex = \(proxyIndex);
-                var videoKey = '\(videoKey)';
+                var videoKey = '\(sanitizedKey)';
                 var autoPlay = \(autoPlayParam);
                 var mute = \(muteParam);
                 var hasNotifiedReady = false;
+                var hasNotifiedError = false;
                 var hasEnded = false;
                 var loadTimeout;
                 var proxyTimeout;
                 
                 function updateStatus(msg) {
-                    document.getElementById('proxy-status').textContent = msg;
+                    var el = document.getElementById('proxy-status');
+                    if (el) el.textContent = msg;
+                }
+                
+                function showError(msg) {
+                    if (hasNotifiedError) return;
+                    hasNotifiedError = true;
+                    
+                    var playerContainer = document.getElementById('player-container');
+                    var loading = document.getElementById('loading');
+                    var error = document.getElementById('error');
+                    
+                    if (playerContainer) playerContainer.style.display = 'none';
+                    if (loading) loading.style.display = 'none';
+                    if (error) error.classList.add('show');
+                    
+                    try {
+                        window.webkit.messageHandlers.playerError.postMessage(msg || 'Unknown error');
+                    } catch(e) {
+                        console.error('Failed to send error message:', e);
+                    }
                 }
                 
                 function tryProxy(index) {
+                    if (hasNotifiedError) return;
+                    
                     if (index >= proxies.length) {
-                        // All proxies failed
-                        document.getElementById('player-container').style.display = 'none';
-                        document.getElementById('loading').style.display = 'none';
-                        document.getElementById('error').classList.add('show');
-                        try {
-                            window.webkit.messageHandlers.playerError.postMessage('All proxies failed');
-                        } catch(e) {}
+                        showError('All proxies failed');
                         return;
                     }
                     
@@ -464,55 +523,70 @@ struct YouTubePlayerView: UIViewRepresentable {
                     updateStatus('Trying server ' + (index + 1) + '/' + proxies.length + '...');
                     
                     var player = document.getElementById('player');
-                    player.src = proxy + '/embed/' + videoKey + '?autoplay=' + autoPlay + '&mute=' + mute + '&quality=hd720&local=true';
+                    if (!player) {
+                        showError('Player element not found');
+                        return;
+                    }
                     
-                    // Set timeout for this proxy - if no load in 6 seconds, try next
+                    try {
+                        player.src = proxy + '/embed/' + videoKey + '?autoplay=' + autoPlay + '&mute=' + mute + '&quality=hd720&local=true';
+                    } catch(e) {
+                        console.error('Failed to set player src:', e);
+                        tryProxy(index + 1);
+                        return;
+                    }
+                    
+                    // Set timeout for this proxy - if no load in 8 seconds, try next
                     clearTimeout(proxyTimeout);
                     proxyTimeout = setTimeout(function() {
-                        if (!hasNotifiedReady) {
+                        if (!hasNotifiedReady && !hasNotifiedError) {
                             console.log('Proxy ' + index + ' timed out, trying next...');
                             tryProxy(index + 1);
                         }
-                    }, 6000);
+                    }, 8000);
                 }
                 
-                document.getElementById('player').onload = function() {
-                    clearTimeout(proxyTimeout);
-                    document.getElementById('loading').style.display = 'none';
-                    if (!hasNotifiedReady) {
-                        hasNotifiedReady = true;
-                        try {
-                            window.webkit.messageHandlers.playerReady.postMessage('ready');
-                        } catch(e) {}
-                    }
-                    clearTimeout(loadTimeout);
-                };
+                var player = document.getElementById('player');
+                if (player) {
+                    player.onload = function() {
+                        clearTimeout(proxyTimeout);
+                        var loading = document.getElementById('loading');
+                        if (loading) loading.style.display = 'none';
+                        
+                        if (!hasNotifiedReady && !hasNotifiedError) {
+                            hasNotifiedReady = true;
+                            try {
+                                window.webkit.messageHandlers.playerReady.postMessage('ready');
+                            } catch(e) {
+                                console.error('Failed to send ready message:', e);
+                            }
+                        }
+                        clearTimeout(loadTimeout);
+                    };
+                    
+                    player.onerror = function(e) {
+                        clearTimeout(proxyTimeout);
+                        console.error('Player error:', e);
+                        tryProxy(currentProxyIndex + 1);
+                    };
+                }
                 
-                document.getElementById('player').onerror = function() {
-                    clearTimeout(proxyTimeout);
-                    // Try next proxy
-                    tryProxy(currentProxyIndex + 1);
-                };
-                
-                // Overall timeout - if nothing works in 30 seconds, give up
+                // Overall timeout - if nothing works in 25 seconds, give up
                 loadTimeout = setTimeout(function() {
-                    if (!hasNotifiedReady) {
-                        document.getElementById('player-container').style.display = 'none';
-                        document.getElementById('loading').style.display = 'none';
-                        document.getElementById('error').classList.add('show');
-                        try {
-                            window.webkit.messageHandlers.playerError.postMessage('Timeout');
-                        } catch(e) {}
+                    if (!hasNotifiedReady && !hasNotifiedError) {
+                        showError('Timeout');
                     }
-                }, 30000);
+                }, 25000);
                 
-                // Estimate video end based on typical trailer length (2-3 minutes)
+                // Estimate video end based on typical trailer length (2.5 minutes)
                 setTimeout(function() {
-                    if (!hasEnded && hasNotifiedReady) {
+                    if (!hasEnded && hasNotifiedReady && !hasNotifiedError) {
                         hasEnded = true;
                         try {
                             window.webkit.messageHandlers.playerEnded.postMessage('ended');
-                        } catch(e) {}
+                        } catch(e) {
+                            console.error('Failed to send ended message:', e);
+                        }
                     }
                 }, 150000);
                 
@@ -534,6 +608,7 @@ struct YouTubePlayerView: UIViewRepresentable {
         var currentVideoKey: String?
         var currentProxyIndex: Int = 0
         var webView: WKWebView?
+        var hasErrored: Bool = false
         var onReady: (() -> Void)?
         var onError: ((String) -> Void)?
         var onEnded: (() -> Void)?
@@ -550,6 +625,8 @@ struct YouTubePlayerView: UIViewRepresentable {
                     self.onReady?()
                 }
             } else if message.name == "playerError", let errorMsg = message.body as? String {
+                guard !hasErrored else { return }
+                hasErrored = true
                 DispatchQueue.main.async {
                     self.onError?(errorMsg)
                 }
@@ -565,11 +642,19 @@ struct YouTubePlayerView: UIViewRepresentable {
         }
         
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            // Let JavaScript handle proxy fallback
+            guard !hasErrored else { return }
+            hasErrored = true
+            DispatchQueue.main.async {
+                self.onError?("Navigation failed: \(error.localizedDescription)")
+            }
         }
         
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            // Let JavaScript handle proxy fallback
+            guard !hasErrored else { return }
+            hasErrored = true
+            DispatchQueue.main.async {
+                self.onError?("Provisional navigation failed: \(error.localizedDescription)")
+            }
         }
     }
 }
