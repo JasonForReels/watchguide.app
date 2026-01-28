@@ -16,16 +16,6 @@ struct WatchProvidersView: View {
                 ProviderSection(title: "Stream", providers: flatrate)
             }
             
-            // Rent
-            if let rent = providers?.rent, !rent.isEmpty {
-                ProviderSection(title: "Rent", providers: rent)
-            }
-            
-            // Buy
-            if let buy = providers?.buy, !buy.isEmpty {
-                ProviderSection(title: "Buy", providers: buy)
-            }
-            
             // Free with ads
             if let ads = providers?.ads, !ads.isEmpty {
                 ProviderSection(title: "Free with Ads", providers: ads)

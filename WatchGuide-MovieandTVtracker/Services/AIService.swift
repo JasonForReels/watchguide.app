@@ -8,7 +8,7 @@ import Foundation
 actor AIService {
     static let shared = AIService()
     
-    // Poe API endpoint
+    // Poe API endpoint - using the correct format for Poe's bot API
     private let baseURL = "https://api.poe.com/bot/"
     
     private var apiKey: String {
@@ -68,7 +68,7 @@ actor AIService {
         Assistant:
         """
         
-        // Poe API request format
+        // Poe API request format - using gpt-4o-mini-search model
         let requestBody: [String: Any] = [
             "query": [
                 [
@@ -80,10 +80,10 @@ actor AIService {
             "conversation_id": UUID().uuidString
         ]
         
-        // Use Claude-instant on Poe (fast and free)
-        var request = URLRequest(url: URL(string: "\(baseURL)Claude-instant")!)
+        // Use gpt-4o-mini-search on Poe for web search capabilities
+        var request = URLRequest(url: URL(string: "\(baseURL)gpt-4o-mini-search")!)
         request.httpMethod = "POST"
-        request.addValue(apiKey, forHTTPHeaderField: "Authorization")
+        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         request.timeoutInterval = 60
