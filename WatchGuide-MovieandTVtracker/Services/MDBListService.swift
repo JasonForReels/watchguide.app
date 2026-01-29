@@ -82,12 +82,12 @@ actor MDBListService {
         // Store the verifier for later use during token exchange
         UserDefaults.standard.set(codeVerifier, forKey: pkceVerifierKey)
         
-        var components = URLComponents(string: "\(oauthBaseURL)/authorize/")
+        // MDBList OAuth authorize endpoint (without trailing slash)
+        var components = URLComponents(string: "\(oauthBaseURL)/authorize")
         components?.queryItems = [
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "redirect_uri", value: redirectURI),
             URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "scope", value: "read write"),
             URLQueryItem(name: "code_challenge", value: codeChallenge),
             URLQueryItem(name: "code_challenge_method", value: "S256")
         ]
@@ -96,12 +96,14 @@ actor MDBListService {
     
     /// Exchange authorization code for access token (with PKCE verifier)
     func exchangeCodeForToken(code: String) async throws {
-        guard let url = URL(string: "\(oauthBaseURL)/token/") else {
+        // MDBList OAuth token endpoint (without trailing slash)
+        guard let url = URL(string: "\(oauthBaseURL)/token") else {
             throw MDBListError.invalidURL
         }
         
         // Retrieve the stored code verifier
         guard let codeVerifier = UserDefaults.standard.string(forKey: pkceVerifierKey) else {
+            print("MDBList Error: No code verifier found")
             throw MDBListError.authenticationFailed
         }
         
@@ -109,16 +111,23 @@ actor MDBListService {
         request.httpMethod = "POST"
         request.addValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
-        let body = [
-            "grant_type": "authorization_code",
-            "code": code,
-            "client_id": clientId,
-            "client_secret": clientSecret,
-            "redirect_uri": redirectURI,
-            "code_verifier": codeVerifier
+        // Build form-encoded body - order matters for some OAuth servers
+        var bodyComponents = URLComponents()
+        bodyComponents.queryItems = [
+            URLQueryItem(name: "grant_type", value: "authorization_code"),
+            URLQueryItem(name: "code", value: code),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "client_secret", value: clientSecret),
+            URLQueryItem(name: "code_verifier", value: codeVerifier)
         ]
         
-        request.httpBody = body.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }.joined(separator: "&").data(using: .utf8)
+        // Get the query string without the leading "?"
+        request.httpBody = bodyComponents.query?.data(using: .utf8)
+        
+        // Debug logging for request
+        print("MDBList Token Request URL: \(url)")
+        print("MDBList Token Request Body: \(bodyComponents.query ?? "nil")")
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
@@ -135,6 +144,11 @@ actor MDBListService {
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
+            // Parse error response for more details
+            if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let errorDesc = errorJson["error_description"] as? String ?? errorJson["error"] as? String ?? "Unknown error"
+                print("MDBList OAuth Error: \(errorDesc)")
+            }
             throw MDBListError.authenticationFailed
         }
         
