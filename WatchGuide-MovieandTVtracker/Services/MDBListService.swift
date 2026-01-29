@@ -5,6 +5,7 @@
 
 import Foundation
 import AuthenticationServices
+import CryptoKit
 
 actor MDBListService {
     static let shared = MDBListService()
@@ -16,6 +17,9 @@ actor MDBListService {
     private let clientId = "XH4s24sCDpn4sH4yJm35l0Y4PTjGJJ0uxldubxKX"
     private let clientSecret = "8i0oYHEN5RauJdlMwWMIzBT7HviFGn3lLzGbjAM9OgbUNA3Cwc0VHtJjEybYIxY5WQ8LaXukT2Nr4Wd3ewgFPEx4k4weA1cqFuXjRQ6VxUB6YnbJmL0KHFEiygdMxC5w"
     private let redirectURI = "watchguide://oauth/callback"
+    
+    // PKCE storage key
+    private let pkceVerifierKey = "mdblist_pkce_verifier"
     
     private init() {}
     
@@ -43,24 +47,62 @@ actor MDBListService {
         !clientId.isEmpty && !clientSecret.isEmpty
     }
     
-    // MARK: - OAuth 2.0 Flow
+    // MARK: - PKCE Helper Methods
     
-    /// Generate the OAuth authorization URL (nonisolated for sync access from UI)
+    /// Generate a random code verifier for PKCE
+    private nonisolated func generateCodeVerifier() -> String {
+        var buffer = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, buffer.count, &buffer)
+        return Data(buffer).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+            .trimmingCharacters(in: .whitespaces)
+    }
+    
+    /// Generate code challenge from verifier using SHA256
+    private nonisolated func generateCodeChallenge(from verifier: String) -> String {
+        let data = Data(verifier.utf8)
+        let hash = SHA256.hash(data: data)
+        return Data(hash).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+            .trimmingCharacters(in: .whitespaces)
+    }
+    
+    // MARK: - OAuth 2.0 Flow with PKCE
+    
+    /// Generate the OAuth authorization URL with PKCE challenge (nonisolated for sync access from UI)
     nonisolated func getAuthorizationURL() -> URL? {
-        var components = URLComponents(string: "\(oauthBaseURL)/authorize")
+        // Generate PKCE code verifier and challenge
+        let codeVerifier = generateCodeVerifier()
+        let codeChallenge = generateCodeChallenge(from: codeVerifier)
+        
+        // Store the verifier for later use during token exchange
+        UserDefaults.standard.set(codeVerifier, forKey: pkceVerifierKey)
+        
+        var components = URLComponents(string: "\(oauthBaseURL)/authorize/")
         components?.queryItems = [
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "redirect_uri", value: redirectURI),
             URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "scope", value: "read write")
+            URLQueryItem(name: "scope", value: "read write"),
+            URLQueryItem(name: "code_challenge", value: codeChallenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256")
         ]
         return components?.url
     }
     
-    /// Exchange authorization code for access token
+    /// Exchange authorization code for access token (with PKCE verifier)
     func exchangeCodeForToken(code: String) async throws {
-        guard let url = URL(string: "\(oauthBaseURL)/token") else {
+        guard let url = URL(string: "\(oauthBaseURL)/token/") else {
             throw MDBListError.invalidURL
+        }
+        
+        // Retrieve the stored code verifier
+        guard let codeVerifier = UserDefaults.standard.string(forKey: pkceVerifierKey) else {
+            throw MDBListError.authenticationFailed
         }
         
         var request = URLRequest(url: url)
@@ -72,15 +114,27 @@ actor MDBListService {
             "code": code,
             "client_id": clientId,
             "client_secret": clientSecret,
-            "redirect_uri": redirectURI
+            "redirect_uri": redirectURI,
+            "code_verifier": codeVerifier
         ]
         
-        request.httpBody = body.map { "\($0.key)=\($0.value)" }.joined(separator: "&").data(using: .utf8)
+        request.httpBody = body.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }.joined(separator: "&").data(using: .utf8)
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
+        // Clear the stored verifier after use
+        UserDefaults.standard.removeObject(forKey: pkceVerifierKey)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw MDBListError.authenticationFailed
+        }
+        
+        // Debug logging
+        if let responseString = String(data: data, encoding: .utf8) {
+            print("MDBList Token Response (\(httpResponse.statusCode)): \(responseString)")
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
             throw MDBListError.authenticationFailed
         }
         
