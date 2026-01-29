@@ -10,13 +10,16 @@ import SwiftUI
 struct ContentView: View {
     @State private var selectedTab: Tab = .browse
     @State private var selectedMediaItem: MediaItem?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
-    enum Tab: String, CaseIterable {
+    enum Tab: String, CaseIterable, Identifiable {
         case browse = "Browse"
         case search = "Search"
         case lists = "Lists"
         case ai = "AI"
         case settings = "Settings"
+        
+        var id: String { rawValue }
         
         var iconName: String {
             switch self {
@@ -30,6 +33,22 @@ struct ContentView: View {
     }
     
     var body: some View {
+        Group {
+            if horizontalSizeClass == .regular {
+                // iPad: Use NavigationSplitView with sidebar
+                iPadLayout
+            } else {
+                // iPhone: Use TabView
+                iPhoneLayout
+            }
+        }
+        .sheet(item: $selectedMediaItem) { item in
+            MediaDetailView(item: item)
+        }
+    }
+    
+    // MARK: - iPhone Layout (TabView)
+    private var iPhoneLayout: some View {
         TabView(selection: $selectedTab) {
             BrowseView(selectedItem: $selectedMediaItem)
                 .tabItem {
@@ -62,8 +81,53 @@ struct ContentView: View {
                 .tag(Tab.settings)
         }
         .tint(.accentColor)
-        .sheet(item: $selectedMediaItem) { item in
-            MediaDetailView(item: item)
+    }
+    
+    // MARK: - iPad Layout (Sidebar Navigation)
+    private var iPadLayout: some View {
+        NavigationSplitView {
+            List {
+                ForEach(Tab.allCases) { tab in
+                    Button {
+                        selectedTab = tab
+                    } label: {
+                        Label(tab.rawValue, systemImage: tab.iconName)
+                            .foregroundColor(selectedTab == tab ? .accentColor : .primary)
+                    }
+                    .listRowBackground(
+                        selectedTab == tab 
+                            ? Color.accentColor.opacity(0.15) 
+                            : Color.clear
+                    )
+                }
+            }
+            .navigationTitle("WatchGuide")
+            .listStyle(.sidebar)
+        } detail: {
+            iPadDetailView
+        }
+        .tint(.accentColor)
+    }
+    
+    @ViewBuilder
+    private var iPadDetailView: some View {
+        switch selectedTab {
+        case .browse:
+            NavigationStack {
+                BrowseView(selectedItem: $selectedMediaItem)
+                    .navigationTitle("Browse")
+            }
+        case .search:
+            NavigationStack {
+                SearchView(selectedItem: $selectedMediaItem)
+                    .navigationTitle("Search")
+            }
+        case .lists:
+            ListsView()
+        case .ai:
+            AIRecommendView()
+        case .settings:
+            SettingsView()
         }
     }
 }
