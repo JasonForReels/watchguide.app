@@ -146,8 +146,16 @@ struct MediaDetailView: View {
     }
     
     // MARK: - Header Section
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    
+    private var headerHeight: CGFloat {
+        verticalSizeClass == .compact ? 250 : 350
+    }
+    
     private var headerSection: some View {
         GeometryReader { geometry in
+            let isCompact = verticalSizeClass == .compact
+            
             ZStack(alignment: .bottomLeading) {
                 // Backdrop
                 AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
@@ -161,7 +169,7 @@ struct MediaDetailView: View {
                             .fill(Color(.systemGray4))
                     }
                 }
-                .frame(width: geometry.size.width, height: 350)
+                .frame(width: geometry.size.width, height: headerHeight)
                 .clipped()
                 
                 // Gradient
@@ -172,14 +180,14 @@ struct MediaDetailView: View {
                 )
                 
                 // Content
-                HStack(alignment: .bottom, spacing: 16) {
+                HStack(alignment: .bottom, spacing: isCompact ? 12 : 16) {
                     // Poster
                     PosterImageView(posterPath: item.posterPath, size: .large)
-                        .frame(width: 110, height: 165)
+                        .frame(width: isCompact ? 80 : 110, height: isCompact ? 120 : 165)
                         .shadow(radius: 10)
                     
                     // Info
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
                         // Type badge
                         Text(item.resolvedMediaType == .movie ? "MOVIE" : "TV SHOW")
                             .font(.caption2)
@@ -192,10 +200,10 @@ struct MediaDetailView: View {
                         
                         // Title
                         Text(item.displayTitle)
-                            .font(.title2)
+                            .font(isCompact ? .title3 : .title2)
                             .fontWeight(.bold)
                             .foregroundColor(.white)
-                            .lineLimit(3)
+                            .lineLimit(isCompact ? 2 : 3)
                         
                         // Meta info
                         HStack(spacing: 12) {
@@ -227,11 +235,11 @@ struct MediaDetailView: View {
                         }
                     }
                 }
-                .padding()
-                .padding(.bottom, 8)
+                .padding(isCompact ? 12 : 16)
+                .padding(.bottom, isCompact ? 4 : 8)
             }
         }
-        .frame(height: 350)
+        .frame(height: headerHeight)
     }
     
     // MARK: - Seasons Section

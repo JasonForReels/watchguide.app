@@ -14,9 +14,15 @@ struct HeroCarouselView: View {
     @State private var timer: Timer?
     @State private var trailers: [Int: Video] = [:] // mediaId -> trailer
     @State private var isPlayingTrailer = false
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     
     private var autoPlayEnabled: Bool {
         StorageService.shared.settings.autoPlayTrailers
+    }
+    
+    // Adaptive height based on orientation
+    private var carouselHeight: CGFloat {
+        verticalSizeClass == .compact ? 280 : 400
     }
     
     var body: some View {
@@ -36,6 +42,7 @@ struct HeroCarouselView: View {
                         HeroSlideView(
                             item: item,
                             width: geometry.size.width,
+                            height: carouselHeight,
                             trailer: trailers[item.id],
                             isCurrentSlide: index == currentIndex,
                             autoPlayEnabled: autoPlayEnabled,
@@ -65,7 +72,7 @@ struct HeroCarouselView: View {
                 .padding(.bottom, 16)
             }
         }
-        .frame(height: 400)
+        .frame(height: carouselHeight)
         .onAppear {
             startAutoScroll()
             loadTrailers()
@@ -201,6 +208,7 @@ struct HeroCarouselView: View {
 struct HeroSlideView: View {
     let item: MediaItem
     let width: CGFloat
+    var height: CGFloat = 400
     let trailer: Video?
     let isCurrentSlide: Bool
     let autoPlayEnabled: Bool
@@ -211,16 +219,22 @@ struct HeroSlideView: View {
     @State private var trailerReady = false
     @State private var trailerFailed = false
     @State private var trailerKey: String = ""
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     
     private var shouldShowTrailer: Bool {
         showTrailer && !trailerFailed && trailer != nil && autoPlayEnabled && isCurrentSlide && !trailerKey.isEmpty
+    }
+    
+    // Compact layout for landscape
+    private var isCompactHeight: Bool {
+        verticalSizeClass == .compact
     }
     
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             // Always show backdrop first as base layer
             backdropView
-                .frame(width: width, height: 400)
+                .frame(width: width, height: height)
                 .clipped()
             
             // Video overlay (only when ready and valid)
@@ -249,7 +263,7 @@ struct HeroSlideView: View {
                         }
                     }
                 )
-                .frame(width: width, height: 400)
+                .frame(width: width, height: height)
                 .clipped()
                 .transition(.opacity)
             }
@@ -261,8 +275,8 @@ struct HeroSlideView: View {
                 endPoint: .bottom
             )
             
-            // Content
-            VStack(alignment: .leading, spacing: 12) {
+            // Content - adaptive layout for landscape
+            VStack(alignment: .leading, spacing: isCompactHeight ? 6 : 12) {
                 HStack {
                     // Media type badge
                     Text(item.resolvedMediaType == .movie ? "Movie" : "TV Show")
@@ -301,10 +315,10 @@ struct HeroSlideView: View {
                 
                 // Title
                 Text(item.displayTitle)
-                    .font(.title)
+                    .font(isCompactHeight ? .title2 : .title)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
-                    .lineLimit(2)
+                    .lineLimit(isCompactHeight ? 1 : 2)
                 
                 // Info row
                 HStack(spacing: 12) {
@@ -324,15 +338,15 @@ struct HeroSlideView: View {
                 }
                 .font(.subheadline)
                 
-                // Overview (hide when trailer is playing)
-                if !shouldShowTrailer, let overview = item.overview, !overview.isEmpty {
+                // Overview (hide when trailer is playing or in compact height)
+                if !shouldShowTrailer && !isCompactHeight, let overview = item.overview, !overview.isEmpty {
                     Text(overview)
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.8))
                         .lineLimit(2)
                 }
             }
-            .padding(24)
+            .padding(isCompactHeight ? 16 : 24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onChange(of: isCurrentSlide) { _, newValue in
