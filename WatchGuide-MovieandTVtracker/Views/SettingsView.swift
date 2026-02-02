@@ -1345,7 +1345,25 @@ struct MDBListExtensionView: View {
     private func toggleHomeDisplay(_ show: Bool) {
         if show {
             // Add to imported lists if not already there
-            if !storage.importedLists.contains(where: { $0.listId == listId }) {
+            if let existing = storage.importedLists.first(where: { $0.listId == listId }) {
+                // Update existing list
+                var updatedList = existing
+                updatedList.showOnHome = true
+                updatedList.items = items
+                updatedList.lastSynced = Date()
+                storage.updateImportedList(updatedList)
+                
+                // Add home row if not already present
+                if !storage.customHomeRows.contains(where: { $0.importedListId == existing.id }) {
+                    let homeRow = CustomHomeRow.importedListRow(
+                        name: listName,
+                        listId: existing.id,
+                        sortOrder: storage.customHomeRows.count
+                    )
+                    storage.addCustomHomeRow(homeRow)
+                }
+            } else {
+                // Create new list
                 var newList = ImportedListItem(
                     name: listName,
                     listId: listId,
@@ -1356,19 +1374,13 @@ struct MDBListExtensionView: View {
                 newList.lastSynced = Date()
                 storage.addImportedList(newList)
                 
-                // Add home row
+                // Add home row using the new list's UUID
                 let homeRow = CustomHomeRow.importedListRow(
                     name: listName,
                     listId: newList.id,
                     sortOrder: storage.customHomeRows.count
                 )
                 storage.addCustomHomeRow(homeRow)
-            } else {
-                // Update existing
-                if var existing = storage.importedLists.first(where: { $0.listId == listId }) {
-                    existing.showOnHome = true
-                    storage.updateImportedList(existing)
-                }
             }
         } else {
             // Remove from home but keep in imported lists

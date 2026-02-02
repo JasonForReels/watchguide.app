@@ -248,7 +248,8 @@ class BrowseViewModel: ObservableObject {
             switch customRow.rowType {
             case .importedList:
                 if let importedListId = customRow.importedListId,
-                   let importedList = StorageService.shared.importedLists.first(where: { $0.id == importedListId }) {
+                   let importedList = StorageService.shared.importedLists.first(where: { $0.id == importedListId }),
+                   !importedList.items.isEmpty {
                     // Convert SavedMediaItems to MediaItems
                     let items = importedList.items.map { saved -> MediaItem in
                         MediaItem(
@@ -275,7 +276,7 @@ class BrowseViewModel: ObservableObject {
                 }
                 
             case .customHub:
-                if let items = customRow.items {
+                if let items = customRow.items, !items.isEmpty {
                     let mediaItems = items.map { saved -> MediaItem in
                         MediaItem(
                             id: saved.mediaId,
