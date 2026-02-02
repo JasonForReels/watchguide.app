@@ -151,25 +151,31 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
-                    
-                    NavigationLink(destination: MDBListSettingsView()) {
+                } header: {
+                    Text("Integrations")
+                }
+                
+                // Extensions
+                Section {
+                    NavigationLink(destination: MDBListExtensionView()) {
                         HStack {
                             Image(systemName: "list.star")
                                 .foregroundColor(.purple)
                                 .frame(width: 24)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("MDBList")
-                                Text("Import lists with ratings & streaming info")
+                                Text("Curated comedy list")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
                             Spacer()
-                            Text("\(storage.importedLists.filter { $0.source == .mdblist }.count)")
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }
                 } header: {
-                    Text("Integrations")
+                    Text("Extensions")
                 }
                 
                 // Cloud Sync
@@ -258,6 +264,24 @@ struct SettingsView: View {
                     }
                 }
                 
+                // Community
+                Section {
+                    Link(destination: URL(string: "https://discord.watchguide.app")!) {
+                        HStack {
+                            Image(systemName: "bubble.left.and.bubble.right.fill")
+                                .foregroundColor(.indigo)
+                                .frame(width: 24)
+                            Text("Join our Discord")
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Community")
+                }
+                
                 // About
                 Section("About") {
                     HStack {
@@ -288,15 +312,6 @@ struct SettingsView: View {
                     Link(destination: URL(string: "https://publicmetadb.com/")!) {
                         HStack {
                             Text("Lists by PublicMetaDB")
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
-                                .font(.caption)
-                        }
-                    }
-                    
-                    Link(destination: URL(string: "https://mdblist.com/")!) {
-                        HStack {
-                            Text("Lists by MDBList")
                             Spacer()
                             Image(systemName: "arrow.up.right")
                                 .font(.caption)
@@ -1182,41 +1197,72 @@ struct SetupStepView: View {
     }
 }
 
-// MARK: - MDBList Settings View
-struct MDBListSettingsView: View {
+// MARK: - MDBList Extension View
+struct MDBListExtensionView: View {
+    @State private var items: [SavedMediaItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var showOnHome = false
     @ObservedObject private var storage = StorageService.shared
-    @State private var showAddList = false
-    @State private var errorMessage: String?
     
-    private var mdblistItems: [ImportedListItem] {
-        storage.importedLists.filter { $0.source == .mdblist }
-    }
+    // Hardcoded MDBList comedy list
+    private let listId = "garycrawfordgc/comedy"
+    private let listName = "Comedy Collection"
     
     var body: some View {
         List {
-            // Info Section
+            // Header Section
             Section {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "list.star")
+                            .font(.title2)
+                            .foregroundColor(.purple)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("MDBList Extension")
+                                .font(.headline)
+                            Text("Curated comedy movies & shows")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                     
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("MDBList Connected")
-                            .fontWeight(.medium)
-                        Text("Import lists with ratings & streaming info")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                    Link(destination: URL(string: "https://mdblist.com/lists/garycrawfordgc/comedy")!) {
+                        HStack {
+                            Text("View on MDBList")
+                                .font(.caption)
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption2)
+                        }
+                        .foregroundColor(.purple)
                     }
                 }
+                .padding(.vertical, 4)
             } header: {
-                Text("Status")
-            } footer: {
-                Text("MDBList provides access to curated lists with ratings from IMDb, TMDB, Trakt, and more")
+                Text("About")
             }
             
-            // Error message
-            if let error = errorMessage {
-                Section {
+            // Options
+            Section {
+                Toggle("Show on Home Screen", isOn: $showOnHome)
+                    .onChange(of: showOnHome) { _, newValue in
+                        toggleHomeDisplay(newValue)
+                    }
+            } header: {
+                Text("Options")
+            }
+            
+            // Content Preview
+            Section {
+                if isLoading {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .padding()
+                        Spacer()
+                    }
+                } else if let error = error {
                     HStack {
                         Image(systemName: "exclamationmark.triangle")
                             .foregroundColor(.orange)
@@ -1224,297 +1270,118 @@ struct MDBListSettingsView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                }
-            }
-            
-            // Imported Lists
-            if !mdblistItems.isEmpty {
-                Section("Imported Lists") {
-                    ForEach(mdblistItems) { list in
-                        MDBListRowView(list: list)
+                    
+                    Button("Retry") {
+                        Task { await loadList() }
                     }
-                    .onDelete { indexSet in
-                        let itemsToDelete = indexSet.map { mdblistItems[$0].id }
-                        for id in itemsToDelete {
-                            storage.deleteImportedList(id: id)
+                } else {
+                    ForEach(items.prefix(10)) { item in
+                        HStack(spacing: 12) {
+                            PosterImageView(posterPath: item.posterPath, size: .small)
+                                .frame(width: 50, height: 75)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.title)
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .lineLimit(2)
+                                
+                                HStack {
+                                    if let year = item.year {
+                                        Text(year)
+                                    }
+                                    if let rating = item.voteAverage, rating > 0 {
+                                        HStack(spacing: 2) {
+                                            Image(systemName: "star.fill")
+                                                .font(.caption2)
+                                                .foregroundColor(.yellow)
+                                            Text(String(format: "%.1f", rating))
+                                        }
+                                    }
+                                }
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            }
                         }
-                    }
-                }
-            }
-            
-            // Add List
-            Section {
-                Button {
-                    showAddList = true
-                } label: {
-                    Label("Add List by ID or URL", systemImage: "plus.circle")
-                }
-            }
-        }
-        .navigationTitle("MDBList")
-        .sheet(isPresented: $showAddList) {
-            AddMDBListSheet()
-        }
-    }
-}
-
-// MARK: - MDBList Row View
-struct MDBListRowView: View {
-    let list: ImportedListItem
-    @ObservedObject private var storage = StorageService.shared
-    
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(list.displayName)
-                    .fontWeight(.medium)
-                
-                HStack(spacing: 8) {
-                    Text("\(list.items.count) items")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    if list.showOnHome {
-                        Label("Home", systemImage: "house.fill")
-                            .font(.caption2)
-                            .foregroundColor(.purple)
+                        .padding(.vertical, 4)
                     }
                     
-                    if let synced = list.lastSynced {
-                        Text("Synced \(synced.formatted(.relative(presentation: .named)))")
-                            .font(.caption2)
+                    if items.count > 10 {
+                        Text("...and \(items.count - 10) more items")
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
+            } header: {
+                Text("Preview (\(items.count) items)")
             }
-            
-            Spacer()
-            
-            Toggle("", isOn: Binding(
-                get: { list.showOnHome },
-                set: { newValue in
-                    var updatedList = list
-                    updatedList.showOnHome = newValue
-                    storage.updateImportedList(updatedList)
-                }
-            ))
-            .labelsHidden()
         }
-    }
-}
-
-// MARK: - Add MDBList Sheet
-struct AddMDBListSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var storage = StorageService.shared
-    @State private var listIdOrURL = ""
-    @State private var customName = ""
-    @State private var showOnHome = true
-    @State private var isLoading = false
-    @State private var error: String?
-    @State private var previewItems: [MDBListItem] = []
-    @State private var listName: String = ""
-    
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("List ID or URL", text: $listIdOrURL)
-                        .textContentType(.URL)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .onChange(of: listIdOrURL) { _, _ in
-                            previewItems = []
-                            listName = ""
-                            error = nil
-                        }
-                    
-                    Button("Preview List") {
-                        Task { await previewList() }
-                    }
-                    .disabled(listIdOrURL.isEmpty || isLoading)
-                } header: {
-                    Text("MDBList ID or URL")
-                } footer: {
-                    Text("Enter the list ID (e.g., username/listname) or paste the full URL from mdblist.com")
-                }
-                
-                // Preview
-                if !previewItems.isEmpty {
-                    Section("Preview") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if !listName.isEmpty {
-                                Text(listName)
-                                    .font(.headline)
-                            }
-                            
-                            Text("\(previewItems.count) items found")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            
-                            // Show first few items
-                            ForEach(previewItems.prefix(3)) { item in
-                                HStack(spacing: 8) {
-                                    if let poster = item.poster, let url = URL(string: poster) {
-                                        AsyncImage(url: url) { phase in
-                                            switch phase {
-                                            case .success(let image):
-                                                image
-                                                    .resizable()
-                                                    .aspectRatio(contentMode: .fill)
-                                            default:
-                                                Rectangle()
-                                                    .fill(Color(.systemGray5))
-                                            }
-                                        }
-                                        .frame(width: 40, height: 60)
-                                        .cornerRadius(4)
-                                    }
-                                    
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(item.title ?? "Unknown")
-                                            .font(.subheadline)
-                                            .fontWeight(.medium)
-                                            .lineLimit(1)
-                                        
-                                        HStack {
-                                            if let year = item.year {
-                                                Text("\(year)")
-                                            }
-                                            if let score = item.scoreAverage ?? item.score {
-                                                HStack(spacing: 2) {
-                                                    Image(systemName: "star.fill")
-                                                        .font(.caption2)
-                                                        .foregroundColor(.yellow)
-                                                    Text(String(format: "%.1f", score))
-                                                }
-                                            }
-                                        }
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                    }
-                                }
-                            }
-                            
-                            if previewItems.count > 3 {
-                                Text("...and \(previewItems.count - 3) more")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    
-                    Section {
-                        TextField("Custom Name (optional)", text: $customName)
-                        
-                        Toggle("Show on Home Screen", isOn: $showOnHome)
-                    } header: {
-                        Text("Options")
-                    }
-                }
-                
-                if let error = error {
-                    Section {
-                        HStack {
-                            Image(systemName: "exclamationmark.triangle")
-                                .foregroundColor(.orange)
-                            Text(error)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Add MDBList")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        Task { await addList() }
-                    }
-                    .disabled(previewItems.isEmpty || isLoading)
-                }
-            }
-            .overlay {
-                if isLoading {
-                    ProgressView()
-                        .padding()
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-            }
+        .navigationTitle("MDBList")
+        .task {
+            await loadList()
+            checkHomeStatus()
         }
     }
     
-    private func previewList() async {
+    private func loadList() async {
         isLoading = true
         error = nil
         
-        let listId = MDBListService.shared.parseListId(from: listIdOrURL)
-        
         do {
-            let items = try await MDBListService.shared.getListItems(listId: listId)
-            previewItems = items
-            
-            // Try to extract list name from URL or use a default
-            if listIdOrURL.contains("/") {
-                let components = listId.split(separator: "/")
-                if components.count >= 2 {
-                    listName = String(components.last ?? "MDBList")
-                        .replacingOccurrences(of: "-", with: " ")
-                        .capitalized
-                }
-            } else {
-                listName = "MDBList"
-            }
+            items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
         } catch {
-            self.error = "Could not find list. Please check the ID or URL."
+            self.error = "Failed to load list. Please try again."
+            print("MDBList error: \(error)")
         }
         
         isLoading = false
     }
     
-    private func addList() async {
-        guard !previewItems.isEmpty else { return }
-        
-        isLoading = true
-        let listId = MDBListService.shared.parseListId(from: listIdOrURL)
-        
-        let finalName = customName.isEmpty ? listName : customName
-        var newList = ImportedListItem(
-            name: finalName,
-            listId: listId,
-            showOnHome: showOnHome,
-            source: .mdblist
-        )
-        
-        // Convert MDBListItems to SavedMediaItems
-        do {
-            newList.items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
-            newList.lastSynced = Date()
-        } catch {
-            print("Failed to fetch full list items: \(error)")
-            // Use preview items as fallback
-            newList.items = previewItems.compactMap { $0.toSavedMediaItem() }
-            newList.lastSynced = Date()
+    private func checkHomeStatus() {
+        // Check if this list is already added to home
+        showOnHome = storage.importedLists.contains { $0.listId == listId && $0.showOnHome }
+    }
+    
+    private func toggleHomeDisplay(_ show: Bool) {
+        if show {
+            // Add to imported lists if not already there
+            if !storage.importedLists.contains(where: { $0.listId == listId }) {
+                var newList = ImportedListItem(
+                    name: listName,
+                    listId: listId,
+                    showOnHome: true,
+                    source: .mdblist
+                )
+                newList.items = items
+                newList.lastSynced = Date()
+                storage.addImportedList(newList)
+                
+                // Add home row
+                let homeRow = CustomHomeRow.importedListRow(
+                    name: listName,
+                    listId: newList.id,
+                    sortOrder: storage.customHomeRows.count
+                )
+                storage.addCustomHomeRow(homeRow)
+            } else {
+                // Update existing
+                if var existing = storage.importedLists.first(where: { $0.listId == listId }) {
+                    existing.showOnHome = true
+                    storage.updateImportedList(existing)
+                }
+            }
+        } else {
+            // Remove from home but keep in imported lists
+            if var existing = storage.importedLists.first(where: { $0.listId == listId }) {
+                existing.showOnHome = false
+                storage.updateImportedList(existing)
+                
+                // Remove home row
+                if let homeRow = storage.customHomeRows.first(where: { $0.importedListId == existing.id }) {
+                    storage.deleteCustomHomeRow(id: homeRow.id)
+                }
+            }
         }
-        
-        storage.addImportedList(newList)
-        
-        // Also create a home row if showOnHome is enabled
-        if showOnHome {
-            let homeRow = CustomHomeRow.importedListRow(
-                name: newList.displayName,
-                listId: newList.id,
-                sortOrder: storage.customHomeRows.count
-            )
-            storage.addCustomHomeRow(homeRow)
-        }
-        
-        isLoading = false
-        dismiss()
     }
 }
 
