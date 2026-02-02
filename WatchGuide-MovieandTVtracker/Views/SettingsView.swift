@@ -120,14 +120,14 @@ struct SettingsView: View {
                         }
                     }
                     
-                    NavigationLink(destination: CompanyHubsSettingsView()) {
+                    NavigationLink(destination: NetworkHubsSettingsView()) {
                         HStack {
-                            Image(systemName: "building.2")
+                            Image(systemName: "play.tv")
                                 .foregroundColor(.purple)
                                 .frame(width: 24)
-                            Text("Company Hubs")
+                            Text("Networks")
                             Spacer()
-                            Text("\(storage.companyHubs.filter { $0.isEnabled }.count) enabled")
+                            Text("\(storage.networkHubs.filter { $0.isEnabled }.count) enabled")
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -427,7 +427,66 @@ struct BrowseRowsSettingsView: View {
     }
 }
 
-// MARK: - Company Hubs Settings
+// MARK: - Network Hubs Settings (Streaming Services)
+struct NetworkHubsSettingsView: View {
+    @ObservedObject private var storage = StorageService.shared
+    @State private var hubs: [NetworkHub] = []
+    
+    var body: some View {
+        List {
+            Section {
+                ForEach($hubs) { $hub in
+                    HStack {
+                        if let logoURL = hub.logoURL, let url = URL(string: logoURL) {
+                            AsyncImage(url: url) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(width: 60, height: 30)
+                                        .colorInvert()
+                                        .environment(\.colorScheme, .light)
+                                default:
+                                    Text(hub.name)
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                }
+                            }
+                        } else {
+                            Text(hub.name)
+                                .fontWeight(.medium)
+                        }
+                        
+                        Spacer()
+                        
+                        Toggle("", isOn: $hub.isEnabled)
+                            .labelsHidden()
+                    }
+                }
+                .onMove { from, to in
+                    hubs.move(fromOffsets: from, toOffset: to)
+                }
+            } header: {
+                Text("Streaming Services")
+            } footer: {
+                Text("Drag to reorder, toggle to show/hide on Browse screen")
+            }
+        }
+        .navigationTitle("Networks")
+        .toolbar {
+            EditButton()
+        }
+        .onAppear {
+            hubs = storage.networkHubs.sorted { $0.sortOrder < $1.sortOrder }
+        }
+        .onDisappear {
+            storage.reorderNetworkHubs(hubs)
+        }
+    }
+}
+
+// MARK: - Company Hubs Settings (Legacy)
 struct CompanyHubsSettingsView: View {
     @ObservedObject private var storage = StorageService.shared
     @State private var showAddHub = false

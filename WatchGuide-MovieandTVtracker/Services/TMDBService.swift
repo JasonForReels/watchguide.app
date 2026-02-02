@@ -272,6 +272,27 @@ actor TMDBService {
         return try await request("/discover/tv", queryItems: queryItems)
     }
     
+    // MARK: - Discover by Watch Provider
+    func discoverMoviesWithProvider(providerIds: [Int], region: String, page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+        let queryItems = [
+            URLQueryItem(name: "with_watch_providers", value: providerIds.map { "\($0)" }.joined(separator: "|")),
+            URLQueryItem(name: "watch_region", value: region),
+            URLQueryItem(name: "sort_by", value: "popularity.desc"),
+            URLQueryItem(name: "page", value: "\(page)")
+        ]
+        return try await request("/discover/movie", queryItems: queryItems)
+    }
+    
+    func discoverTVWithProvider(providerIds: [Int], region: String, page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+        let queryItems = [
+            URLQueryItem(name: "with_watch_providers", value: providerIds.map { "\($0)" }.joined(separator: "|")),
+            URLQueryItem(name: "watch_region", value: region),
+            URLQueryItem(name: "sort_by", value: "popularity.desc"),
+            URLQueryItem(name: "page", value: "\(page)")
+        ]
+        return try await request("/discover/tv", queryItems: queryItems)
+    }
+    
     // MARK: - Genres
     func getMovieGenres() async throws -> GenresResponse {
         try await request("/genre/movie/list")

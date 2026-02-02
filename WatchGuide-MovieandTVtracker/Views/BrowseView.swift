@@ -8,8 +8,9 @@ import SwiftUI
 struct BrowseView: View {
     @StateObject private var viewModel = BrowseViewModel()
     @Binding var selectedItem: MediaItem?
-    @State private var showCompanyHub = false
-    @State private var selectedHub: CompanyHub?
+    @State private var showNetworkHub = false
+    @State private var selectedNetworkHub: NetworkHub?
+    @State private var showCustomizeSheet = false
     
     var body: some View {
         ScrollView {
@@ -21,11 +22,11 @@ struct BrowseView: View {
                     }
                 }
                 
-                // Company Hubs Section
-                if !viewModel.companyHubs.isEmpty {
-                    CompanyHubsRow(hubs: viewModel.companyHubs) { hub in
-                        selectedHub = hub
-                        showCompanyHub = true
+                // Networks Section (Streaming Services)
+                if !viewModel.networkHubs.isEmpty {
+                    NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
+                        selectedNetworkHub = hub
+                        showNetworkHub = true
                     }
                 }
                 
@@ -76,10 +77,22 @@ struct BrowseView: View {
         .task {
             await viewModel.loadContent()
         }
-        .sheet(isPresented: $showCompanyHub) {
-            if let hub = selectedHub {
-                CompanyHubSheet(hub: hub, selectedItem: $selectedItem)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showCustomizeSheet = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                }
             }
+        }
+        .sheet(isPresented: $showNetworkHub) {
+            if let hub = selectedNetworkHub {
+                NetworkHubSheet(hub: hub, selectedItem: $selectedItem)
+            }
+        }
+        .sheet(isPresented: $showCustomizeSheet) {
+            BrowseCustomizeSheet()
         }
     }
 }
@@ -148,7 +161,7 @@ class BrowseViewModel: ObservableObject {
     @Published var importedListRows: [MediaRow] = []
     @Published var customHomeRows: [CustomHomeRow] = []
     @Published var customRowContent: [String: MediaRow] = [:]
-    @Published var companyHubs: [CompanyHub] = []
+    @Published var networkHubs: [NetworkHub] = []
     @Published var isLoading = false
     
     struct MediaRow {
@@ -160,8 +173,8 @@ class BrowseViewModel: ObservableObject {
         guard !isLoading else { return }
         isLoading = true
         
-        // Load company hubs
-        companyHubs = StorageService.shared.companyHubs.filter { $0.isEnabled }
+        // Load network hubs (streaming services)
+        networkHubs = StorageService.shared.getEnabledNetworkHubs()
         
         // Load custom home rows
         customHomeRows = StorageService.shared.getEnabledCustomHomeRows()
@@ -371,14 +384,14 @@ class BrowseViewModel: ObservableObject {
     }
 }
 
-// MARK: - Company Hubs Row
-struct CompanyHubsRow: View {
-    let hubs: [CompanyHub]
-    let onHubTap: (CompanyHub) -> Void
+// MARK: - Network Hubs Row (Streaming Services)
+struct NetworkHubsRow: View {
+    let hubs: [NetworkHub]
+    let onHubTap: (NetworkHub) -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Studios & Networks")
+            Text("Networks")
                 .font(.title3)
                 .fontWeight(.bold)
                 .padding(.horizontal)
@@ -386,7 +399,7 @@ struct CompanyHubsRow: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(hubs) { hub in
-                        CompanyHubCard(hub: hub)
+                        NetworkHubCard(hub: hub)
                             .onTapGesture {
                                 onHubTap(hub)
                             }
@@ -398,23 +411,48 @@ struct CompanyHubsRow: View {
     }
 }
 
-struct CompanyHubCard: View {
-    let hub: CompanyHub
+struct NetworkHubCard: View {
+    let hub: NetworkHub
     @State private var isHovered = false
     
     var body: some View {
         VStack(spacing: 8) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.systemGray5))
+                    .fill(Color(.systemGray6))
                     .frame(width: 100, height: 56)
                 
-                Text(hub.name)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .padding(.horizontal, 4)
+                if let logoURL = hub.logoURL, let url = URL(string: logoURL) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 80, height: 40)
+                                .colorInvert()
+                                .environment(\.colorScheme, .light)
+                        case .failure, .empty:
+                            Text(hub.name)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .padding(.horizontal, 4)
+                        @unknown default:
+                            Text(hub.name)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        }
+                    }
+                } else {
+                    Text(hub.name)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .padding(.horizontal, 4)
+                }
             }
             .shadow(color: .black.opacity(0.15), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
             .scaleEffect(isHovered ? 1.05 : 1.0)
@@ -426,9 +464,9 @@ struct CompanyHubCard: View {
     }
 }
 
-// MARK: - Company Hub Sheet
-struct CompanyHubSheet: View {
-    let hub: CompanyHub
+// MARK: - Network Hub Sheet
+struct NetworkHubSheet: View {
+    let hub: NetworkHub
     @Binding var selectedItem: MediaItem?
     @Environment(\.dismiss) private var dismiss
     @State private var movies: [MediaItem] = []
@@ -439,6 +477,24 @@ struct CompanyHubSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                // Header with logo
+                if let logoURL = hub.logoURL, let url = URL(string: logoURL) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(height: 40)
+                                .colorInvert()
+                                .environment(\.colorScheme, .light)
+                        default:
+                            EmptyView()
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+                
                 // Tab picker
                 Picker("Content Type", selection: $selectedTab) {
                     Text("Movies").tag(0)
@@ -488,14 +544,17 @@ struct CompanyHubSheet: View {
     private func loadContent() async {
         isLoading = true
         
-        // Load movies
-        if !hub.companyIds.isEmpty {
-            do {
-                let response = try await TMDBService.shared.discoverMoviesByCompany(companyIds: hub.companyIds)
-                movies = response.results
-            } catch {
-                print("Error loading movies: \(error)")
-            }
+        let region = StorageService.shared.settings.region
+        
+        // Load movies available on this streaming service
+        do {
+            let response = try await TMDBService.shared.discoverMoviesWithProvider(
+                providerIds: hub.providerIds,
+                region: region
+            )
+            movies = response.results
+        } catch {
+            print("Error loading movies: \(error)")
         }
         
         // Load TV shows
@@ -506,9 +565,13 @@ struct CompanyHubSheet: View {
             } catch {
                 print("Error loading TV: \(error)")
             }
-        } else if !hub.companyIds.isEmpty {
+        } else {
+            // Fallback to provider-based discovery
             do {
-                let response = try await TMDBService.shared.discoverTVByCompany(companyIds: hub.companyIds)
+                let response = try await TMDBService.shared.discoverTVWithProvider(
+                    providerIds: hub.providerIds,
+                    region: region
+                )
                 tvShows = response.results
             } catch {
                 print("Error loading TV: \(error)")
@@ -516,6 +579,106 @@ struct CompanyHubSheet: View {
         }
         
         isLoading = false
+    }
+}
+
+// MARK: - Browse Customize Sheet
+struct BrowseCustomizeSheet: View {
+    @ObservedObject private var storage = StorageService.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var browseRows: [BrowseRowConfig] = []
+    @State private var networkHubs: [NetworkHub] = []
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                // Networks Section
+                Section {
+                    ForEach($networkHubs) { $hub in
+                        HStack {
+                            Text(hub.name)
+                                .fontWeight(.medium)
+                            
+                            Spacer()
+                            
+                            Toggle("", isOn: $hub.isEnabled)
+                                .labelsHidden()
+                        }
+                    }
+                    .onMove { from, to in
+                        networkHubs.move(fromOffsets: from, toOffset: to)
+                    }
+                } header: {
+                    Text("Networks")
+                } footer: {
+                    Text("Drag to reorder, toggle to show/hide")
+                }
+                
+                // Browse Rows Section
+                Section {
+                    ForEach($browseRows) { $row in
+                        HStack {
+                            Text(row.title)
+                                .fontWeight(.medium)
+                            
+                            Spacer()
+                            
+                            Toggle("", isOn: $row.isEnabled)
+                                .labelsHidden()
+                        }
+                    }
+                    .onMove { from, to in
+                        browseRows.move(fromOffsets: from, toOffset: to)
+                        updateSortOrder()
+                    }
+                } header: {
+                    Text("Content Rows")
+                } footer: {
+                    Text("Drag to reorder, toggle to show/hide")
+                }
+            }
+            .navigationTitle("Customize Browse")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        saveChanges()
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+                
+                ToolbarItem(placement: .primaryAction) {
+                    EditButton()
+                }
+            }
+            .onAppear {
+                browseRows = storage.browseRows.sorted { $0.sortOrder < $1.sortOrder }
+                networkHubs = storage.networkHubs.sorted { $0.sortOrder < $1.sortOrder }
+            }
+        }
+    }
+    
+    private func updateSortOrder() {
+        for (index, _) in browseRows.enumerated() {
+            browseRows[index].sortOrder = index
+        }
+    }
+    
+    private func saveChanges() {
+        // Save browse rows
+        var updatedRows = browseRows
+        for (index, _) in updatedRows.enumerated() {
+            updatedRows[index].sortOrder = index
+        }
+        storage.updateBrowseRows(updatedRows)
+        
+        // Save network hubs
+        storage.reorderNetworkHubs(networkHubs)
     }
 }
 

@@ -44,21 +44,112 @@ struct AsyncImageView: View {
     }
 }
 
-// MARK: - Poster Image
+// MARK: - Poster Image with FanArt.tv Fallback
 struct PosterImageView: View {
     let posterPath: String?
     let size: TMDBService.ImageSize
+    var mediaId: Int?
+    var mediaType: MediaType?
     
-    init(posterPath: String?, size: TMDBService.ImageSize = .medium) {
+    @State private var fallbackURL: URL?
+    @State private var loadAttempted = false
+    @State private var imageLoadFailed = false
+    
+    init(posterPath: String?, size: TMDBService.ImageSize = .medium, mediaId: Int? = nil, mediaType: MediaType? = nil) {
         self.posterPath = posterPath
         self.size = size
+        self.mediaId = mediaId
+        self.mediaType = mediaType
     }
     
     var body: some View {
-        AsyncImageView(
-            url: TMDBService.shared.imageURL(path: posterPath, size: size),
-            cornerRadius: 8
-        )
+        AsyncImage(url: imageURL) { phase in
+            switch phase {
+            case .empty:
+                ZStack {
+                    Color(.systemGray5)
+                    ProgressView()
+                        .tint(.secondary)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .onAppear {
+                    // Start a timer to check if image is taking too long
+                    if !loadAttempted {
+                        loadAttempted = true
+                        startFallbackTimer()
+                    }
+                }
+            case .success(let image):
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            case .failure:
+                // Try fallback or show placeholder
+                if let fallback = fallbackURL {
+                    AsyncImage(url: fallback) { fallbackPhase in
+                        switch fallbackPhase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        default:
+                            placeholderView
+                        }
+                    }
+                } else {
+                    placeholderView
+                        .onAppear {
+                            if !imageLoadFailed {
+                                imageLoadFailed = true
+                                loadFallbackImage()
+                            }
+                        }
+                }
+            @unknown default:
+                placeholderView
+            }
+        }
+    }
+    
+    private var imageURL: URL? {
+        if imageLoadFailed, let fallback = fallbackURL {
+            return fallback
+        }
+        return TMDBService.shared.imageURL(path: posterPath, size: size)
+    }
+    
+    private var placeholderView: some View {
+        ZStack {
+            Color(.systemGray5)
+            Image(systemName: "film")
+                .font(.title2)
+                .foregroundColor(.secondary)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+    
+    private func startFallbackTimer() {
+        // If image takes more than 3 seconds, try fallback
+        Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if !imageLoadFailed && posterPath == nil {
+                loadFallbackImage()
+            }
+        }
+    }
+    
+    private func loadFallbackImage() {
+        guard let mediaId = mediaId, let mediaType = mediaType else { return }
+        
+        Task {
+            if let url = await FanArtService.shared.getBestPosterURL(tmdbId: mediaId, mediaType: mediaType) {
+                await MainActor.run {
+                    self.fallbackURL = url
+                }
+            }
+        }
     }
 }
 

@@ -16,6 +16,7 @@ class StorageService: ObservableObject {
     @Published private(set) var liked: [SavedMediaItem] = []
     @Published private(set) var customLists: [CustomList] = []
     @Published private(set) var companyHubs: [CompanyHub] = []
+    @Published private(set) var networkHubs: [NetworkHub] = []
     @Published private(set) var importedLists: [ImportedListItem] = []
     @Published private(set) var customHomeRows: [CustomHomeRow] = []
     @Published private(set) var settings: UserSettings = UserSettings()
@@ -44,6 +45,7 @@ class StorageService: ObservableObject {
     private let likedURL: URL
     private let customListsURL: URL
     private let companyHubsURL: URL
+    private let networkHubsURL: URL
     private let importedListsURL: URL
     private let customHomeRowsURL: URL
     private let settingsURL: URL
@@ -57,6 +59,7 @@ class StorageService: ObservableObject {
         likedURL = documentsDirectory.appendingPathComponent("liked.json")
         customListsURL = documentsDirectory.appendingPathComponent("custom_lists.json")
         companyHubsURL = documentsDirectory.appendingPathComponent("company_hubs.json")
+        networkHubsURL = documentsDirectory.appendingPathComponent("network_hubs.json")
         importedListsURL = documentsDirectory.appendingPathComponent("imported_lists.json")
         customHomeRowsURL = documentsDirectory.appendingPathComponent("custom_home_rows.json")
         settingsURL = documentsDirectory.appendingPathComponent("settings.json")
@@ -65,6 +68,7 @@ class StorageService: ObservableObject {
         
         loadAll()
         initializeDefaultHubs()
+        initializeNetworkHubs()
         
         // Load cloud sync preference
         cloudSyncEnabled = UserDefaults.standard.bool(forKey: "cloud_sync_enabled")
@@ -77,6 +81,7 @@ class StorageService: ObservableObject {
         liked = load(from: likedURL) ?? []
         customLists = load(from: customListsURL) ?? []
         companyHubs = load(from: companyHubsURL) ?? []
+        networkHubs = load(from: networkHubsURL) ?? []
         importedLists = load(from: importedListsURL) ?? []
         customHomeRows = load(from: customHomeRowsURL) ?? []
         settings = load(from: settingsURL) ?? UserSettings()
@@ -104,7 +109,7 @@ class StorageService: ObservableObject {
         }
     }
     
-    // MARK: - Default Company Hubs
+    // MARK: - Default Company Hubs (Legacy)
     private func initializeDefaultHubs() {
         guard companyHubs.isEmpty else { return }
         
@@ -115,14 +120,44 @@ class StorageService: ObservableObject {
             CompanyHub(name: "DC Studios", logoPath: nil, companyIds: [128064, 174], networkIds: []),
             CompanyHub(name: "Pixar", logoPath: nil, companyIds: [3], networkIds: []),
             CompanyHub(name: "Universal Pictures", logoPath: nil, companyIds: [33], networkIds: []),
-            CompanyHub(name: "Netflix", logoPath: nil, companyIds: [213], networkIds: [213]),
-            CompanyHub(name: "Apple TV+", logoPath: nil, companyIds: [158420], networkIds: [2552]),
-            CompanyHub(name: "HBO", logoPath: nil, companyIds: [3268], networkIds: [49]),
-            CompanyHub(name: "Amazon Studios", logoPath: nil, companyIds: [20580], networkIds: [1024]),
         ]
         
         companyHubs = defaultHubs
         save(companyHubs, to: companyHubsURL)
+    }
+    
+    // MARK: - Network Hubs (Streaming Services)
+    private func initializeNetworkHubs() {
+        guard networkHubs.isEmpty else { return }
+        
+        var hubs = NetworkHub.defaultHubs
+        for (index, _) in hubs.enumerated() {
+            hubs[index].sortOrder = index
+        }
+        
+        networkHubs = hubs
+        save(networkHubs, to: networkHubsURL)
+    }
+    
+    // MARK: - Network Hub Methods
+    func updateNetworkHub(_ hub: NetworkHub) {
+        if let index = networkHubs.firstIndex(where: { $0.id == hub.id }) {
+            networkHubs[index] = hub
+            save(networkHubs, to: networkHubsURL)
+        }
+    }
+    
+    func reorderNetworkHubs(_ hubs: [NetworkHub]) {
+        var updatedHubs = hubs
+        for (index, _) in updatedHubs.enumerated() {
+            updatedHubs[index].sortOrder = index
+        }
+        networkHubs = updatedHubs
+        save(networkHubs, to: networkHubsURL)
+    }
+    
+    func getEnabledNetworkHubs() -> [NetworkHub] {
+        return networkHubs.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }
     }
     
     // MARK: - Want to Watch

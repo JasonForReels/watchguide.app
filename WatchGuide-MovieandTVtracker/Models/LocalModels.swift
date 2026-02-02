@@ -121,7 +121,80 @@ struct CustomList: Identifiable, Codable {
     }
 }
 
-// MARK: - Company Hub
+// MARK: - Network Hub (Streaming Services)
+struct NetworkHub: Identifiable, Codable {
+    let id: String
+    let name: String
+    let logoURL: String?
+    let networkIds: [Int]
+    let providerIds: [Int]
+    let regions: [String]
+    var isEnabled: Bool
+    var sortOrder: Int
+    let createdAt: Date
+    
+    init(name: String, logoURL: String? = nil, networkIds: [Int] = [], providerIds: [Int] = [], regions: [String] = []) {
+        self.id = UUID().uuidString
+        self.name = name
+        self.logoURL = logoURL
+        self.networkIds = networkIds
+        self.providerIds = providerIds
+        self.regions = regions
+        self.isEnabled = true
+        self.sortOrder = 0
+        self.createdAt = Date()
+    }
+    
+    // Default streaming hubs
+    static var defaultHubs: [NetworkHub] {
+        [
+            NetworkHub(
+                name: "Disney+",
+                logoURL: "https://lumiere-a.akamaihd.net/v1/images/a8e5567d1658de062d95d079ebf536b0_4096x2309_6dedcc02.png",
+                networkIds: [2739], // Disney+ network
+                providerIds: [337], // Disney+ provider
+                regions: ["US", "GB", "CA", "AU", "DE", "FR", "JP", "KR", "IN", "BR", "ZA", "NZ", "IT", "ES", "MX", "AR", "NL", "BE", "CH", "AT", "SE", "NO", "DK", "FI", "PT", "IE", "SG", "MY", "TH", "ID", "PH", "TW", "HK"]
+            ),
+            NetworkHub(
+                name: "Netflix",
+                logoURL: "https://images.ctfassets.net/y2ske730sjqp/821Wg4N9hJD8vs5FBcCGg/9eaf66123397cc61be14e40174123c40/Vector__3_.svg?w=460",
+                networkIds: [213], // Netflix network
+                providerIds: [8], // Netflix provider
+                regions: ["US", "GB", "CA", "AU", "DE", "FR", "JP", "KR", "IN", "BR", "ZA", "NZ", "IT", "ES", "MX", "AR", "NL", "BE", "CH", "AT", "SE", "NO", "DK", "FI", "PT", "IE", "SG", "MY", "TH", "ID", "PH", "TW", "HK", "PL", "CZ", "RO", "TR", "EG", "SA", "AE", "IL", "CO", "CL", "PE", "VE"]
+            ),
+            NetworkHub(
+                name: "Showmax",
+                logoURL: "https://cdn.cookielaw.org/logos/17e5cb00-ad90-47f5-a58d-77597d9d2c16/0195cf57-93d1-7335-bc7f-50dce1b350c2/469bb55b-c92e-4a70-8669-d0f24734a079/Showmax_logo_full.png",
+                networkIds: [],
+                providerIds: [55], // Showmax provider
+                regions: ["ZA", "NG", "KE", "GH", "UG", "TZ", "ZW", "ZM", "BW", "NA", "MZ", "MW", "RW", "MU", "ET", "CI", "SN", "CM", "CD", "AO"]
+            ),
+            NetworkHub(
+                name: "Max",
+                logoURL: "https://upload.wikimedia.org/wikipedia/commons/b/b3/HBO_Max_%282025%29.svg",
+                networkIds: [49, 3186], // HBO, Max networks
+                providerIds: [384, 1899], // HBO Max / Max provider IDs
+                regions: ["US", "BR", "MX", "AR", "CL", "CO", "PE", "CR", "PA", "EC", "DO", "GT", "HN", "SV", "NI", "BO", "PY", "UY", "PT", "ES", "SE", "NO", "DK", "FI", "PL", "CZ", "RO", "HU", "BG", "HR", "SK", "SI", "BA", "RS", "NL", "BE"]
+            ),
+            NetworkHub(
+                name: "Peacock",
+                logoURL: "https://upload.wikimedia.org/wikipedia/commons/d/d3/NBCUniversal_Peacock_Logo.svg",
+                networkIds: [6, 453], // NBC, Peacock networks
+                providerIds: [386, 387], // Peacock provider IDs
+                regions: ["US", "GB", "IE", "IT", "DE", "AT", "CH"]
+            ),
+            NetworkHub(
+                name: "Paramount+",
+                logoURL: "https://upload.wikimedia.org/wikipedia/commons/e/ea/Paramount%2B_logo.png",
+                networkIds: [4330, 16, 2552], // Paramount+, CBS networks
+                providerIds: [531, 582], // Paramount+ provider IDs
+                regions: ["US", "CA", "GB", "AU", "DE", "AT", "CH", "IT", "FR", "ES", "MX", "BR", "AR", "CL", "CO", "PE", "KR", "SE", "NO", "DK", "FI", "NL", "BE", "IE"]
+            )
+        ]
+    }
+}
+
+// MARK: - Company Hub (Legacy - keeping for compatibility)
 struct CompanyHub: Identifiable, Codable {
     let id: String
     let name: String
