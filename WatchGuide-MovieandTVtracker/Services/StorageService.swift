@@ -16,7 +16,7 @@ class StorageService: ObservableObject {
     @Published private(set) var liked: [SavedMediaItem] = []
     @Published private(set) var customLists: [CustomList] = []
     @Published private(set) var companyHubs: [CompanyHub] = []
-    @Published private(set) var mdbLists: [MDBListItem] = []
+    @Published private(set) var importedLists: [ImportedListItem] = []
     @Published private(set) var customHomeRows: [CustomHomeRow] = []
     @Published private(set) var settings: UserSettings = UserSettings()
     @Published private(set) var searchHistory: [SearchHistoryItem] = []
@@ -44,7 +44,7 @@ class StorageService: ObservableObject {
     private let likedURL: URL
     private let customListsURL: URL
     private let companyHubsURL: URL
-    private let mdbListsURL: URL
+    private let importedListsURL: URL
     private let customHomeRowsURL: URL
     private let settingsURL: URL
     private let searchHistoryURL: URL
@@ -57,7 +57,7 @@ class StorageService: ObservableObject {
         likedURL = documentsDirectory.appendingPathComponent("liked.json")
         customListsURL = documentsDirectory.appendingPathComponent("custom_lists.json")
         companyHubsURL = documentsDirectory.appendingPathComponent("company_hubs.json")
-        mdbListsURL = documentsDirectory.appendingPathComponent("mdb_lists.json")
+        importedListsURL = documentsDirectory.appendingPathComponent("imported_lists.json")
         customHomeRowsURL = documentsDirectory.appendingPathComponent("custom_home_rows.json")
         settingsURL = documentsDirectory.appendingPathComponent("settings.json")
         searchHistoryURL = documentsDirectory.appendingPathComponent("search_history.json")
@@ -77,7 +77,7 @@ class StorageService: ObservableObject {
         liked = load(from: likedURL) ?? []
         customLists = load(from: customListsURL) ?? []
         companyHubs = load(from: companyHubsURL) ?? []
-        mdbLists = load(from: mdbListsURL) ?? []
+        importedLists = load(from: importedListsURL) ?? []
         customHomeRows = load(from: customHomeRowsURL) ?? []
         settings = load(from: settingsURL) ?? UserSettings()
         searchHistory = load(from: searchHistoryURL) ?? []
@@ -357,29 +357,29 @@ class StorageService: ObservableObject {
         save(companyHubs, to: companyHubsURL)
     }
     
-    // MARK: - MDB Lists
-    func addMDBList(_ list: MDBListItem) {
-        mdbLists.append(list)
-        save(mdbLists, to: mdbListsURL)
+    // MARK: - Imported Lists (PublicMetaDB)
+    func addImportedList(_ list: ImportedListItem) {
+        importedLists.append(list)
+        save(importedLists, to: importedListsURL)
     }
     
-    func updateMDBList(_ list: MDBListItem) {
-        if let index = mdbLists.firstIndex(where: { $0.id == list.id }) {
-            mdbLists[index] = list
-            save(mdbLists, to: mdbListsURL)
+    func updateImportedList(_ list: ImportedListItem) {
+        if let index = importedLists.firstIndex(where: { $0.id == list.id }) {
+            importedLists[index] = list
+            save(importedLists, to: importedListsURL)
         }
     }
     
-    func deleteMDBList(id: String) {
-        mdbLists.removeAll { $0.id == id }
-        save(mdbLists, to: mdbListsURL)
+    func deleteImportedList(id: String) {
+        importedLists.removeAll { $0.id == id }
+        save(importedLists, to: importedListsURL)
         // Also remove any custom home rows that use this list
-        customHomeRows.removeAll { $0.mdbListId == id }
+        customHomeRows.removeAll { $0.importedListId == id }
         save(customHomeRows, to: customHomeRowsURL)
     }
     
-    func getMDBListsForHome() -> [MDBListItem] {
-        return mdbLists.filter { $0.showOnHome }
+    func getImportedListsForHome() -> [ImportedListItem] {
+        return importedLists.filter { $0.showOnHome }
     }
     
     // MARK: - Custom Home Rows

@@ -142,8 +142,8 @@ struct CompanyHub: Identifiable, Codable {
     }
 }
 
-// MARK: - MDBList
-struct MDBListItem: Identifiable, Codable {
+// MARK: - PublicMetaDB List
+struct ImportedListItem: Identifiable, Codable {
     let id: String
     var name: String
     var listId: String
@@ -178,15 +178,15 @@ struct CustomHomeRow: Identifiable, Codable {
     var isEnabled: Bool
     let createdAt: Date
     
-    // For MDBList rows
-    var mdbListId: String?
+    // For imported list rows
+    var importedListId: String?
     
     // For custom hub rows
     var hubImageURL: String?
     var items: [SavedMediaItem]?
     
     enum CustomRowType: String, Codable {
-        case mdbList = "mdblist"
+        case importedList = "imported_list"
         case customHub = "custom_hub"
     }
     
@@ -197,14 +197,14 @@ struct CustomHomeRow: Identifiable, Codable {
         self.sortOrder = sortOrder
         self.isEnabled = true
         self.createdAt = Date()
-        self.mdbListId = nil
+        self.importedListId = nil
         self.hubImageURL = nil
         self.items = nil
     }
     
-    static func mdbListRow(name: String, listId: String, sortOrder: Int = 0) -> CustomHomeRow {
-        var row = CustomHomeRow(name: name, rowType: .mdbList, sortOrder: sortOrder)
-        row.mdbListId = listId
+    static func importedListRow(name: String, listId: String, sortOrder: Int = 0) -> CustomHomeRow {
+        var row = CustomHomeRow(name: name, rowType: .importedList, sortOrder: sortOrder)
+        row.importedListId = listId
         return row
     }
     

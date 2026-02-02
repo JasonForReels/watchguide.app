@@ -55,8 +55,8 @@ struct BrowseView: View {
                     }
                 }
                 
-                // MDB Lists Rows (for backward compatibility)
-                ForEach(viewModel.mdbListRows, id: \.title) { row in
+                // Imported Lists Rows (for backward compatibility)
+                ForEach(viewModel.importedListRows, id: \.title) { row in
                     if !row.items.isEmpty {
                         MediaRowView(
                             title: row.title,
@@ -113,7 +113,7 @@ struct CustomHomeRowView: View {
                     .font(.title3)
                     .fontWeight(.bold)
                 
-                if row.rowType == .mdbList {
+                if row.rowType == .importedList {
                     Image(systemName: "list.bullet.clipboard")
                         .font(.caption)
                         .foregroundColor(.orange)
@@ -145,7 +145,7 @@ struct CustomHomeRowView: View {
 class BrowseViewModel: ObservableObject {
     @Published var heroItems: [MediaItem] = []
     @Published var rows: [MediaRow] = []
-    @Published var mdbListRows: [MediaRow] = []
+    @Published var importedListRows: [MediaRow] = []
     @Published var customHomeRows: [CustomHomeRow] = []
     @Published var customRowContent: [String: MediaRow] = [:]
     @Published var companyHubs: [CompanyHub] = []
@@ -173,7 +173,7 @@ class BrowseViewModel: ObservableObject {
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.loadBrowseRows() }
             group.addTask { await self.loadCustomHomeRowContent() }
-            group.addTask { await self.loadMDBListRows() }
+            group.addTask { await self.loadImportedListRows() }
         }
         
         isLoading = false
@@ -208,7 +208,7 @@ class BrowseViewModel: ObservableObject {
     
     func refresh() async {
         rows = []
-        mdbListRows = []
+        importedListRows = []
         customRowContent = [:]
         heroItems = []
         await loadContent()
@@ -246,11 +246,11 @@ class BrowseViewModel: ObservableObject {
     private func loadCustomHomeRowContent() async {
         for customRow in customHomeRows {
             switch customRow.rowType {
-            case .mdbList:
-                if let mdbListId = customRow.mdbListId,
-                   let mdbList = StorageService.shared.mdbLists.first(where: { $0.id == mdbListId }) {
+            case .importedList:
+                if let importedListId = customRow.importedListId,
+                   let importedList = StorageService.shared.importedLists.first(where: { $0.id == importedListId }) {
                     // Convert SavedMediaItems to MediaItems
-                    let items = mdbList.items.map { saved -> MediaItem in
+                    let items = importedList.items.map { saved -> MediaItem in
                         MediaItem(
                             id: saved.mediaId,
                             title: saved.mediaType == .movie ? saved.title : nil,
@@ -303,18 +303,18 @@ class BrowseViewModel: ObservableObject {
         }
     }
     
-    private func loadMDBListRows() async {
-        // Load MDBLists that are set to show on home but don't have a custom row
-        let mdbListsOnHome = StorageService.shared.getMDBListsForHome()
-        let customRowMDBListIds = Set(customHomeRows.compactMap { $0.mdbListId })
+    private func loadImportedListRows() async {
+        // Load imported lists that are set to show on home but don't have a custom row
+        let listsOnHome = StorageService.shared.getImportedListsForHome()
+        let customRowListIds = Set(customHomeRows.compactMap { $0.importedListId })
         
         var loadedRows: [MediaRow] = []
         
-        for mdbList in mdbListsOnHome {
+        for list in listsOnHome {
             // Skip if already in custom rows
-            if customRowMDBListIds.contains(mdbList.id) { continue }
+            if customRowListIds.contains(list.id) { continue }
             
-            let items = mdbList.items.map { saved -> MediaItem in
+            let items = list.items.map { saved -> MediaItem in
                 MediaItem(
                     id: saved.mediaId,
                     title: saved.mediaType == .movie ? saved.title : nil,
@@ -337,11 +337,11 @@ class BrowseViewModel: ObservableObject {
             }
             
             if !items.isEmpty {
-                loadedRows.append(MediaRow(title: mdbList.displayName, items: items))
+                loadedRows.append(MediaRow(title: list.displayName, items: items))
             }
         }
         
-        mdbListRows = loadedRows
+        importedListRows = loadedRows
     }
     
     private func fetchRow(_ endpoint: BrowseRowConfig.BrowseEndpoint) async throws -> [MediaItem] {

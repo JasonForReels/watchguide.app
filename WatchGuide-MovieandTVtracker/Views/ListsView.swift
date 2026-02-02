@@ -70,7 +70,7 @@ struct ListsView: View {
                             Button {
                                 showImportMDBList = true
                             } label: {
-                                Label("Import from MDBList", systemImage: "arrow.down.circle")
+                                Label("Import from PublicMetaDB", systemImage: "arrow.down.circle")
                             }
                         } label: {
                             Image(systemName: "plus")
@@ -128,7 +128,7 @@ struct ListsView: View {
     
     @ViewBuilder
     private var customListsContent: some View {
-        if storage.customLists.isEmpty && storage.mdbLists.isEmpty {
+        if storage.customLists.isEmpty && storage.importedLists.isEmpty {
             emptyState(title: "No Custom Lists", subtitle: "Create a list to organize your favorites")
         } else {
             List {
@@ -159,10 +159,10 @@ struct ListsView: View {
                     }
                 }
                 
-                if !storage.mdbLists.isEmpty {
-                    Section("MDBList Imports") {
-                        ForEach(storage.mdbLists) { list in
-                            NavigationLink(destination: MDBListDetailView(list: list)) {
+                if !storage.importedLists.isEmpty {
+                    Section("PublicMetaDB Imports") {
+                        ForEach(storage.importedLists) { list in
+                            NavigationLink(destination: ImportedListDetailView(list: list)) {
                                 HStack {
                                     Image(systemName: "list.bullet.rectangle")
                                         .foregroundColor(.orange)
@@ -186,7 +186,7 @@ struct ListsView: View {
                         }
                         .onDelete { indexSet in
                             for index in indexSet {
-                                storage.deleteMDBList(id: storage.mdbLists[index].id)
+                                storage.deleteImportedList(id: storage.importedLists[index].id)
                             }
                         }
                     }
@@ -280,9 +280,9 @@ struct CustomListDetailView: View {
     }
 }
 
-// MARK: - MDBList Detail View
-struct MDBListDetailView: View {
-    let list: MDBListItem
+// MARK: - Imported List Detail View (PublicMetaDB)
+struct ImportedListDetailView: View {
+    let list: ImportedListItem
     @ObservedObject private var storage = StorageService.shared
     @State private var isSyncing = false
     
@@ -347,12 +347,22 @@ struct MDBListDetailView: View {
     
     private func syncList() async {
         isSyncing = true
-        // TODO: Implement MDBList sync
+        
+        do {
+            let items = try await PublicMetaDBService.shared.fetchListItemsAsSavedMedia(listId: list.listId)
+            var updatedList = list
+            updatedList.items = items
+            updatedList.lastSynced = Date()
+            storage.updateImportedList(updatedList)
+        } catch {
+            print("Failed to sync list: \(error)")
+        }
+        
         isSyncing = false
     }
 }
 
-// MARK: - Import MDBList Sheet
+// MARK: - Import List Sheet (PublicMetaDB)
 struct ImportMDBListSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var storage = StorageService.shared
@@ -364,13 +374,13 @@ struct ImportMDBListSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("MDBList ID or URL", text: $listId)
+                    TextField("PublicMetaDB ID or URL", text: $listId)
                         .textContentType(.URL)
                         .autocapitalization(.none)
                 } header: {
                     Text("List ID")
                 } footer: {
-                    Text("Enter the MDBList list ID or paste the full URL")
+                    Text("Enter the PublicMetaDB list ID or paste the full URL")
                 }
                 
                 if let error = error {
@@ -380,7 +390,7 @@ struct ImportMDBListSheet: View {
                     }
                 }
             }
-            .navigationTitle("Import MDBList")
+            .navigationTitle("Import List")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -407,12 +417,23 @@ struct ImportMDBListSheet: View {
         
         // Extract list ID from URL if needed
         var extractedId = listId
-        if listId.contains("mdblist.com") {
+        if listId.contains("publicmetadb.com") {
             extractedId = listId.components(separatedBy: "/").last ?? listId
         }
         
-        let newList = MDBListItem(name: "Imported List", listId: extractedId)
-        storage.addMDBList(newList)
+        var newList = ImportedListItem(name: "Imported List", listId: extractedId)
+        
+        // Try to fetch list info and items
+        do {
+            let info = try await PublicMetaDBService.shared.getListInfo(listId: extractedId)
+            newList = ImportedListItem(name: info.name, listId: extractedId)
+            newList.items = try await PublicMetaDBService.shared.fetchListItemsAsSavedMedia(listId: extractedId)
+            newList.lastSynced = Date()
+        } catch {
+            print("Failed to fetch list: \(error)")
+        }
+        
+        storage.addImportedList(newList)
         
         isLoading = false
         dismiss()
