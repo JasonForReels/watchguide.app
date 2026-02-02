@@ -133,7 +133,7 @@ struct SettingsView: View {
                     }
                 }
                 
-                // PublicMetaDB Integration
+                // Integrations
                 Section {
                     NavigationLink(destination: ImportedListsSettingsView()) {
                         HStack {
@@ -147,7 +147,24 @@ struct SettingsView: View {
                                     .foregroundColor(.secondary)
                             }
                             Spacer()
-                            Text("\(storage.importedLists.count)")
+                            Text("\(storage.importedLists.filter { $0.source == .publicMetaDB }.count)")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    NavigationLink(destination: MDBListSettingsView()) {
+                        HStack {
+                            Image(systemName: "list.star")
+                                .foregroundColor(.purple)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("MDBList")
+                                Text("Import lists with ratings & streaming info")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Text("\(storage.importedLists.filter { $0.source == .mdblist }.count)")
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -271,6 +288,15 @@ struct SettingsView: View {
                     Link(destination: URL(string: "https://publicmetadb.com/")!) {
                         HStack {
                             Text("Lists by PublicMetaDB")
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption)
+                        }
+                    }
+                    
+                    Link(destination: URL(string: "https://mdblist.com/")!) {
+                        HStack {
+                            Text("Lists by MDBList")
                             Spacer()
                             Image(systemName: "arrow.up.right")
                                 .font(.caption)
@@ -1153,6 +1179,342 @@ struct SetupStepView: View {
                     .foregroundColor(.secondary)
             }
         }
+    }
+}
+
+// MARK: - MDBList Settings View
+struct MDBListSettingsView: View {
+    @ObservedObject private var storage = StorageService.shared
+    @State private var showAddList = false
+    @State private var errorMessage: String?
+    
+    private var mdblistItems: [ImportedListItem] {
+        storage.importedLists.filter { $0.source == .mdblist }
+    }
+    
+    var body: some View {
+        List {
+            // Info Section
+            Section {
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("MDBList Connected")
+                            .fontWeight(.medium)
+                        Text("Import lists with ratings & streaming info")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            } header: {
+                Text("Status")
+            } footer: {
+                Text("MDBList provides access to curated lists with ratings from IMDb, TMDB, Trakt, and more")
+            }
+            
+            // Error message
+            if let error = errorMessage {
+                Section {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(.orange)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            
+            // Imported Lists
+            if !mdblistItems.isEmpty {
+                Section("Imported Lists") {
+                    ForEach(mdblistItems) { list in
+                        MDBListRowView(list: list)
+                    }
+                    .onDelete { indexSet in
+                        let itemsToDelete = indexSet.map { mdblistItems[$0].id }
+                        for id in itemsToDelete {
+                            storage.deleteImportedList(id: id)
+                        }
+                    }
+                }
+            }
+            
+            // Add List
+            Section {
+                Button {
+                    showAddList = true
+                } label: {
+                    Label("Add List by ID or URL", systemImage: "plus.circle")
+                }
+            }
+        }
+        .navigationTitle("MDBList")
+        .sheet(isPresented: $showAddList) {
+            AddMDBListSheet()
+        }
+    }
+}
+
+// MARK: - MDBList Row View
+struct MDBListRowView: View {
+    let list: ImportedListItem
+    @ObservedObject private var storage = StorageService.shared
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(list.displayName)
+                    .fontWeight(.medium)
+                
+                HStack(spacing: 8) {
+                    Text("\(list.items.count) items")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    if list.showOnHome {
+                        Label("Home", systemImage: "house.fill")
+                            .font(.caption2)
+                            .foregroundColor(.purple)
+                    }
+                    
+                    if let synced = list.lastSynced {
+                        Text("Synced \(synced.formatted(.relative(presentation: .named)))")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            
+            Spacer()
+            
+            Toggle("", isOn: Binding(
+                get: { list.showOnHome },
+                set: { newValue in
+                    var updatedList = list
+                    updatedList.showOnHome = newValue
+                    storage.updateImportedList(updatedList)
+                }
+            ))
+            .labelsHidden()
+        }
+    }
+}
+
+// MARK: - Add MDBList Sheet
+struct AddMDBListSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var storage = StorageService.shared
+    @State private var listIdOrURL = ""
+    @State private var customName = ""
+    @State private var showOnHome = true
+    @State private var isLoading = false
+    @State private var error: String?
+    @State private var previewItems: [MDBListItem] = []
+    @State private var listName: String = ""
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("List ID or URL", text: $listIdOrURL)
+                        .textContentType(.URL)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .onChange(of: listIdOrURL) { _, _ in
+                            previewItems = []
+                            listName = ""
+                            error = nil
+                        }
+                    
+                    Button("Preview List") {
+                        Task { await previewList() }
+                    }
+                    .disabled(listIdOrURL.isEmpty || isLoading)
+                } header: {
+                    Text("MDBList ID or URL")
+                } footer: {
+                    Text("Enter the list ID (e.g., username/listname) or paste the full URL from mdblist.com")
+                }
+                
+                // Preview
+                if !previewItems.isEmpty {
+                    Section("Preview") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if !listName.isEmpty {
+                                Text(listName)
+                                    .font(.headline)
+                            }
+                            
+                            Text("\(previewItems.count) items found")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            // Show first few items
+                            ForEach(previewItems.prefix(3)) { item in
+                                HStack(spacing: 8) {
+                                    if let poster = item.poster, let url = URL(string: poster) {
+                                        AsyncImage(url: url) { phase in
+                                            switch phase {
+                                            case .success(let image):
+                                                image
+                                                    .resizable()
+                                                    .aspectRatio(contentMode: .fill)
+                                            default:
+                                                Rectangle()
+                                                    .fill(Color(.systemGray5))
+                                            }
+                                        }
+                                        .frame(width: 40, height: 60)
+                                        .cornerRadius(4)
+                                    }
+                                    
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.title ?? "Unknown")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                            .lineLimit(1)
+                                        
+                                        HStack {
+                                            if let year = item.year {
+                                                Text("\(year)")
+                                            }
+                                            if let score = item.scoreAverage ?? item.score {
+                                                HStack(spacing: 2) {
+                                                    Image(systemName: "star.fill")
+                                                        .font(.caption2)
+                                                        .foregroundColor(.yellow)
+                                                    Text(String(format: "%.1f", score))
+                                                }
+                                            }
+                                        }
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    }
+                                }
+                            }
+                            
+                            if previewItems.count > 3 {
+                                Text("...and \(previewItems.count - 3) more")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    
+                    Section {
+                        TextField("Custom Name (optional)", text: $customName)
+                        
+                        Toggle("Show on Home Screen", isOn: $showOnHome)
+                    } header: {
+                        Text("Options")
+                    }
+                }
+                
+                if let error = error {
+                    Section {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text(error)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Add MDBList")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        Task { await addList() }
+                    }
+                    .disabled(previewItems.isEmpty || isLoading)
+                }
+            }
+            .overlay {
+                if isLoading {
+                    ProgressView()
+                        .padding()
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+        }
+    }
+    
+    private func previewList() async {
+        isLoading = true
+        error = nil
+        
+        let listId = MDBListService.shared.parseListId(from: listIdOrURL)
+        
+        do {
+            let items = try await MDBListService.shared.getListItems(listId: listId)
+            previewItems = items
+            
+            // Try to extract list name from URL or use a default
+            if listIdOrURL.contains("/") {
+                let components = listId.split(separator: "/")
+                if components.count >= 2 {
+                    listName = String(components.last ?? "MDBList")
+                        .replacingOccurrences(of: "-", with: " ")
+                        .capitalized
+                }
+            } else {
+                listName = "MDBList"
+            }
+        } catch {
+            self.error = "Could not find list. Please check the ID or URL."
+        }
+        
+        isLoading = false
+    }
+    
+    private func addList() async {
+        guard !previewItems.isEmpty else { return }
+        
+        isLoading = true
+        let listId = MDBListService.shared.parseListId(from: listIdOrURL)
+        
+        let finalName = customName.isEmpty ? listName : customName
+        var newList = ImportedListItem(
+            name: finalName,
+            listId: listId,
+            showOnHome: showOnHome,
+            source: .mdblist
+        )
+        
+        // Convert MDBListItems to SavedMediaItems
+        do {
+            newList.items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
+            newList.lastSynced = Date()
+        } catch {
+            print("Failed to fetch full list items: \(error)")
+            // Use preview items as fallback
+            newList.items = previewItems.compactMap { $0.toSavedMediaItem() }
+            newList.lastSynced = Date()
+        }
+        
+        storage.addImportedList(newList)
+        
+        // Also create a home row if showOnHome is enabled
+        if showOnHome {
+            let homeRow = CustomHomeRow.importedListRow(
+                name: newList.displayName,
+                listId: newList.id,
+                sortOrder: storage.customHomeRows.count
+            )
+            storage.addCustomHomeRow(homeRow)
+        }
+        
+        isLoading = false
+        dismiss()
     }
 }
 

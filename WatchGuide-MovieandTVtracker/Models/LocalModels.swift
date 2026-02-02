@@ -142,7 +142,34 @@ struct CompanyHub: Identifiable, Codable {
     }
 }
 
-// MARK: - PublicMetaDB List
+// MARK: - Imported List Source
+enum ImportedListSource: String, Codable {
+    case publicMetaDB = "publicmetadb"
+    case mdblist = "mdblist"
+    
+    var displayName: String {
+        switch self {
+        case .publicMetaDB: return "PublicMetaDB"
+        case .mdblist: return "MDBList"
+        }
+    }
+    
+    var iconName: String {
+        switch self {
+        case .publicMetaDB: return "list.bullet.clipboard"
+        case .mdblist: return "list.star"
+        }
+    }
+    
+    var iconColor: String {
+        switch self {
+        case .publicMetaDB: return "orange"
+        case .mdblist: return "purple"
+        }
+    }
+}
+
+// MARK: - Imported List (PublicMetaDB & MDBList)
 struct ImportedListItem: Identifiable, Codable {
     let id: String
     var name: String
@@ -152,8 +179,9 @@ struct ImportedListItem: Identifiable, Codable {
     let createdAt: Date
     var showOnHome: Bool
     var customName: String?
+    var source: ImportedListSource
     
-    init(name: String, listId: String, showOnHome: Bool = false) {
+    init(name: String, listId: String, showOnHome: Bool = false, source: ImportedListSource = .publicMetaDB) {
         self.id = UUID().uuidString
         self.name = name
         self.listId = listId
@@ -162,6 +190,7 @@ struct ImportedListItem: Identifiable, Codable {
         self.createdAt = Date()
         self.showOnHome = showOnHome
         self.customName = nil
+        self.source = source
     }
     
     var displayName: String {

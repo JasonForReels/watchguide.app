@@ -160,17 +160,22 @@ struct ListsView: View {
                 }
                 
                 if !storage.importedLists.isEmpty {
-                    Section("PublicMetaDB Imports") {
+                    Section("Imported Lists") {
                         ForEach(storage.importedLists) { list in
                             NavigationLink(destination: ImportedListDetailView(list: list)) {
                                 HStack {
-                                    Image(systemName: "list.bullet.rectangle")
-                                        .foregroundColor(.orange)
+                                    Image(systemName: list.source.iconName)
+                                        .foregroundColor(list.source == .mdblist ? .purple : .orange)
                                         .frame(width: 24)
                                     
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(list.name)
-                                            .fontWeight(.medium)
+                                        HStack(spacing: 4) {
+                                            Text(list.name)
+                                                .fontWeight(.medium)
+                                            Text("(\(list.source.displayName))")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
                                         HStack {
                                             Text("\(list.items.count) items")
                                             if let synced = list.lastSynced {
@@ -280,7 +285,7 @@ struct CustomListDetailView: View {
     }
 }
 
-// MARK: - Imported List Detail View (PublicMetaDB)
+// MARK: - Imported List Detail View (PublicMetaDB & MDBList)
 struct ImportedListDetailView: View {
     let list: ImportedListItem
     @ObservedObject private var storage = StorageService.shared
@@ -349,7 +354,15 @@ struct ImportedListDetailView: View {
         isSyncing = true
         
         do {
-            let items = try await PublicMetaDBService.shared.fetchListItemsAsSavedMedia(listId: list.listId)
+            var items: [SavedMediaItem] = []
+            
+            switch list.source {
+            case .publicMetaDB:
+                items = try await PublicMetaDBService.shared.fetchListItemsAsSavedMedia(listId: list.listId)
+            case .mdblist:
+                items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: list.listId)
+            }
+            
             var updatedList = list
             updatedList.items = items
             updatedList.lastSynced = Date()
@@ -362,25 +375,38 @@ struct ImportedListDetailView: View {
     }
 }
 
-// MARK: - Import List Sheet (PublicMetaDB)
+// MARK: - Import List Sheet (PublicMetaDB & MDBList)
 struct ImportMDBListSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var storage = StorageService.shared
     @State private var listId = ""
     @State private var isLoading = false
     @State private var error: String?
+    @State private var selectedSource: ImportedListSource = .publicMetaDB
     
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("PublicMetaDB ID or URL", text: $listId)
+                    Picker("Source", selection: $selectedSource) {
+                        Text("PublicMetaDB").tag(ImportedListSource.publicMetaDB)
+                        Text("MDBList").tag(ImportedListSource.mdblist)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                
+                Section {
+                    TextField(selectedSource == .publicMetaDB ? "PublicMetaDB ID or URL" : "MDBList ID or URL", text: $listId)
                         .textContentType(.URL)
                         .autocapitalization(.none)
                 } header: {
                     Text("List ID")
                 } footer: {
-                    Text("Enter the PublicMetaDB list ID or paste the full URL")
+                    if selectedSource == .publicMetaDB {
+                        Text("Enter the PublicMetaDB list ID or paste the full URL")
+                    } else {
+                        Text("Enter the MDBList ID (e.g., username/listname) or paste the full URL")
+                    }
                 }
                 
                 if let error = error {
@@ -415,28 +441,68 @@ struct ImportMDBListSheet: View {
         isLoading = true
         error = nil
         
+        switch selectedSource {
+        case .publicMetaDB:
+            await importFromPublicMetaDB()
+        case .mdblist:
+            await importFromMDBList()
+        }
+        
+        isLoading = false
+        dismiss()
+    }
+    
+    private func importFromPublicMetaDB() async {
         // Extract list ID from URL if needed
         var extractedId = listId
         if listId.contains("publicmetadb.com") {
             extractedId = listId.components(separatedBy: "/").last ?? listId
         }
         
-        var newList = ImportedListItem(name: "Imported List", listId: extractedId)
+        var newList = ImportedListItem(name: "Imported List", listId: extractedId, source: .publicMetaDB)
         
         // Try to fetch list info and items
         do {
             let info = try await PublicMetaDBService.shared.getListInfo(listId: extractedId)
-            newList = ImportedListItem(name: info.name, listId: extractedId)
+            newList = ImportedListItem(name: info.name, listId: extractedId, source: .publicMetaDB)
             newList.items = try await PublicMetaDBService.shared.fetchListItemsAsSavedMedia(listId: extractedId)
             newList.lastSynced = Date()
         } catch {
             print("Failed to fetch list: \(error)")
+            self.error = "Failed to import list. Please check the ID."
+            return
         }
         
         storage.addImportedList(newList)
+    }
+    
+    private func importFromMDBList() async {
+        let extractedId = MDBListService.shared.parseListId(from: listId)
         
-        isLoading = false
-        dismiss()
+        // Try to extract list name from URL
+        var listName = "MDBList"
+        if extractedId.contains("/") {
+            let components = extractedId.split(separator: "/")
+            if components.count >= 2 {
+                listName = String(components.last ?? "MDBList")
+                    .replacingOccurrences(of: "-", with: " ")
+                    .capitalized
+            }
+        }
+        
+        var newList = ImportedListItem(name: listName, listId: extractedId, source: .mdblist)
+        
+        // Try to fetch list items
+        do {
+            newList.items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: extractedId)
+            newList.lastSynced = Date()
+        } catch {
+            print("Failed to fetch list: \(error)")
+            self.error = "Failed to import list. Please check the ID."
+            return
+        }
+        
+        storage.addImportedList(newList)
     }
 }
 
