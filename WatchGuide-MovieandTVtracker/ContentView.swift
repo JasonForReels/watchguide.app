@@ -83,26 +83,46 @@ struct ContentView: View {
         .tint(.accentColor)
     }
     
-    // MARK: - iPad Layout (Sidebar Navigation)
+    // MARK: - iPad Layout (Sidebar Navigation with Liquid Glass)
     private var iPadLayout: some View {
         NavigationSplitView {
             List {
                 ForEach(Tab.allCases) { tab in
                     Button {
-                        selectedTab = tab
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            selectedTab = tab
+                        }
                     } label: {
                         Label(tab.rawValue, systemImage: tab.iconName)
                             .foregroundColor(selectedTab == tab ? .accentColor : .primary)
                     }
                     .listRowBackground(
-                        selectedTab == tab 
-                            ? Color.accentColor.opacity(0.15) 
-                            : Color.clear
+                        Group {
+                            if selectedTab == tab {
+                                // Liquid Glass effect for selected item
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(.ultraThinMaterial)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+                                    )
+                                    .shadow(color: Color.accentColor.opacity(0.15), radius: 8, y: 2)
+                            } else {
+                                Color.clear
+                            }
+                        }
                     )
                 }
             }
             .navigationTitle("WatchGuide")
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background {
+                // Liquid Glass sidebar background
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .ignoresSafeArea()
+            }
         } detail: {
             iPadDetailView
         }

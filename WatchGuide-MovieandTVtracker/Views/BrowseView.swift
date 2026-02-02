@@ -544,9 +544,14 @@ struct NetworkHubSheet: View {
     private func loadContent() async {
         isLoading = true
         
-        let region = StorageService.shared.settings.region
+        var region = StorageService.shared.settings.region
         
-        // Load movies available on this streaming service
+        // Special handling for South Africa Disney+ (mirrors UK content)
+        if region == "ZA" && hub.name == "Disney+" {
+            region = "GB"
+        }
+        
+        // Load movies available on this streaming service using provider-based discovery
         do {
             let response = try await TMDBService.shared.discoverMoviesWithProvider(
                 providerIds: hub.providerIds,
@@ -557,25 +562,15 @@ struct NetworkHubSheet: View {
             print("Error loading movies: \(error)")
         }
         
-        // Load TV shows
-        if !hub.networkIds.isEmpty {
-            do {
-                let response = try await TMDBService.shared.discoverTVByNetwork(networkIds: hub.networkIds)
-                tvShows = response.results
-            } catch {
-                print("Error loading TV: \(error)")
-            }
-        } else {
-            // Fallback to provider-based discovery
-            do {
-                let response = try await TMDBService.shared.discoverTVWithProvider(
-                    providerIds: hub.providerIds,
-                    region: region
-                )
-                tvShows = response.results
-            } catch {
-                print("Error loading TV: \(error)")
-            }
+        // Load TV shows using provider-based discovery (more reliable than network IDs)
+        do {
+            let response = try await TMDBService.shared.discoverTVWithProvider(
+                providerIds: hub.providerIds,
+                region: region
+            )
+            tvShows = response.results
+        } catch {
+            print("Error loading TV: \(error)")
         }
         
         isLoading = false
@@ -586,32 +581,57 @@ struct NetworkHubSheet: View {
 struct BrowseCustomizeSheet: View {
     @ObservedObject private var storage = StorageService.shared
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var browseRows: [BrowseRowConfig] = []
     @State private var networkHubs: [NetworkHub] = []
+    
+    private var isIPad: Bool {
+        horizontalSizeClass == .regular
+    }
     
     var body: some View {
         NavigationStack {
             List {
-                // Networks Section
+                // Networks Section - only show available in user's region
                 Section {
-                    ForEach($networkHubs) { $hub in
+                    ForEach($networkHubs.filter { storage.settings.region.isEmpty || $0.wrappedValue.regions.contains(storage.settings.region) }) { $hub in
                         HStack {
-                            Text(hub.name)
-                                .fontWeight(.medium)
+                            if let logoURL = hub.logoURL, let url = URL(string: logoURL) {
+                                AsyncImage(url: url) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fit)
+                                            .frame(width: 50, height: 24)
+                                            .colorInvert()
+                                            .environment(\.colorScheme, .light)
+                                    default:
+                                        Text(hub.name)
+                                            .fontWeight(.medium)
+                                    }
+                                }
+                            } else {
+                                Text(hub.name)
+                                    .fontWeight(.medium)
+                            }
                             
                             Spacer()
                             
                             Toggle("", isOn: $hub.isEnabled)
                                 .labelsHidden()
                         }
+                        .listRowBackground(
+                            isIPad ? AnyView(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial)) : AnyView(Color.clear)
+                        )
                     }
                     .onMove { from, to in
                         networkHubs.move(fromOffsets: from, toOffset: to)
                     }
                 } header: {
-                    Text("Networks")
+                    Text("Networks (Available in \(regionName))")
                 } footer: {
-                    Text("Drag to reorder, toggle to show/hide")
+                    Text("Drag to reorder, toggle to show/hide. Only services available in your region are shown.")
                 }
                 
                 // Browse Rows Section
@@ -626,6 +646,9 @@ struct BrowseCustomizeSheet: View {
                             Toggle("", isOn: $row.isEnabled)
                                 .labelsHidden()
                         }
+                        .listRowBackground(
+                            isIPad ? AnyView(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial)) : AnyView(Color.clear)
+                        )
                     }
                     .onMove { from, to in
                         browseRows.move(fromOffsets: from, toOffset: to)
@@ -635,6 +658,14 @@ struct BrowseCustomizeSheet: View {
                     Text("Content Rows")
                 } footer: {
                     Text("Drag to reorder, toggle to show/hide")
+                }
+            }
+            .scrollContentBackground(isIPad ? .hidden : .automatic)
+            .background {
+                if isIPad {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .ignoresSafeArea()
                 }
             }
             .navigationTitle("Customize Browse")
@@ -661,6 +692,27 @@ struct BrowseCustomizeSheet: View {
                 networkHubs = storage.networkHubs.sorted { $0.sortOrder < $1.sortOrder }
             }
         }
+    }
+    
+    private var regionName: String {
+        let region = storage.settings.region
+        let regionNames: [String: String] = [
+            "US": "United States",
+            "GB": "United Kingdom",
+            "CA": "Canada",
+            "AU": "Australia",
+            "ZA": "South Africa",
+            "DE": "Germany",
+            "FR": "France",
+            "JP": "Japan",
+            "KR": "South Korea",
+            "IN": "India",
+            "BR": "Brazil",
+            "NZ": "New Zealand",
+            "NG": "Nigeria",
+            "KE": "Kenya"
+        ]
+        return regionNames[region] ?? region
     }
     
     private func updateSortOrder() {

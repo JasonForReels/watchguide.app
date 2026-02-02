@@ -72,6 +72,12 @@ struct CastMemberCard: View {
 // MARK: - Crew Row
 struct CrewRowView: View {
     let crew: [CrewMember]
+    let onPersonTap: ((CrewMember) -> Void)?
+    
+    init(crew: [CrewMember], onPersonTap: ((CrewMember) -> Void)? = nil) {
+        self.crew = crew
+        self.onPersonTap = onPersonTap
+    }
     
     var filteredCrew: [CrewMember] {
         let importantJobs = ["Director", "Writer", "Screenplay", "Creator", "Executive Producer", "Producer"]
@@ -92,6 +98,9 @@ struct CrewRowView: View {
                     LazyHStack(spacing: 16) {
                         ForEach(filteredCrew.prefix(10), id: \.uniqueId) { member in
                             CrewMemberCard(member: member)
+                                .onTapGesture {
+                                    onPersonTap?(member)
+                                }
                         }
                     }
                     .padding(.horizontal)
@@ -103,10 +112,14 @@ struct CrewRowView: View {
 
 struct CrewMemberCard: View {
     let member: CrewMember
+    @State private var isHovered = false
     
     var body: some View {
         VStack(spacing: 8) {
             ProfileImageView(profilePath: member.profilePath, size: 70)
+                .shadow(color: .black.opacity(0.15), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
+                .scaleEffect(isHovered ? 1.05 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
             
             VStack(spacing: 2) {
                 Text(member.name)
@@ -123,6 +136,9 @@ struct CrewMemberCard: View {
                 }
             }
             .frame(width: 70)
+        }
+        .onHover { hovering in
+            isHovered = hovering
         }
     }
 }

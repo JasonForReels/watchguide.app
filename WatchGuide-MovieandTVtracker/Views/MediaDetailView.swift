@@ -5,11 +5,19 @@
 
 import SwiftUI
 
+// MARK: - Person Selection Model
+struct SelectedPerson: Identifiable {
+    let id: Int
+    let name: String
+    let profilePath: String?
+}
+
 struct MediaDetailView: View {
     let item: MediaItem
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: MediaDetailViewModel
     @State private var selectedSeason: Season?
+    @State private var selectedPerson: SelectedPerson?
     
     init(item: MediaItem) {
         self.item = item
@@ -87,12 +95,16 @@ struct MediaDetailView: View {
                         
                         // Cast
                         if !viewModel.cast.isEmpty {
-                            CastRowView(cast: viewModel.cast)
+                            CastRowView(cast: viewModel.cast) { member in
+                                selectedPerson = SelectedPerson(id: member.id, name: member.name, profilePath: member.profilePath)
+                            }
                         }
                         
                         // Crew
                         if !viewModel.crew.isEmpty {
-                            CrewRowView(crew: viewModel.crew)
+                            CrewRowView(crew: viewModel.crew) { member in
+                                selectedPerson = SelectedPerson(id: member.id, name: member.name, profilePath: member.profilePath)
+                            }
                         }
                         
                         // Similar
@@ -141,6 +153,13 @@ struct MediaDetailView: View {
             SeasonDetailSheet(
                 tvId: item.id,
                 season: season
+            )
+        }
+        .sheet(item: $selectedPerson) { person in
+            PersonDetailView(
+                personId: person.id,
+                personName: person.name,
+                profilePath: person.profilePath
             )
         }
     }

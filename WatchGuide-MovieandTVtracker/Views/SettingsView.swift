@@ -368,12 +368,16 @@ struct SettingsView: View {
             ("GB", "United Kingdom"),
             ("CA", "Canada"),
             ("AU", "Australia"),
+            ("ZA", "South Africa"),
             ("DE", "Germany"),
             ("FR", "France"),
             ("JP", "Japan"),
             ("KR", "South Korea"),
             ("IN", "India"),
             ("BR", "Brazil"),
+            ("NZ", "New Zealand"),
+            ("NG", "Nigeria"),
+            ("KE", "Kenya"),
         ]
     }
     

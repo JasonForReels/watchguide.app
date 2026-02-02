@@ -157,7 +157,16 @@ class StorageService: ObservableObject {
     }
     
     func getEnabledNetworkHubs() -> [NetworkHub] {
-        return networkHubs.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }
+        let userRegion = settings.region
+        return networkHubs
+            .filter { $0.isEnabled && $0.regions.contains(userRegion) }
+            .sorted { $0.sortOrder < $1.sortOrder }
+    }
+    
+    func getNetworkHubsForRegion(_ region: String) -> [NetworkHub] {
+        return networkHubs
+            .filter { $0.regions.contains(region) }
+            .sorted { $0.sortOrder < $1.sortOrder }
     }
     
     // MARK: - Want to Watch
