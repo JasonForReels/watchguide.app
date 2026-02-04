@@ -4,4 +4,10 @@
    <FileRef
       location = "self:">
    </FileRef>
+   <FileRef
+      location = "group:AdaptiveNavContainer.swift">
+   </FileRef>
+   <FileRef
+      location = "group:HeroAmbientContainer.swift">
+   </FileRef>
 </Workspace>

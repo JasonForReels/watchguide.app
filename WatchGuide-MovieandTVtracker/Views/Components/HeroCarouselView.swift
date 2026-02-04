@@ -5,6 +5,7 @@
 
 import SwiftUI
 import WebKit
+import UIKit
 
 struct HeroCarouselView: View {
     let items: [MediaItem]
@@ -14,6 +15,8 @@ struct HeroCarouselView: View {
     @State private var timer: Timer?
     @State private var trailers: [Int: Video] = [:] // mediaId -> trailer
     @State private var isPlayingTrailer = false
+    @State private var borderRotation: Angle = .degrees(0)
+    @State private var borderAnimating: Bool = true
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     
     private var autoPlayEnabled: Bool {
@@ -25,13 +28,26 @@ struct HeroCarouselView: View {
         verticalSizeClass == .compact ? 280 : 400
     }
     
+    private var animatedBorderGradient: AngularGradient {
+        let base = UIColor(ambientColor)
+        // Generate complementary and analogous colors for a pleasing gradient
+        let components = base.cgColor.components ?? [0.2, 0.2, 0.2, 1]
+        let r = components[0], g = components[1], b = components[2]
+        let lighten = Color(red: min(r + 0.2, 1), green: min(g + 0.2, 1), blue: min(b + 0.2, 1))
+        let darken = Color(red: max(r - 0.2, 0), green: max(g - 0.2, 0), blue: max(b - 0.2, 0))
+        let colors: [Color] = [Color(ambientColor), lighten, Color(ambientColor), darken]
+        return AngularGradient(gradient: Gradient(colors: colors), center: .center, angle: borderRotation)
+    }
+    
+    @State private var ambientColor: Color = .black
+    
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
                 // Background blur
                 if let currentItem = items[safe: currentIndex] {
                     BackdropImageView(backdropPath: currentItem.backdropPath)
-                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .frame(width: geometry.size.width, height: geometry.size.width * 9.0 / 16.0)
                         .blur(radius: 30)
                         .opacity(0.5)
                 }
@@ -42,7 +58,7 @@ struct HeroCarouselView: View {
                         HeroSlideView(
                             item: item,
                             width: geometry.size.width,
-                            height: carouselHeight,
+                            height: geometry.size.width * 9.0 / 16.0,
                             trailer: trailers[item.id],
                             isCurrentSlide: index == currentIndex,
                             autoPlayEnabled: autoPlayEnabled,
@@ -55,6 +71,16 @@ struct HeroCarouselView: View {
                         .tag(index)
                         .onTapGesture {
                             onItemTap(item)
+                        }
+                        .onAppear {
+                            // Update ambient color when this slide appears
+                            if let path = item.backdropPath, let url = TMDBService.shared.imageURL(path: path, size: .backdrop) {
+                                Task {
+                                    if let data = try? Data(contentsOf: url), let ui = UIImage(data: data) {
+                                        updateAmbientColor(from: ui)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -71,21 +97,39 @@ struct HeroCarouselView: View {
                 }
                 .padding(.bottom, 16)
             }
+            .frame(width: geometry.size.width, height: geometry.size.width * 9.0 / 16.0)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(animatedBorderGradient, lineWidth: 2)
+                    .allowsHitTesting(false)
+            )
+            .aspectRatio(16.0/9.0, contentMode: .fit)
         }
-        .frame(height: carouselHeight)
+        .padding(.horizontal)
+        .padding(.bottom, 12)
         .onAppear {
             startAutoScroll()
             loadTrailers()
+            // After a short delay, attempt to start trailer for first item if available
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                attemptStartTrailerForFirstItem()
+            }
+            startBorderAnimation()
         }
         .onDisappear {
             stopAutoScroll()
+            stopBorderAnimation()
         }
         .onChange(of: currentIndex) { _, _ in
             // Reset trailer state when switching slides
             isPlayingTrailer = false
             // Restart auto-scroll timer after manual swipe
             restartAutoScroll()
+            // Notify other views about index change
+            NotificationCenter.default.post(name: Notification.Name("HeroCarouselIndexChanged"), object: NSNumber(value: currentIndex))
         }
+        .preferredColorScheme(StorageService.shared.settings.ambientModeEnabled ? .dark : nil)
     }
     
     private func advanceToNextItem() {
@@ -119,6 +163,25 @@ struct HeroCarouselView: View {
     
     private func loadTrailers() {
         Task {
+            // Prioritize fetching the first item's trailer immediately so it can play
+            if let first = items.first {
+                do {
+                    let videos: VideosResponse
+                    if first.resolvedMediaType == .movie {
+                        videos = try await TMDBService.shared.getMovieVideos(id: first.id)
+                    } else {
+                        videos = try await TMDBService.shared.getTVShowVideos(id: first.id)
+                    }
+                    if let best = selectBestOfficialTrailer(from: videos.results) {
+                        await MainActor.run {
+                            trailers[first.id] = best
+                        }
+                    }
+                } catch {
+                    print("Error loading trailer for first item: \(error)")
+                }
+            }
+            
             for item in items.prefix(10) {
                 do {
                     let videos: VideosResponse
@@ -140,6 +203,15 @@ struct HeroCarouselView: View {
                     print("Error loading trailer for \(item.displayTitle): \(error)")
                 }
             }
+        }
+    }
+    
+    private func ensureCurrentHasTrailerOrAdvance() {
+        guard autoPlayEnabled, !items.isEmpty else { return }
+        let currentItem = items[currentIndex]
+        if trailers[currentItem.id] != nil { return }
+        if let nextIndex = items.prefix(10).firstIndex(where: { trailers[$0.id] != nil }) {
+            withAnimation { currentIndex = nextIndex }
         }
     }
     
@@ -202,6 +274,61 @@ struct HeroCarouselView: View {
         
         return sorted.first?.video
     }
+    
+    private func startBorderAnimation() {
+        borderAnimating = true
+        withAnimation(.linear(duration: 8).repeatForever(autoreverses: false)) {
+            borderRotation = .degrees(360)
+        }
+    }
+    
+    private func stopBorderAnimation() {
+        borderAnimating = false
+        borderRotation = .degrees(0)
+    }
+    
+    private func updateAmbientColor(from uiImage: UIImage) {
+        if let avg = uiImage.averageColor() {
+            ambientColor = Color(avg)
+        } else {
+            ambientColor = .black
+        }
+    }
+    
+    private func attemptStartTrailerForFirstItem() {
+        guard autoPlayEnabled, !items.isEmpty else { return }
+        
+        currentIndex = 0
+        let firstItemId = items[0].id
+        
+        if trailers[firstItemId] != nil {
+            // Post notification and try to start trailer soon
+            NotificationCenter.default.post(name: Notification.Name("HeroCarouselIndexChanged"), object: NSNumber(value: currentIndex))
+            isPlayingTrailer = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                isPlayingTrailer = true
+            }
+            return
+        }
+        
+        var attempts = 0
+        func pollForTrailer() {
+            attempts += 1
+            if trailers[firstItemId] != nil {
+                NotificationCenter.default.post(name: Notification.Name("HeroCarouselIndexChanged"), object: NSNumber(value: currentIndex))
+                isPlayingTrailer = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    isPlayingTrailer = true
+                }
+            } else if attempts < 15 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    pollForTrailer()
+                }
+            }
+            // If no trailer found after polling, do nothing (do not advance)
+        }
+        pollForTrailer()
+    }
 }
 
 // MARK: - Hero Slide View
@@ -219,30 +346,40 @@ struct HeroSlideView: View {
     @State private var trailerReady = false
     @State private var trailerFailed = false
     @State private var trailerKey: String = ""
+    @State private var isMuted: Bool = StorageService.shared.settings.autoPlayTrailersMuted
+    @State private var ambientColor: Color = .black
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    private var isCompactHeight: Bool {
+        verticalSizeClass == .compact
+    }
+    
+    private var isPhone: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone
+    }
     
     private var shouldShowTrailer: Bool {
         showTrailer && !trailerFailed && trailer != nil && autoPlayEnabled && isCurrentSlide && !trailerKey.isEmpty
     }
     
-    // Compact layout for landscape
-    private var isCompactHeight: Bool {
-        verticalSizeClass == .compact
-    }
-    
     var body: some View {
         ZStack(alignment: .bottomLeading) {
+            if StorageService.shared.settings.ambientModeEnabled {
+                AmbientBackground(color: ambientColor)
+            }
+            
             // Always show backdrop first as base layer
             backdropView
                 .frame(width: width, height: height)
                 .clipped()
+                .zIndex(0)
             
             // Video overlay (only when ready and valid)
             if shouldShowTrailer {
                 YouTubePlayerView(
                     videoKey: trailerKey,
                     autoPlay: true,
-                    isMuted: false,
+                    isMuted: isMuted,
                     onReady: {
                         trailerReady = true
                     },
@@ -255,10 +392,13 @@ struct HeroSlideView: View {
                         }
                     },
                     onEnded: {
-                        // Trailer finished playing, advance to next
+                        // Trailer finished playing: hide overlay and restore backdrop/title immediately
                         DispatchQueue.main.async {
-                            showTrailer = false
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showTrailer = false
+                            }
                             isPlayingTrailer = false
+                            trailerKey = ""
                             onTrailerEnded?()
                         }
                     }
@@ -266,6 +406,7 @@ struct HeroSlideView: View {
                 .frame(width: width, height: height)
                 .clipped()
                 .transition(.opacity)
+                .zIndex(1)
             }
             
             // Gradient overlay (lighter when video is playing)
@@ -274,6 +415,8 @@ struct HeroSlideView: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
+            .allowsHitTesting(false)
+            .zIndex(2)
             
             // Content - adaptive layout for landscape
             VStack(alignment: .leading, spacing: isCompactHeight ? 6 : 12) {
@@ -313,12 +456,13 @@ struct HeroSlideView: View {
                 
                 Spacer()
                 
-                // Title
-                Text(item.displayTitle)
-                    .font(isCompactHeight ? .title2 : .title)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .lineLimit(isCompactHeight ? 1 : 2)
+                if !(isPhone && shouldShowTrailer) {
+                    Text(item.displayTitle)
+                        .font(isCompactHeight ? .title2 : .title)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .lineLimit(isCompactHeight ? 1 : 2)
+                }
                 
                 // Info row
                 HStack(spacing: 12) {
@@ -348,18 +492,27 @@ struct HeroSlideView: View {
             }
             .padding(isCompactHeight ? 16 : 24)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .zIndex(3)
+        }
+        .aspectRatio(16.0/9.0, contentMode: .fill)
+        .preferredColorScheme(StorageService.shared.settings.ambientModeEnabled ? .dark : nil)
+        .onTapGesture {
+            if shouldShowTrailer && isMuted {
+                isMuted = false
+            }
         }
         .onChange(of: isCurrentSlide) { _, newValue in
             if !newValue {
                 // Stop trailer when sliding away
                 stopTrailer()
-            } else if autoPlayEnabled && trailer != nil && !trailerFailed {
-                // Auto-start trailer when sliding to this item (with delay)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    if isCurrentSlide && !trailerFailed {
-                        startTrailer()
-                    }
-                }
+            } else if autoPlayEnabled && !trailerFailed {
+                attemptAutoStartWithWait()
+            }
+        }
+        .onChange(of: showTrailer) { oldValue, newValue in
+            // Fallback: if trailer just stopped displaying while this is the current slide, advance immediately
+            if oldValue == true && newValue == false && autoPlayEnabled {
+                onTrailerEnded?()
             }
         }
         .onAppear {
@@ -367,14 +520,12 @@ struct HeroSlideView: View {
             trailerFailed = false
             trailerReady = false
             trailerKey = ""
+            // Removed resetting isMuted to true here to preserve initial setting from StorageService
+            // isMuted = true
             
-            // Start trailer if this is the first slide and autoplay is enabled
-            if isCurrentSlide && autoPlayEnabled && trailer != nil {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    if isCurrentSlide && !trailerFailed {
-                        startTrailer()
-                    }
-                }
+            // Start trailer if this is the current slide and autoplay is enabled (wait if trailer not loaded yet)
+            if isCurrentSlide && autoPlayEnabled {
+                attemptAutoStartWithWait()
             }
         }
         .onDisappear {
@@ -397,6 +548,15 @@ struct HeroSlideView: View {
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    .onAppear {
+                        Task {
+                            if let path = item.backdropPath, let url = TMDBService.shared.imageURL(path: path, size: .backdrop) {
+                                if let data = try? Data(contentsOf: url), let ui = UIImage(data: data) {
+                                    updateAmbientColor(from: ui)
+                                }
+                            }
+                        }
+                    }
             case .failure:
                 Rectangle()
                     .fill(Color(.systemGray5))
@@ -430,6 +590,54 @@ struct HeroSlideView: View {
         showTrailer = false
         trailerReady = false
         trailerKey = ""
+    }
+    
+    private func updateAmbientColor(from uiImage: UIImage) {
+        if let avg = uiImage.averageColor() {
+            ambientColor = Color(avg)
+        } else {
+            ambientColor = .black
+        }
+    }
+    
+    private func attemptAutoStartWithWait() {
+        guard autoPlayEnabled && isCurrentSlide && !trailerFailed else { return }
+        // If we already have a trailer, start shortly
+        if trailer != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                if isCurrentSlide && !trailerFailed {
+                    startTrailer()
+                }
+            }
+            return
+        }
+        // Otherwise, poll briefly for trailer availability (up to ~2 seconds)
+        var attempts = 0
+        func poll() {
+            attempts += 1
+            if trailer != nil && isCurrentSlide && !trailerFailed {
+                startTrailer()
+            } else if attempts < 10 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    poll()
+                }
+            }
+        }
+        poll()
+    }
+}
+
+// MARK: - Ambient Background View
+struct AmbientBackground: View {
+    let color: Color
+    var body: some View {
+        ZStack {
+            color.opacity(0.6)
+            RadialGradient(colors: [color.opacity(0.7), color.opacity(0.2), .black.opacity(0.8)], center: .center, startRadius: 0, endRadius: 800)
+                .blendMode(.plusLighter)
+        }
+        .blur(radius: 60)
+        .ignoresSafeArea()
     }
 }
 
@@ -477,9 +685,11 @@ struct YouTubePlayerView: UIViewRepresentable {
             return
         }
         
-        // Only load if video key changed
-        guard context.coordinator.currentVideoKey != videoKey else { return }
+        if context.coordinator.currentVideoKey == videoKey && context.coordinator.lastMuteValue == isMuted {
+            return
+        }
         context.coordinator.currentVideoKey = videoKey
+        context.coordinator.lastMuteValue = isMuted
         context.coordinator.hasErrored = false
         
         loadYouTubePlayer(webView: webView)
@@ -490,8 +700,9 @@ struct YouTubePlayerView: UIViewRepresentable {
         let autoPlayValue = autoPlay ? 1 : 0
         let muteValue = isMuted ? 1 : 0
         
-        // Use direct iframe embed with youtube-nocookie.com for better embedding support
-        // This avoids error 150/153 which occurs with the IFrame API on some videos
+        let primaryHost = "https://www.youtube-nocookie.com"
+        let fallbackHost = "https://yewtu.be"
+        
         let html = """
         <!DOCTYPE html>
         <html>
@@ -549,33 +760,84 @@ struct YouTubePlayerView: UIViewRepresentable {
             <div id="player-wrapper">
                 <iframe 
                     id="player"
-                    src="https://www.youtube-nocookie.com/embed/\(sanitizedKey)?autoplay=\(autoPlayValue)&mute=\(muteValue)&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0&showinfo=0&enablejsapi=1&widget_referrer=https://watchguide.app"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    referrerpolicy="no-referrer"
                     allowfullscreen>
                 </iframe>
             </div>
             
             <script>
-                var hasNotifiedReady = false;
-                var hasNotifiedError = false;
-                var hasNotifiedEnded = false;
-                var player = document.getElementById('player');
+                const PRIMARY_HOST = "\(primaryHost)";
+                const FALLBACK_HOST = "\(fallbackHost)";
+                const VIDEO_KEY = "\(sanitizedKey)";
+                const AUTOPLAY = \(autoPlayValue);
+                const MUTE = \(muteValue);
                 
-                // Listen for iframe load
-                player.addEventListener('load', function() {
-                    document.getElementById('loading').classList.add('hidden');
-                    
+                let usingFallback = false;
+                let hasNotifiedReady = false;
+                let hasNotifiedError = false;
+                let hasNotifiedEnded = false;
+                
+                const iframe = document.getElementById('player');
+                const loadingDiv = document.getElementById('loading');
+                
+                function buildSrc(host) {
+                    return host + '/embed/' + VIDEO_KEY + '?autoplay=' + AUTOPLAY + '&mute=' + MUTE + '&controls=0&modestbranding=1&rel=0&iv_load_policy=3&showinfo=0&playsinline=1';
+                }
+                
+                function notifyReady() {
                     if (!hasNotifiedReady) {
                         hasNotifiedReady = true;
-                        try {
-                            window.webkit.messageHandlers.playerReady.postMessage('ready');
-                        } catch(e) {}
+                        window.webkit.messageHandlers.playerReady.postMessage('ready');
+                    }
+                }
+                
+                function notifyError(msg) {
+                    if (!hasNotifiedError) {
+                        hasNotifiedError = true;
+                        window.webkit.messageHandlers.playerError.postMessage(msg);
+                    }
+                }
+                
+                function notifyEnded() {
+                    if (!hasNotifiedEnded) {
+                        hasNotifiedEnded = true;
+                        window.webkit.messageHandlers.playerEnded.postMessage('ended');
+                    }
+                }
+                
+                function switchToFallback() {
+                    if (usingFallback) return;
+                    usingFallback = true;
+                    iframe.src = buildSrc(FALLBACK_HOST);
+                }
+                
+                iframe.src = buildSrc(PRIMARY_HOST);
+                
+                iframe.addEventListener('load', () => {
+                    loadingDiv.classList.add('hidden');
+                    notifyReady();
+                });
+                
+                iframe.addEventListener('error', () => {
+                    if (!usingFallback) {
+                        switchToFallback();
+                    } else {
+                        notifyError('Iframe failed to load');
                     }
                 });
                 
+                setTimeout(() => {
+                    if (!hasNotifiedReady) {
+                        switchToFallback();
+                    }
+                }, 1500);
+                
                 // Listen for messages from YouTube iframe (postMessage API)
                 window.addEventListener('message', function(event) {
-                    if (event.origin.indexOf('youtube') === -1) return;
+                    var origin = event.origin || event.originalEvent.origin;
+                    // Accept messages only from youtube domains
+                    if (origin.indexOf('youtube') === -1 && origin.indexOf('youtube-nocookie') === -1) return;
                     
                     try {
                         var data = JSON.parse(event.data);
@@ -588,19 +850,13 @@ struct YouTubePlayerView: UIViewRepresentable {
                             
                             // State 0 = ended
                             if (data.info === 0 && !hasNotifiedEnded) {
-                                hasNotifiedEnded = true;
-                                try {
-                                    window.webkit.messageHandlers.playerEnded.postMessage('ended');
-                                } catch(e) {}
+                                notifyEnded();
                             }
                         }
                         
                         // Check for errors
                         if (data.event === 'onError' && !hasNotifiedError) {
-                            hasNotifiedError = true;
-                            try {
-                                window.webkit.messageHandlers.playerError.postMessage('Video error: ' + data.info);
-                            } catch(e) {}
+                            notifyError('Video error: ' + data.info);
                         }
                     } catch(e) {
                         // Not JSON, ignore
@@ -609,12 +865,9 @@ struct YouTubePlayerView: UIViewRepresentable {
                 
                 // Fallback: notify ready after timeout if iframe hasn't loaded
                 setTimeout(function() {
-                    document.getElementById('loading').classList.add('hidden');
+                    loadingDiv.classList.add('hidden');
                     if (!hasNotifiedReady && !hasNotifiedError) {
-                        hasNotifiedReady = true;
-                        try {
-                            window.webkit.messageHandlers.playerReady.postMessage('ready');
-                        } catch(e) {}
+                        notifyReady();
                     }
                 }, 3000);
                 
@@ -622,10 +875,7 @@ struct YouTubePlayerView: UIViewRepresentable {
                 // Most trailers are 2-3 minutes, we'll use a 3 minute timeout as fallback
                 setTimeout(function() {
                     if (!hasNotifiedEnded) {
-                        hasNotifiedEnded = true;
-                        try {
-                            window.webkit.messageHandlers.playerEnded.postMessage('ended');
-                        } catch(e) {}
+                        notifyEnded();
                     }
                 }, 180000); // 3 minutes
             </script>
@@ -633,7 +883,7 @@ struct YouTubePlayerView: UIViewRepresentable {
         </html>
         """
         
-        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube-nocookie.com"))
+        webView.loadHTMLString(html, baseURL: URL(string: primaryHost))
     }
     
     func makeCoordinator() -> Coordinator {
@@ -642,6 +892,7 @@ struct YouTubePlayerView: UIViewRepresentable {
     
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var currentVideoKey: String?
+        var lastMuteValue: Bool? = nil
         var hasErrored: Bool = false
         var onReady: (() -> Void)?
         var onError: ((String) -> Void)?
@@ -704,6 +955,21 @@ extension Array {
     }
 }
 
+// MARK: - UIImage Average Color Extension
+extension UIImage {
+    func averageColor() -> UIColor? {
+        guard let inputImage = CIImage(image: self) else { return nil }
+        let extent = inputImage.extent
+        let context = CIContext(options: [.workingColorSpace: NSNull()])
+        let filter = CIFilter(name: "CIAreaAverage", parameters: [kCIInputImageKey: inputImage, kCIInputExtentKey: CIVector(cgRect: extent)])
+        guard let outputImage = filter?.outputImage else { return nil }
+        var bitmap = [UInt8](repeating: 0, count: 4)
+        context.render(outputImage, toBitmap: &bitmap, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
+        return UIColor(red: CGFloat(bitmap[0]) / 255.0, green: CGFloat(bitmap[1]) / 255.0, blue: CGFloat(bitmap[2]) / 255.0, alpha: 1)
+    }
+}
+
 #Preview {
     HeroCarouselView(items: [], onItemTap: { _ in })
 }
+

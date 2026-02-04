@@ -20,345 +20,350 @@ struct SettingsView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            Form {
-                // Account Section
-                Section {
-                    if authService.isAuthenticated {
-                        AccountView()
-                    } else {
-                        Button {
-                            showAuthSheet = true
-                        } label: {
-                            HStack(spacing: 16) {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.accentColor.opacity(0.15))
-                                        .frame(width: 44, height: 44)
-                                    
-                                    Image(systemName: "person.circle")
-                                        .font(.title2)
-                                        .foregroundColor(.accentColor)
-                                }
+        Form {
+            // Account Section
+            Section {
+                if authService.isAuthenticated {
+                    AccountView()
+                } else {
+                    Button {
+                        showAuthSheet = true
+                    } label: {
+                        HStack(spacing: 16) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.accentColor.opacity(0.15))
+                                    .frame(width: 44, height: 44)
                                 
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Sign In")
-                                        .font(.headline)
-                                        .foregroundColor(.primary)
-                                    Text("Sync your lists across all devices")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                
-                                Spacer()
-                                
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                Image(systemName: "person.circle")
+                                    .font(.title2)
+                                    .foregroundColor(.accentColor)
                             }
-                        }
-                    }
-                } header: {
-                    Text("Account")
-                } footer: {
-                    if !authService.isAuthenticated {
-                        Text("Sign in to sync your watchlist, watched items, and likes across all your devices")
-                    }
-                }
-                
-                // Region & Language
-                Section("Region & Language") {
-                    Picker("Region", selection: $settings.region) {
-                        ForEach(regionOptions, id: \.code) { region in
-                            Text(region.name).tag(region.code)
-                        }
-                    }
-                    
-                    Picker("Language", selection: $settings.preferredLanguage) {
-                        ForEach(languageOptions, id: \.code) { language in
-                            Text(language.name).tag(language.code)
-                        }
-                    }
-                }
-                
-                // Display Options
-                Section("Display") {
-                    Toggle("Compact Mode", isOn: $settings.compactMode)
-                    Toggle("Auto-play Trailers", isOn: $settings.autoPlayTrailers)
-                    Toggle("Include Adult Content", isOn: $settings.includeAdult)
-                    
-                    Picker("Hero Carousel", selection: $settings.heroCarouselSource) {
-                        ForEach(HeroCarouselSource.allCases, id: \.rawValue) { source in
-                            Text(source.displayName).tag(source)
-                        }
-                    }
-                }
-                
-                // Home Screen Customization
-                Section("Home Screen") {
-                    NavigationLink(destination: BrowseRowsSettingsView()) {
-                        HStack {
-                            Image(systemName: "list.bullet.rectangle")
-                                .foregroundColor(.accentColor)
-                                .frame(width: 24)
-                            Text("Browse Rows")
-                            Spacer()
-                            Text("\(storage.browseRows.filter { $0.isEnabled }.count) enabled")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    
-                    NavigationLink(destination: CustomHomeRowsSettingsView()) {
-                        HStack {
-                            Image(systemName: "square.grid.2x2")
-                                .foregroundColor(.orange)
-                                .frame(width: 24)
-                            Text("Custom Rows & Hubs")
-                            Spacer()
-                            Text("\(storage.customHomeRows.filter { $0.isEnabled }.count)")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    
-                    NavigationLink(destination: NetworkHubsSettingsView()) {
-                        HStack {
-                            Image(systemName: "play.tv")
-                                .foregroundColor(.purple)
-                                .frame(width: 24)
-                            Text("Networks")
-                            Spacer()
-                            Text("\(storage.networkHubs.filter { $0.isEnabled }.count) enabled")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-                
-                // Integrations
-                Section {
-                    NavigationLink(destination: ImportedListsSettingsView()) {
-                        HStack {
-                            Image(systemName: "list.bullet.clipboard")
-                                .foregroundColor(.orange)
-                                .frame(width: 24)
+                            
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("PublicMetaDB")
-                                Text("Import curated movie & TV lists")
+                                Text("Sign In")
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                                Text("Sync your lists across all devices")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                            
                             Spacer()
-                            Text("\(storage.importedLists.filter { $0.source == .publicMetaDB }.count)")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                } header: {
-                    Text("Integrations")
-                }
-                
-                // Extensions
-                Section {
-                    NavigationLink(destination: MDBListExtensionView()) {
-                        HStack {
-                            Image(systemName: "list.star")
-                                .foregroundColor(.purple)
-                                .frame(width: 24)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("MDBList")
-                                Text("Curated comedy list")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
+                            
                             Image(systemName: "chevron.right")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }
-                } header: {
-                    Text("Extensions")
+                }
+            } header: {
+                Text("Account")
+            } footer: {
+                if !authService.isAuthenticated {
+                    Text("Sign in to sync your watchlist, watched items, and likes across all your devices")
+                }
+            }
+            
+            // Region & Language
+            Section("Region & Language") {
+                Picker("Region", selection: $settings.region) {
+                    ForEach(regionOptions, id: \.code) { region in
+                        Text(region.name).tag(region.code)
+                    }
                 }
                 
-                // Cloud Sync
-                Section {
-                    Toggle("Enable Cloud Sync", isOn: Binding(
-                        get: { storage.cloudSyncEnabled },
-                        set: { storage.setCloudSyncEnabled($0) }
-                    ))
-                    .disabled(!storage.isCloudConfigured)
-                    
-                    if storage.isCloudConfigured {
-                        HStack {
-                            Text("Status")
-                            Spacer()
-                            if storage.isSyncing {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                            } else if let error = storage.lastSyncError {
-                                Text(error)
-                                    .font(.caption)
-                                    .foregroundColor(.red)
-                                    .lineLimit(1)
-                            } else {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
-                                if authService.isAuthenticated {
-                                    Text("Signed in")
-                                        .foregroundColor(.secondary)
-                                } else {
-                                    Text("Device sync")
-                                        .foregroundColor(.secondary)
-                                }
-                            }
+                Picker("Language", selection: $settings.preferredLanguage) {
+                    ForEach(languageOptions, id: \.code) { language in
+                        Text(language.name).tag(language.code)
+                    }
+                }
+            }
+            
+            // Display Options
+            Section("Display") {
+                Toggle("Compact Mode", isOn: $settings.compactMode)
+                Toggle("Ambient Mode", isOn: $settings.ambientModeEnabled)
+                Toggle("Auto-play Trailers", isOn: $settings.autoPlayTrailers)
+                Toggle("Autoplay Trailers Muted", isOn: $settings.autoPlayTrailersMuted)
+                Toggle("Include Adult Content", isOn: $settings.includeAdult)
+                
+                Picker("Hero Carousel", selection: $settings.heroCarouselSource) {
+                    ForEach(HeroCarouselSource.allCases, id: \.rawValue) { source in
+                        Text(source.displayName).tag(source)
+                    }
+                }
+            }
+            
+            // Home Screen Customization
+            Section("Home Screen") {
+                NavigationLink(destination: BrowseRowsSettingsView()) {
+                    HStack {
+                        Image(systemName: "list.bullet.rectangle")
+                            .foregroundColor(.accentColor)
+                            .frame(width: 24)
+                        Text("Browse Rows")
+                        Spacer()
+                        Text("\(storage.browseRows.filter { $0.isEnabled }.count) enabled")
+                            .foregroundColor(.secondary)
+                    }
+                    .foregroundColor(.primary)
+                }
+                
+                NavigationLink(destination: CustomHomeRowsSettingsView()) {
+                    HStack {
+                        Image(systemName: "square.grid.2x2")
+                            .foregroundColor(.orange)
+                            .frame(width: 24)
+                        Text("Custom Rows & Hubs")
+                        Spacer()
+                        Text("\(storage.customHomeRows.filter { $0.isEnabled }.count)")
+                            .foregroundColor(.secondary)
+                    }
+                    .foregroundColor(.primary)
+                }
+                
+                NavigationLink(destination: NetworkHubsSettingsView()) {
+                    HStack {
+                        Image(systemName: "play.tv")
+                            .foregroundColor(.purple)
+                            .frame(width: 24)
+                        Text("Networks")
+                        Spacer()
+                        Text("\(storage.networkHubs.filter { $0.isEnabled }.count) enabled")
+                            .foregroundColor(.secondary)
+                    }
+                    .foregroundColor(.primary)
+                }
+            }
+            
+            // Integrations
+            Section {
+                NavigationLink(destination: ImportedListsSettingsView()) {
+                    HStack {
+                        Image(systemName: "list.bullet.clipboard")
+                            .foregroundColor(.orange)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("PublicMetaDB")
+                            Text("Import curated movie & TV lists")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
-                        
-                        if let lastSync = storage.lastSyncTime {
-                            HStack {
-                                Text("Last Synced")
-                                Spacer()
-                                Text(lastSync.formatted(.relative(presentation: .named)))
+                        Spacer()
+                        Text("\(storage.importedLists.filter { $0.source == .publicMetaDB }.count)")
+                            .foregroundColor(.secondary)
+                    }
+                    .foregroundColor(.primary)
+                }
+            } header: {
+                Text("Integrations")
+            }
+            
+            // Extensions
+            Section {
+                NavigationLink(destination: MDBListExtensionView()) {
+                    HStack {
+                        Image(systemName: "list.star")
+                            .foregroundColor(.purple)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("MDBList")
+                            Text("Curated comedy list")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .foregroundColor(.primary)
+                }
+            } header: {
+                Text("Extensions")
+            }
+            
+            // Cloud Sync
+            Section {
+                Toggle("Enable Cloud Sync", isOn: Binding(
+                    get: { storage.cloudSyncEnabled },
+                    set: { storage.setCloudSyncEnabled($0) }
+                ))
+                .disabled(!storage.isCloudConfigured)
+                
+                if storage.isCloudConfigured {
+                    HStack {
+                        Text("Status")
+                        Spacer()
+                        if storage.isSyncing {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else if let error = storage.lastSyncError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .lineLimit(1)
+                        } else {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            if authService.isAuthenticated {
+                                Text("Signed in")
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text("Device sync")
                                     .foregroundColor(.secondary)
                             }
                         }
-                        
-                        Button {
-                            showSyncOptions = true
-                        } label: {
-                            HStack {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                Text("Sync Options")
-                            }
-                        }
-                        .disabled(storage.isSyncing)
-                    } else {
+                    }
+                    
+                    if let lastSync = storage.lastSyncTime {
                         HStack {
-                            Image(systemName: "exclamationmark.triangle")
-                                .foregroundColor(.orange)
-                            Text("Link a Supabase project to enable sync")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        NavigationLink(destination: SupabaseSetupGuideView()) {
-                            HStack {
-                                Image(systemName: "book.pages")
-                                Text("Setup Guide")
-                            }
-                        }
-                    }
-                } header: {
-                    Text("Cloud Sync")
-                } footer: {
-                    if authService.isAuthenticated {
-                        Text("Your lists sync across all devices signed into this account")
-                    } else {
-                        Text("Sign in above to sync across devices, or use device-only sync")
-                    }
-                }
-                
-                // Data Management
-                Section("Data Management") {
-                    Button(role: .destructive) {
-                        showClearDataAlert = true
-                    } label: {
-                        Text("Clear All Data")
-                    }
-                }
-                
-                // Community
-                Section {
-                    Link(destination: URL(string: "https://discord.watchguide.app")!) {
-                        HStack {
-                            Image(systemName: "bubble.left.and.bubble.right.fill")
-                                .foregroundColor(.indigo)
-                                .frame(width: 24)
-                            Text("Join our Discord")
+                            Text("Last Synced")
                             Spacer()
-                            Image(systemName: "arrow.up.right")
-                                .font(.caption)
+                            Text(lastSync.formatted(.relative(presentation: .named)))
                                 .foregroundColor(.secondary)
                         }
                     }
-                } header: {
-                    Text("Community")
-                }
-                
-                // About
-                Section("About") {
+                    
+                    Button {
+                        showSyncOptions = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                            Text("Sync Options")
+                        }
+                    }
+                    .disabled(storage.isSyncing)
+                } else {
                     HStack {
-                        Text("Version")
-                        Spacer()
-                        Text("1.0.0")
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(.orange)
+                        Text("Link a Supabase project to enable sync")
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     
-                    Link(destination: URL(string: "https://www.themoviedb.org/")!) {
+                    NavigationLink(destination: SupabaseSetupGuideView()) {
                         HStack {
-                            Text("Powered by TMDB")
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
-                                .font(.caption)
-                        }
-                    }
-                    
-                    Link(destination: URL(string: "https://www.omdbapi.com/")!) {
-                        HStack {
-                            Text("Ratings by OMDb")
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
-                                .font(.caption)
-                        }
-                    }
-                    
-                    Link(destination: URL(string: "https://publicmetadb.com/")!) {
-                        HStack {
-                            Text("Lists by PublicMetaDB")
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
-                                .font(.caption)
+                            Image(systemName: "book.pages")
+                            Text("Setup Guide")
                         }
                     }
                 }
-            }
-            .navigationTitle("Settings")
-            .onChange(of: settings) { _, newValue in
-                storage.updateSettings(newValue)
-            }
-            .alert("Clear All Data?", isPresented: $showClearDataAlert) {
-                Button("Cancel", role: .cancel) { }
-                Button("Clear", role: .destructive) {
-                    // Clear all local data
+            } header: {
+                Text("Cloud Sync")
+            } footer: {
+                if authService.isAuthenticated {
+                    Text("Your lists sync across all devices signed into this account")
+                } else {
+                    Text("Sign in above to sync across devices, or use device-only sync")
                 }
-            } message: {
-                Text("This will remove all your lists, watched history, and preferences. This cannot be undone.")
             }
-            .confirmationDialog("Sync Options", isPresented: $showSyncOptions, titleVisibility: .visible) {
-                Button("Upload to Cloud") {
-                    Task {
-                        await storage.uploadToCloud()
-                        syncMessage = storage.lastSyncError == nil ? "Upload complete!" : nil
+            
+            // Data Management
+            Section("Data Management") {
+                Button(role: .destructive) {
+                    showClearDataAlert = true
+                } label: {
+                    Text("Clear All Data")
+                }
+            }
+            
+            // Community
+            Section {
+                Link(destination: URL(string: "https://discord.watchguide.app")!) {
+                    HStack {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                            .foregroundColor(.indigo)
+                            .frame(width: 24)
+                        Text("Join our Discord")
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
-                Button("Download from Cloud") {
-                    Task {
-                        await storage.downloadFromCloud()
-                        syncMessage = storage.lastSyncError == nil ? "Download complete!" : nil
+            } header: {
+                Text("Community")
+            }
+            
+            // About
+            Section("About") {
+                HStack {
+                    Text("Version")
+                    Spacer()
+                    Text("1.0.0")
+                        .foregroundColor(.secondary)
+                }
+                
+                Link(destination: URL(string: "https://www.themoviedb.org/")!) {
+                    HStack {
+                        Text("Powered by TMDB")
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption)
                     }
                 }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("Choose how to sync your data")
+                
+                Link(destination: URL(string: "https://www.omdbapi.com/")!) {
+                    HStack {
+                        Text("Ratings by OMDb")
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption)
+                    }
+                }
+                
+                Link(destination: URL(string: "https://publicmetadb.com/")!) {
+                    HStack {
+                        Text("Lists by PublicMetaDB")
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption)
+                    }
+                }
             }
-            .alert("Sync Complete", isPresented: .init(
-                get: { syncMessage != nil },
-                set: { if !$0 { syncMessage = nil } }
-            )) {
-                Button("OK") { syncMessage = nil }
-            } message: {
-                Text(syncMessage ?? "")
+        }
+        .navigationTitle("Settings")
+        .onChange(of: settings) { _, newValue in
+            storage.updateSettings(newValue)
+        }
+        .alert("Clear All Data?", isPresented: $showClearDataAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Clear", role: .destructive) {
+                // Clear all local data
             }
-            .sheet(isPresented: $showAuthSheet) {
-                AuthView()
+        } message: {
+            Text("This will remove all your lists, watched history, and preferences. This cannot be undone.")
+        }
+        .confirmationDialog("Sync Options", isPresented: $showSyncOptions, titleVisibility: .visible) {
+            Button("Upload to Cloud") {
+                Task {
+                    await storage.uploadToCloud()
+                    syncMessage = storage.lastSyncError == nil ? "Upload complete!" : nil
+                }
             }
+            Button("Download from Cloud") {
+                Task {
+                    await storage.downloadFromCloud()
+                    syncMessage = storage.lastSyncError == nil ? "Download complete!" : nil
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Choose how to sync your data")
+        }
+        .alert("Sync Complete", isPresented: .init(
+            get: { syncMessage != nil },
+            set: { if !$0 { syncMessage = nil } }
+        )) {
+            Button("OK") { syncMessage = nil }
+        } message: {
+            Text(syncMessage ?? "")
+        }
+        .sheet(isPresented: $showAuthSheet) {
+            AuthView()
         }
     }
     
@@ -1262,15 +1267,7 @@ struct SetupStepView: View {
 
 // MARK: - MDBList Extension View
 struct MDBListExtensionView: View {
-    @State private var items: [SavedMediaItem] = []
-    @State private var isLoading = true
-    @State private var error: String?
-    @State private var showOnHome = false
     @ObservedObject private var storage = StorageService.shared
-    
-    // Hardcoded MDBList comedy list
-    private let listId = "garycrawfordgc/comedy"
-    private let listName = "Comedy Collection"
     
     var body: some View {
         List {
@@ -1285,15 +1282,15 @@ struct MDBListExtensionView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("MDBList Extension")
                                 .font(.headline)
-                            Text("Curated comedy movies & shows")
+                            Text("Curated movie & TV lists")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }
                     
-                    Link(destination: URL(string: "https://mdblist.com/lists/garycrawfordgc/comedy")!) {
+                    Link(destination: URL(string: "https://mdblist.com")!) {
                         HStack {
-                            Text("View on MDBList")
+                            Text("Visit MDBList")
                                 .font(.caption)
                             Image(systemName: "arrow.up.right")
                                 .font(.caption2)
@@ -1306,6 +1303,77 @@ struct MDBListExtensionView: View {
                 Text("About")
             }
             
+            // Available Lists
+            Section {
+                NavigationLink(destination: MDBListDetailView(
+                    listId: "dualipafan01/trending-titles",
+                    listName: "Trending",
+                    listDescription: "Currently trending movies & TV shows"
+                )) {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.orange.opacity(0.15))
+                                .frame(width: 40, height: 40)
+                            Image(systemName: "flame.fill")
+                                .foregroundColor(.orange)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Trending")
+                                .fontWeight(.medium)
+                            Text("Currently trending titles")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                
+                NavigationLink(destination: MDBListDetailView(
+                    listId: "garycrawfordgc/comedy",
+                    listName: "Comedy Collection",
+                    listDescription: "Curated comedy movies & shows"
+                )) {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.yellow.opacity(0.15))
+                                .frame(width: 40, height: 40)
+                            Image(systemName: "face.smiling.fill")
+                                .foregroundColor(.yellow)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Comedy Collection")
+                                .fontWeight(.medium)
+                            Text("Curated comedy movies & shows")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("Available Lists")
+            }
+        }
+        .navigationTitle("MDBList")
+    }
+}
+
+// MARK: - MDBList Detail View
+struct MDBListDetailView: View {
+    let listId: String
+    let listName: String
+    let listDescription: String
+    
+    @State private var items: [SavedMediaItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var showOnHome = false
+    @ObservedObject private var storage = StorageService.shared
+    
+    var body: some View {
+        List {
             // Options
             Section {
                 Toggle("Show on Home Screen", isOn: $showOnHome)
@@ -1379,7 +1447,7 @@ struct MDBListExtensionView: View {
                 Text("Preview (\(items.count) items)")
             }
         }
-        .navigationTitle("MDBList")
+        .navigationTitle(listName)
         .task {
             await loadList()
             checkHomeStatus()
@@ -1401,22 +1469,18 @@ struct MDBListExtensionView: View {
     }
     
     private func checkHomeStatus() {
-        // Check if this list is already added to home
         showOnHome = storage.importedLists.contains { $0.listId == listId && $0.showOnHome }
     }
     
     private func toggleHomeDisplay(_ show: Bool) {
         if show {
-            // Add to imported lists if not already there
             if let existing = storage.importedLists.first(where: { $0.listId == listId }) {
-                // Update existing list
                 var updatedList = existing
                 updatedList.showOnHome = true
                 updatedList.items = items
                 updatedList.lastSynced = Date()
                 storage.updateImportedList(updatedList)
                 
-                // Add home row if not already present
                 if !storage.customHomeRows.contains(where: { $0.importedListId == existing.id }) {
                     let homeRow = CustomHomeRow.importedListRow(
                         name: listName,
@@ -1426,7 +1490,6 @@ struct MDBListExtensionView: View {
                     storage.addCustomHomeRow(homeRow)
                 }
             } else {
-                // Create new list
                 var newList = ImportedListItem(
                     name: listName,
                     listId: listId,
@@ -1437,7 +1500,6 @@ struct MDBListExtensionView: View {
                 newList.lastSynced = Date()
                 storage.addImportedList(newList)
                 
-                // Add home row using the new list's UUID
                 let homeRow = CustomHomeRow.importedListRow(
                     name: listName,
                     listId: newList.id,
@@ -1446,12 +1508,10 @@ struct MDBListExtensionView: View {
                 storage.addCustomHomeRow(homeRow)
             }
         } else {
-            // Remove from home but keep in imported lists
             if var existing = storage.importedLists.first(where: { $0.listId == listId }) {
                 existing.showOnHome = false
                 storage.updateImportedList(existing)
                 
-                // Remove home row
                 if let homeRow = storage.customHomeRows.first(where: { $0.importedListId == existing.id }) {
                     storage.deleteCustomHomeRow(id: homeRow.id)
                 }
@@ -1463,3 +1523,4 @@ struct MDBListExtensionView: View {
 #Preview {
     SettingsView()
 }
+

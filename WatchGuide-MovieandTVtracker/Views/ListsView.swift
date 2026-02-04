@@ -506,6 +506,120 @@ struct ImportMDBListSheet: View {
     }
 }
 
+// MARK: - MDBListExploreView
+struct MDBListExploreView: View {
+    @ObservedObject private var storage = StorageService.shared
+    
+    private let comedyListId = "dualipafan01/comedy-movies"
+    private let comedyListName = "Comedy"
+    private let trendingListId = "dualipafan01/trending-titles"
+    private let trendingListName = "Trending"
+    
+    @State private var comedyItems: [SavedMediaItem] = []
+    @State private var comedyLoading = true
+    @State private var comedyError: String?
+    
+    @State private var trendingItems: [SavedMediaItem] = []
+    @State private var trendingLoading = true
+    @State private var trendingError: String?
+    
+    var body: some View {
+        List {
+            Section {
+                Text("Explore popular curated lists from MDBList.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            
+            Section("Comedy") {
+                if comedyLoading {
+                    ProgressView()
+                } else if let error = comedyError {
+                    Text(error)
+                        .foregroundColor(.red)
+                } else if comedyItems.isEmpty {
+                    Text("No items found.")
+                        .foregroundColor(.secondary)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack {
+                            ForEach(comedyItems.prefix(10), id: \.self.id) { item in
+                                VStack(spacing: 4) {
+                                    SavedMediaPosterCard(item: item)
+                                        .frame(width: 100)
+                                    Text(item.title)
+                                        .font(.caption2)
+                                        .lineLimit(1)
+                                }
+                                .frame(width: 100)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            
+            Section("Trending") {
+                if trendingLoading {
+                    ProgressView()
+                } else if let error = trendingError {
+                    Text(error)
+                        .foregroundColor(.red)
+                } else if trendingItems.isEmpty {
+                    Text("No items found.")
+                        .foregroundColor(.secondary)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack {
+                            ForEach(trendingItems.prefix(10), id: \.self.id) { item in
+                                VStack(spacing: 4) {
+                                    SavedMediaPosterCard(item: item)
+                                        .frame(width: 100)
+                                    Text(item.title)
+                                        .font(.caption2)
+                                        .lineLimit(1)
+                                }
+                                .frame(width: 100)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+        }
+        .navigationTitle("MDBList Extensions")
+        .task {
+            await loadComedyList()
+            await loadTrendingList()
+        }
+    }
+    
+    private func loadComedyList() async {
+        comedyLoading = true
+        comedyError = nil
+        do {
+            comedyItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: comedyListId)
+        } catch {
+            comedyError = "Failed to load comedy list. Please try again."
+            print("MDBList comedy error: \(error)")
+        }
+        comedyLoading = false
+    }
+    
+    private func loadTrendingList() async {
+        trendingLoading = true
+        trendingError = nil
+        do {
+            trendingItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: trendingListId)
+        } catch {
+            trendingError = "Failed to load trending list. Please try again."
+            print("MDBList trending error: \(error)")
+        }
+        trendingLoading = false
+    }
+}
+
 #Preview {
     ListsView()
 }
+

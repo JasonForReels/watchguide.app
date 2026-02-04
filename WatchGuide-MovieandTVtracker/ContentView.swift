@@ -34,13 +34,7 @@ struct ContentView: View {
     
     var body: some View {
         Group {
-            if horizontalSizeClass == .regular {
-                // iPad: Use NavigationSplitView with sidebar
-                iPadLayout
-            } else {
-                // iPhone: Use TabView
-                iPhoneLayout
-            }
+            iPhoneLayout
         }
         .sheet(item: $selectedMediaItem) { item in
             MediaDetailView(item: item)
@@ -74,81 +68,16 @@ struct ContentView: View {
                 }
                 .tag(Tab.ai)
             
-            SettingsView()
-                .tabItem {
-                    Label(Tab.settings.rawValue, systemImage: Tab.settings.iconName)
-                }
-                .tag(Tab.settings)
+            NavigationStack {
+                SettingsView()
+                    .navigationTitle("Settings")
+            }
+            .tabItem {
+                Label(Tab.settings.rawValue, systemImage: Tab.settings.iconName)
+            }
+            .tag(Tab.settings)
         }
         .tint(.accentColor)
-    }
-    
-    // MARK: - iPad Layout (Sidebar Navigation with Liquid Glass)
-    private var iPadLayout: some View {
-        NavigationSplitView {
-            List {
-                ForEach(Tab.allCases) { tab in
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            selectedTab = tab
-                        }
-                    } label: {
-                        Label(tab.rawValue, systemImage: tab.iconName)
-                            .foregroundColor(selectedTab == tab ? .accentColor : .primary)
-                    }
-                    .listRowBackground(
-                        Group {
-                            if selectedTab == tab {
-                                // Liquid Glass effect for selected item
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(.ultraThinMaterial)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
-                                    )
-                                    .shadow(color: Color.accentColor.opacity(0.15), radius: 8, y: 2)
-                            } else {
-                                Color.clear
-                            }
-                        }
-                    )
-                }
-            }
-            .navigationTitle("WatchGuide")
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .background {
-                // Liquid Glass sidebar background
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .ignoresSafeArea()
-            }
-        } detail: {
-            iPadDetailView
-        }
-        .tint(.accentColor)
-    }
-    
-    @ViewBuilder
-    private var iPadDetailView: some View {
-        switch selectedTab {
-        case .browse:
-            NavigationStack {
-                BrowseView(selectedItem: $selectedMediaItem)
-                    .navigationTitle("Browse")
-            }
-        case .search:
-            NavigationStack {
-                SearchView(selectedItem: $selectedMediaItem)
-                    .navigationTitle("Search")
-            }
-        case .lists:
-            ListsView()
-        case .ai:
-            AIRecommendView()
-        case .settings:
-            SettingsView()
-        }
     }
 }
 

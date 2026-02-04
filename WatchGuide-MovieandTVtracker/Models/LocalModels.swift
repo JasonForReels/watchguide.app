@@ -189,7 +189,14 @@ struct NetworkHub: Identifiable, Codable {
                 networkIds: [4330, 16, 2552], // Paramount+, CBS networks
                 providerIds: [531, 582], // Paramount+ provider IDs
                 regions: ["US", "CA", "GB", "AU", "DE", "AT", "CH", "IT", "FR", "ES", "MX", "BR", "AR", "CL", "CO", "PE", "KR", "SE", "NO", "DK", "FI", "NL", "BE", "IE"]
-            )
+            ),
+            NetworkHub(
+                name: "Disney Channel",
+                logoURL: "https://i.ibb.co/XZWP8tTs/disney-channel-seeklogo.png",
+                networkIds: [],
+                providerIds: [],
+                regions: []
+            ),
         ]
     }
 }
@@ -327,6 +334,7 @@ enum HeroCarouselSource: String, Codable, CaseIterable {
     case nowPlayingMovies = "now_playing_movies"
     case topRatedMovies = "top_rated_movies"
     case upcomingMovies = "upcoming_movies"
+    case mdblistTrending = "mdblist_trending"
     
     var displayName: String {
         switch self {
@@ -337,6 +345,7 @@ enum HeroCarouselSource: String, Codable, CaseIterable {
         case .nowPlayingMovies: return "Now Playing"
         case .topRatedMovies: return "Top Rated Movies"
         case .upcomingMovies: return "Upcoming Movies"
+        case .mdblistTrending: return "Trending (MDBList)"
         }
     }
 }
@@ -347,7 +356,9 @@ struct UserSettings: Codable, Equatable {
     var includeAdult: Bool
     var preferredLanguage: String
     var autoPlayTrailers: Bool
+    var autoPlayTrailersMuted: Bool
     var compactMode: Bool
+    var ambientModeEnabled: Bool
     var heroCarouselSource: HeroCarouselSource
     
     init() {
@@ -355,7 +366,9 @@ struct UserSettings: Codable, Equatable {
         self.includeAdult = false
         self.preferredLanguage = Locale.current.language.languageCode?.identifier ?? "en"
         self.autoPlayTrailers = false
+        self.autoPlayTrailersMuted = true
         self.compactMode = false
+        self.ambientModeEnabled = false
         self.heroCarouselSource = .trendingMovies
     }
 }
@@ -407,3 +420,4 @@ struct SearchHistoryItem: Identifiable, Codable {
         self.timestamp = Date()
     }
 }
+

@@ -10,6 +10,8 @@ struct BrowseView: View {
     @Binding var selectedItem: MediaItem?
     @State private var showNetworkHub = false
     @State private var selectedNetworkHub: NetworkHub?
+    @State private var showStudioHub = false
+    @State private var selectedStudioHub: StudioHub?
     @State private var showCustomizeSheet = false
     
     var body: some View {
@@ -20,6 +22,9 @@ struct BrowseView: View {
                     HeroCarouselView(items: viewModel.heroItems) { item in
                         selectedItem = item
                     }
+                    .aspectRatio(16.0/9.0, contentMode: .fit)
+                    .padding(.horizontal)
+                    .padding(.bottom, 12)
                 }
                 
                 // Networks Section (Streaming Services)
@@ -28,6 +33,7 @@ struct BrowseView: View {
                         selectedNetworkHub = hub
                         showNetworkHub = true
                     }
+                    .padding(.top, 4)
                 }
                 
                 // Custom Home Rows (MDBList and Custom Hubs)
@@ -53,6 +59,13 @@ struct BrowseView: View {
                                 selectedItem = item
                             }
                         )
+                        if row.title == "Popular Movies" && !viewModel.studios.isEmpty {
+                            StudiosRow(studios: viewModel.studios) { studio in
+                                selectedStudioHub = studio
+                                showStudioHub = true
+                            }
+                            .padding(.top, 4)
+                        }
                     }
                 }
                 
@@ -91,8 +104,16 @@ struct BrowseView: View {
                 NetworkHubSheet(hub: hub, selectedItem: $selectedItem)
             }
         }
+        .sheet(isPresented: $showStudioHub) {
+            if let studio = selectedStudioHub {
+                StudioHubSheet(studio: studio, selectedItem: $selectedItem)
+            }
+        }
         .sheet(isPresented: $showCustomizeSheet) {
             BrowseCustomizeSheet()
+        }
+        .onChange(of: StorageService.shared.settings.heroCarouselSource) { _, _ in
+            Task { await viewModel.refresh() }
         }
     }
 }
@@ -162,6 +183,7 @@ class BrowseViewModel: ObservableObject {
     @Published var customHomeRows: [CustomHomeRow] = []
     @Published var customRowContent: [String: MediaRow] = [:]
     @Published var networkHubs: [NetworkHub] = []
+    @Published var studios: [StudioHub] = []
     @Published var isLoading = false
     
     struct MediaRow {
@@ -170,8 +192,9 @@ class BrowseViewModel: ObservableObject {
     }
     
     func loadContent() async {
-        guard !isLoading else { return }
+        if isLoading { return }
         isLoading = true
+        defer { isLoading = false }
         
         // Load network hubs (streaming services)
         networkHubs = StorageService.shared.getEnabledNetworkHubs()
@@ -179,17 +202,22 @@ class BrowseViewModel: ObservableObject {
         // Load custom home rows
         customHomeRows = StorageService.shared.getEnabledCustomHomeRows()
         
-        // Load hero items based on user's selected source
-        await loadHeroItems()
+        // Studios (circular hubs)
+        studios = [
+            StudioHub(
+                name: "20th Century Studios",
+                logoURL: "https://i.ibb.co/23tL20Sb/20th-century-studios-seeklogo.png",
+                listId: "dualipafan01/20th-century-studios"
+            )
+        ]
         
-        // Load all rows concurrently
+        // Load hero items based on user's selected source (concurrently)
         await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.loadHeroItems() }
             group.addTask { await self.loadBrowseRows() }
             group.addTask { await self.loadCustomHomeRowContent() }
             group.addTask { await self.loadImportedListRows() }
         }
-        
-        isLoading = false
     }
     
     private func loadHeroItems() async {
@@ -212,6 +240,46 @@ class BrowseViewModel: ObservableObject {
                 items = try await TMDBService.shared.getTopRatedMovies().results
             case .upcomingMovies:
                 items = try await TMDBService.shared.getUpcomingMovies().results
+            case .mdblistTrending:
+                // Fetch MDBList trending list and split into up to 5 movies + 5 TV if mixed
+                let listId = "dualipafan01/trending-titles"
+                let mediaItems: [MediaItem]
+                do {
+                    let savedItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
+                    // Convert to MediaItem array
+                    let converted: [MediaItem] = savedItems.map { saved in
+                        MediaItem(
+                            id: saved.mediaId,
+                            title: saved.mediaType == .movie ? saved.title : nil,
+                            name: saved.mediaType == .tv ? saved.title : nil,
+                            originalTitle: nil,
+                            originalName: nil,
+                            overview: saved.overview,
+                            posterPath: saved.posterPath,
+                            backdropPath: saved.backdropPath,
+                            releaseDate: saved.year,
+                            firstAirDate: saved.year,
+                            voteAverage: saved.voteAverage,
+                            voteCount: nil,
+                            popularity: nil,
+                            genreIds: nil,
+                            mediaType: saved.mediaType.rawValue,
+                            adult: nil,
+                            originalLanguage: nil
+                        )
+                    }
+                    let movies = converted.filter { $0.resolvedMediaType == .movie }
+                    let tv = converted.filter { $0.resolvedMediaType == .tv }
+                    if !movies.isEmpty && !tv.isEmpty {
+                        mediaItems = Array(movies.prefix(5)) + Array(tv.prefix(5))
+                    } else {
+                        mediaItems = converted
+                    }
+                } catch {
+                    print("Error loading MDBList trending: \(error)")
+                    mediaItems = []
+                }
+                items = mediaItems
             }
             heroItems = Array(items.prefix(10))
         } catch {
@@ -220,6 +288,11 @@ class BrowseViewModel: ObservableObject {
     }
     
     func refresh() async {
+        // Wait for any in-flight load to finish to avoid clearing data mid-load
+        while isLoading {
+            try? await Task.sleep(nanoseconds: 150_000_000) // 0.15s
+        }
+
         rows = []
         importedListRows = []
         customRowContent = [:]
@@ -384,6 +457,13 @@ class BrowseViewModel: ObservableObject {
     }
 }
 
+struct StudioHub: Identifiable {
+    let id = UUID()
+    let name: String
+    let logoURL: String
+    let listId: String
+}
+
 // MARK: - Network Hubs Row (Streaming Services)
 struct NetworkHubsRow: View {
     let hubs: [NetworkHub]
@@ -411,9 +491,62 @@ struct NetworkHubsRow: View {
     }
 }
 
+struct StudiosRow: View {
+    let studios: [StudioHub]
+    let onStudioTap: (StudioHub) -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Studios")
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(studios) { studio in
+                        VStack(spacing: 8) {
+                            ZStack {
+                                Circle()
+                                    .stroke(Color(.systemGray4), lineWidth: 1)
+                                    .frame(width: 72, height: 72)
+                                
+                                AsyncImage(url: URL(string: studio.logoURL)) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .renderingMode(.template)
+                                            .foregroundStyle(colorScheme == .light ? .black : .white)
+                                            .aspectRatio(contentMode: .fit)
+                                            .frame(width: 56, height: 56)
+                                    default:
+                                        EmptyView()
+                                    }
+                                }
+                            }
+                            Text(studio.name)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .frame(width: 80)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { onStudioTap(studio) }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
 struct NetworkHubCard: View {
     let hub: NetworkHub
     @State private var isHovered = false
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         VStack(spacing: 8) {
@@ -428,10 +561,10 @@ struct NetworkHubCard: View {
                         case .success(let image):
                             image
                                 .resizable()
+                                .renderingMode(.template)
+                                .foregroundStyle(colorScheme == .light ? .black : .white)
                                 .aspectRatio(contentMode: .fit)
                                 .frame(width: 80, height: 40)
-                                .colorInvert()
-                                .environment(\.colorScheme, .light)
                         case .failure, .empty:
                             Text(hub.name)
                                 .font(.caption)
@@ -464,11 +597,27 @@ struct NetworkHubCard: View {
     }
 }
 
+extension NetworkHub {
+    var companyIdsIfKnown: [Int] {
+        switch name {
+        case "Disney Channel":
+            // TMDB company id for Disney Channel
+            return [2739]
+        case "Showmax":
+            // TMDB company id for Showmax (placeholder if unknown)
+            return [128351]
+        default:
+            return []
+        }
+    }
+}
+
 // MARK: - Network Hub Sheet
 struct NetworkHubSheet: View {
     let hub: NetworkHub
     @Binding var selectedItem: MediaItem?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @State private var movies: [MediaItem] = []
     @State private var tvShows: [MediaItem] = []
     @State private var isLoading = true
@@ -484,10 +633,10 @@ struct NetworkHubSheet: View {
                         case .success(let image):
                             image
                                 .resizable()
+                                .renderingMode(.template)
+                                .foregroundStyle(colorScheme == .light ? .black : .white)
                                 .aspectRatio(contentMode: .fit)
                                 .frame(height: 40)
-                                .colorInvert()
-                                .environment(\.colorScheme, .light)
                         default:
                             EmptyView()
                         }
@@ -542,7 +691,7 @@ struct NetworkHubSheet: View {
     }
     
     private func loadContent() async {
-        isLoading = true
+        await MainActor.run { isLoading = true }
         
         var region = StorageService.shared.settings.region
         
@@ -551,29 +700,227 @@ struct NetworkHubSheet: View {
             region = "GB"
         }
         
-        // Load movies available on this streaming service using provider-based discovery
+        // Special-case: Disney Channel hub uses curated MDBList content instead of provider-based discovery
+        if hub.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "disney channel" {
+            do {
+                // Fetch MDBList items and convert to MediaItem
+                let savedItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: "dualipafan01/disney-channel")
+                let converted: [MediaItem] = savedItems.map { saved in
+                    MediaItem(
+                        id: saved.mediaId,
+                        title: saved.mediaType == .movie ? saved.title : nil,
+                        name: saved.mediaType == .tv ? saved.title : nil,
+                        originalTitle: nil,
+                        originalName: nil,
+                        overview: saved.overview,
+                        posterPath: saved.posterPath,
+                        backdropPath: saved.backdropPath,
+                        releaseDate: saved.year,
+                        firstAirDate: saved.year,
+                        voteAverage: saved.voteAverage,
+                        voteCount: nil,
+                        popularity: nil,
+                        genreIds: nil,
+                        mediaType: saved.mediaType.rawValue,
+                        adult: nil,
+                        originalLanguage: nil
+                    )
+                }
+                // Split into movies and TV, then ensure content is visible
+                let m = converted.filter { $0.resolvedMediaType == .movie }
+                let t = converted.filter { $0.resolvedMediaType == .tv }
+                await MainActor.run {
+                    if m.isEmpty && !t.isEmpty {
+                        self.movies = t
+                        self.tvShows = t
+                        self.selectedTab = 1 // TV Shows
+                    } else if t.isEmpty && !m.isEmpty {
+                        self.movies = m
+                        self.tvShows = m
+                        self.selectedTab = 0 // Movies
+                    } else if m.isEmpty && t.isEmpty {
+                        // Fallback: show all items in both tabs
+                        self.movies = converted
+                        self.tvShows = converted
+                        self.selectedTab = 0
+                    } else {
+                        self.movies = m
+                        self.tvShows = t
+                        self.selectedTab = 0
+                    }
+                    self.isLoading = false
+                }
+            } catch {
+                print("Error loading Disney Channel MDBList: \(error)")
+                await MainActor.run {
+                    self.movies = []
+                    self.tvShows = []
+                    self.isLoading = false
+                }
+            }
+            return
+        }
+        
+        // Load movies: try provider-based first; fallback to empty if no providers
         do {
-            let response = try await TMDBService.shared.discoverMoviesWithProvider(
-                providerIds: hub.providerIds,
-                region: region
-            )
-            movies = response.results
+            if !hub.providerIds.isEmpty {
+                let response = try await TMDBService.shared.discoverMoviesWithProvider(
+                    providerIds: hub.providerIds,
+                    region: region
+                )
+                await MainActor.run { movies = response.results }
+            } else {
+                await MainActor.run { movies = [] }
+            }
         } catch {
             print("Error loading movies: \(error)")
         }
         
-        // Load TV shows using provider-based discovery (more reliable than network IDs)
+        // Load TV: try provider-based first; fallback to empty if no providers
         do {
-            let response = try await TMDBService.shared.discoverTVWithProvider(
-                providerIds: hub.providerIds,
-                region: region
-            )
-            tvShows = response.results
+            if !hub.providerIds.isEmpty {
+                let response = try await TMDBService.shared.discoverTVWithProvider(
+                    providerIds: hub.providerIds,
+                    region: region
+                )
+                await MainActor.run { tvShows = response.results }
+            } else {
+                await MainActor.run { tvShows = [] }
+            }
         } catch {
             print("Error loading TV: \(error)")
         }
         
-        isLoading = false
+        await MainActor.run { isLoading = false }
+    }
+}
+
+struct StudioHubSheet: View {
+    let studio: StudioHub
+    @Binding var selectedItem: MediaItem?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var movies: [MediaItem] = []
+    @State private var tvShows: [MediaItem] = []
+    @State private var isLoading = true
+    @State private var selectedTab = 0
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Header with logo
+                AsyncImage(url: URL(string: studio.logoURL)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .renderingMode(.template)
+                            .foregroundStyle(colorScheme == .light ? .black : .white)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(height: 40)
+                    default:
+                        EmptyView()
+                    }
+                }
+                .padding(.vertical, 8)
+                
+                // Tab picker
+                Picker("Content Type", selection: $selectedTab) {
+                    Text("Movies").tag(0)
+                    Text("TV Shows").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding()
+                
+                if isLoading {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Spacer()
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [
+                            GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                        ], spacing: 20) {
+                            let items = selectedTab == 0 ? movies : tvShows
+                            ForEach(items) { item in
+                                MediaPosterCard(item: item)
+                                    .onTapGesture {
+                                        selectedItem = item
+                                        dismiss()
+                                    }
+                            }
+                        }
+                        .padding()
+                    }
+                }
+            }
+            .navigationTitle(studio.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+        }
+        .task { await loadContent() }
+    }
+    
+    private func loadContent() async {
+        await MainActor.run { isLoading = true }
+        do {
+            let savedItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: studio.listId)
+            let converted: [MediaItem] = savedItems.map { saved in
+                MediaItem(
+                    id: saved.mediaId,
+                    title: saved.mediaType == .movie ? saved.title : nil,
+                    name: saved.mediaType == .tv ? saved.title : nil,
+                    originalTitle: nil,
+                    originalName: nil,
+                    overview: saved.overview,
+                    posterPath: saved.posterPath,
+                    backdropPath: saved.backdropPath,
+                    releaseDate: saved.year,
+                    firstAirDate: saved.year,
+                    voteAverage: saved.voteAverage,
+                    voteCount: nil,
+                    popularity: nil,
+                    genreIds: nil,
+                    mediaType: saved.mediaType.rawValue,
+                    adult: nil,
+                    originalLanguage: nil
+                )
+            }
+            let m = converted.filter { $0.resolvedMediaType == .movie }
+            let t = converted.filter { $0.resolvedMediaType == .tv }
+            await MainActor.run {
+                if m.isEmpty && !t.isEmpty {
+                    self.movies = t
+                    self.tvShows = t
+                    self.selectedTab = 1
+                } else if t.isEmpty && !m.isEmpty {
+                    self.movies = m
+                    self.tvShows = m
+                    self.selectedTab = 0
+                } else if m.isEmpty && t.isEmpty {
+                    self.movies = converted
+                    self.tvShows = converted
+                    self.selectedTab = 0
+                } else {
+                    self.movies = m
+                    self.tvShows = t
+                    self.selectedTab = 0
+                }
+                self.isLoading = false
+            }
+        } catch {
+            print("Error loading studio list: \(error)")
+            await MainActor.run {
+                self.movies = []
+                self.tvShows = []
+                self.isLoading = false
+            }
+        }
     }
 }
 
@@ -582,6 +929,7 @@ struct BrowseCustomizeSheet: View {
     @ObservedObject private var storage = StorageService.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.colorScheme) private var colorScheme
     @State private var browseRows: [BrowseRowConfig] = []
     @State private var networkHubs: [NetworkHub] = []
     
@@ -602,10 +950,10 @@ struct BrowseCustomizeSheet: View {
                                     case .success(let image):
                                         image
                                             .resizable()
+                                            .renderingMode(.template)
+                                            .foregroundStyle(colorScheme == .light ? .black : .white)
                                             .aspectRatio(contentMode: .fit)
                                             .frame(width: 50, height: 24)
-                                            .colorInvert()
-                                            .environment(\.colorScheme, .light)
                                     default:
                                         Text(hub.name)
                                             .fontWeight(.medium)
@@ -737,3 +1085,4 @@ struct BrowseCustomizeSheet: View {
 #Preview {
     BrowseView(selectedItem: .constant(nil))
 }
+

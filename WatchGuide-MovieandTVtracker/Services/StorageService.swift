@@ -128,14 +128,47 @@ class StorageService: ObservableObject {
     
     // MARK: - Network Hubs (Streaming Services)
     private func initializeNetworkHubs() {
-        guard networkHubs.isEmpty else { return }
-        
-        var hubs = NetworkHub.defaultHubs
-        for (index, _) in hubs.enumerated() {
-            hubs[index].sortOrder = index
+        // If there are no saved hubs, seed with defaults (which now include Disney Channel)
+        if networkHubs.isEmpty {
+            var hubs = NetworkHub.defaultHubs
+            for (index, _) in hubs.enumerated() {
+                hubs[index].sortOrder = index
+            }
+            networkHubs = hubs
+            save(networkHubs, to: networkHubsURL)
+            return
         }
         
-        networkHubs = hubs
+        // Migration: Remove any existing Disney Channel hub and rebuild it like streaming hubs
+        var updated = networkHubs
+        // Remove all existing Disney Channel hubs
+        updated.removeAll { $0.name.lowercased() == "disney channel" }
+        
+        // Build fresh Disney Channel hub
+        var disneyChannel = NetworkHub(
+            name: "Disney Channel",
+            logoURL: "https://i.ibb.co/XZWP8tTs/disney-channel-seeklogo.png",
+            networkIds: [],
+            providerIds: [],
+            regions: [] // show in all regions
+        )
+        disneyChannel.isEnabled = true
+        
+        // Insert right after Disney+ if present, otherwise append
+        if let disneyPlusIndex = updated.firstIndex(where: { $0.name.lowercased() == "disney+" }) {
+            let insertIndex = min(disneyPlusIndex + 1, updated.count)
+            updated.insert(disneyChannel, at: insertIndex)
+        } else {
+            updated.append(disneyChannel)
+        }
+        
+        // Reassign sortOrder
+        for (idx, _) in updated.enumerated() {
+            updated[idx].sortOrder = idx
+        }
+        
+        // Persist changes
+        networkHubs = updated
         save(networkHubs, to: networkHubsURL)
     }
     
@@ -159,7 +192,11 @@ class StorageService: ObservableObject {
     func getEnabledNetworkHubs() -> [NetworkHub] {
         let userRegion = settings.region
         return networkHubs
-            .filter { $0.isEnabled && $0.regions.contains(userRegion) }
+            .filter { hub in
+                guard hub.isEnabled else { return false }
+                // If regions is empty, show in all regions. Otherwise, require a match.
+                return hub.regions.isEmpty || hub.regions.contains(userRegion)
+            }
             .sorted { $0.sortOrder < $1.sortOrder }
     }
     
@@ -495,3 +532,4 @@ class StorageService: ObservableObject {
         save(browseRows, to: browseRowsURL)
     }
 }
+

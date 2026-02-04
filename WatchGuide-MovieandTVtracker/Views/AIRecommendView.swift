@@ -455,6 +455,14 @@ enum AIProvider: String, CaseIterable {
         }
     }
     
+    var logoURL: String {
+        switch self {
+        case .chatGPT: return "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/OpenAI_Logo.svg/640px-OpenAI_Logo.svg.png"
+        case .gemini: return "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d9/Google_Gemini_logo_2025.svg/640px-Google_Gemini_logo_2025.svg.png"
+        case .grok: return "https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/Grok_2025.png/640px-Grok_2025.png"
+        }
+    }
+    
     var color: Color {
         switch self {
         case .chatGPT: return Color(red: 0.4, green: 0.65, blue: 0.6)
@@ -468,19 +476,44 @@ enum AIProvider: String, CaseIterable {
 struct AIProviderButton: View {
     let provider: AIProvider
     let action: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         Button(action: action) {
             HStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .fill(provider.color.opacity(0.2))
-                        .frame(width: 48, height: 48)
-                    
-                    Image(systemName: provider.iconName)
-                        .font(.title3)
-                        .foregroundColor(provider.color)
+                // Logo from URL with white rendering
+                AsyncImage(url: URL(string: provider.logoURL)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .renderingMode(.template)
+                            .foregroundStyle(colorScheme == .light ? .black : .white)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 40, height: 40)
+                    case .failure, .empty:
+                        ZStack {
+                            Circle()
+                                .fill(provider.color.opacity(0.2))
+                                .frame(width: 48, height: 48)
+                            
+                            Image(systemName: provider.iconName)
+                                .font(.title3)
+                                .foregroundColor(provider.color)
+                        }
+                    @unknown default:
+                        ZStack {
+                            Circle()
+                                .fill(provider.color.opacity(0.2))
+                                .frame(width: 48, height: 48)
+                            
+                            Image(systemName: provider.iconName)
+                                .font(.title3)
+                                .foregroundColor(provider.color)
+                        }
+                    }
                 }
+                .frame(width: 48, height: 48)
                 
                 Text(provider.name)
                     .font(.headline)
