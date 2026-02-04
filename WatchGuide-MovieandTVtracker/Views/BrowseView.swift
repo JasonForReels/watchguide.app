@@ -208,6 +208,11 @@ class BrowseViewModel: ObservableObject {
                 name: "20th Century Studios",
                 logoURL: "https://i.ibb.co/23tL20Sb/20th-century-studios-seeklogo.png",
                 listId: "dualipafan01/20th-century-studios"
+            ),
+            StudioHub(
+                name: "Warner Bros.",
+                logoURL: "https://i.ibb.co/wZ1HR70w/Pik-Png-com-warner-bros-logo-png-1514023.png",
+                listId: "dualipafan01/warner-bros"
             )
         ]
         
