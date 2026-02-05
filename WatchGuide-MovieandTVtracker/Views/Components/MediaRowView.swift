@@ -69,8 +69,9 @@ struct MediaPosterCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Poster
-            PosterImageView(posterPath: item.posterPath, size: .medium)
+            PosterImageView(posterPath: item.posterPath, size: .medium, mediaId: item.id, mediaType: item.resolvedMediaType)
                 .frame(width: 130, height: 195)
+                .clipped()
                 .shadow(color: .black.opacity(0.2), radius: isHovered ? 12 : 4, y: isHovered ? 8 : 2)
                 .scaleEffect(isHovered ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
@@ -173,8 +174,9 @@ struct SavedMediaPosterCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Poster
-            PosterImageView(posterPath: item.posterPath, size: .medium)
+            PosterImageView(posterPath: item.posterPath, size: .medium, mediaId: item.mediaId, mediaType: item.mediaType)
                 .frame(width: 130, height: 195)
+                .clipped()
                 .shadow(color: .black.opacity(0.2), radius: isHovered ? 12 : 4, y: isHovered ? 8 : 2)
                 .scaleEffect(isHovered ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
