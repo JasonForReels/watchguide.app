@@ -10,8 +10,6 @@ struct BrowseView: View {
     @Binding var selectedItem: MediaItem?
     @State private var showNetworkHub = false
     @State private var selectedNetworkHub: NetworkHub?
-    @State private var showStudioHub = false
-    @State private var selectedStudioHub: StudioHub?
     @State private var showCustomizeSheet = false
     
     var body: some View {
@@ -37,19 +35,6 @@ struct BrowseView: View {
                         .padding(.top, 4)
                     }
                     
-                    // Custom Home Rows (MDBList and Custom Hubs)
-                    ForEach(viewModel.customHomeRows) { customRow in
-                        if let row = viewModel.customRowContent[customRow.id], !row.items.isEmpty {
-                            CustomHomeRowView(
-                                row: customRow,
-                                items: row.items,
-                                onItemTap: { item in
-                                    selectedItem = item
-                                }
-                            )
-                        }
-                    }
-                    
                     // Browse Rows
                     ForEach(viewModel.rows, id: \.title) { row in
                         if !row.items.isEmpty {
@@ -60,28 +45,10 @@ struct BrowseView: View {
                                     selectedItem = item
                                 }
                             )
-                            if row.title == "Popular Movies" && !viewModel.studios.isEmpty {
-                                StudiosRow(studios: viewModel.studios) { studio in
-                                    selectedStudioHub = studio
-                                    showStudioHub = true
-                                }
-                                .padding(.top, 4)
-                            }
                         }
                     }
                     
-                    // Imported Lists Rows (for backward compatibility)
-                    ForEach(viewModel.importedListRows, id: \.title) { row in
-                        if !row.items.isEmpty {
-                            MediaRowView(
-                                title: row.title,
-                                items: row.items,
-                                onItemTap: { item in
-                                    selectedItem = item
-                                }
-                            )
-                        }
-                    }
+
                 }
                 .padding(.vertical)
             }
@@ -105,11 +72,6 @@ struct BrowseView: View {
                     NetworkHubSheet(hub: hub, selectedItem: $selectedItem)
                 }
             }
-            .sheet(isPresented: $showStudioHub) {
-                if let studio = selectedStudioHub {
-                    StudioHubSheet(studio: studio, selectedItem: $selectedItem)
-                }
-            }
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
             }
@@ -120,72 +82,12 @@ struct BrowseView: View {
     }
 }
 
-// MARK: - Custom Home Row View
-struct CustomHomeRowView: View {
-    let row: CustomHomeRow
-    let items: [MediaItem]
-    let onItemTap: (MediaItem) -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header with optional image
-            HStack {
-                if let imageURL = row.hubImageURL, let url = URL(string: imageURL) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(height: 28)
-                                .cornerRadius(4)
-                        default:
-                            EmptyView()
-                        }
-                    }
-                }
-                
-                Text(row.name)
-                    .font(.title3)
-                    .fontWeight(.bold)
-                
-                if row.rowType == .importedList {
-                    Image(systemName: "list.bullet.clipboard")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                }
-                
-                Spacer()
-            }
-            .padding(.horizontal)
-            
-            // Scrolling content
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
-                    ForEach(items) { item in
-                        MediaPosterCard(item: item)
-                            .onTapGesture {
-                                onItemTap(item)
-                            }
-                    }
-                }
-                .padding(.horizontal)
-            }
-            .scrollClipDisabled()
-        }
-    }
-}
-
 // MARK: - Browse View Model
 @MainActor
 class BrowseViewModel: ObservableObject {
     @Published var heroItems: [MediaItem] = []
     @Published var rows: [MediaRow] = []
-    @Published var importedListRows: [MediaRow] = []
-    @Published var customHomeRows: [CustomHomeRow] = []
-    @Published var customRowContent: [String: MediaRow] = [:]
     @Published var networkHubs: [NetworkHub] = []
-    @Published var studios: [StudioHub] = []
     @Published var isLoading = false
     
     struct MediaRow {
@@ -201,24 +103,10 @@ class BrowseViewModel: ObservableObject {
         // Load network hubs (streaming services)
         networkHubs = StorageService.shared.getEnabledNetworkHubs()
         
-        // Studios (circular hubs)
-        studios = [
-            StudioHub(
-                name: "20th Century Studios",
-                logoURL: "https://i.ibb.co/23tL20Sb/20th-century-studios-seeklogo.png",
-                listId: "dualipafan01/20th-century-studios"
-            )
-        ]
-        
-        // Load custom home rows
-        customHomeRows = StorageService.shared.getEnabledCustomHomeRows()
-        
         // Load hero items based on user's selected source (concurrently)
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.loadHeroItems() }
             group.addTask { await self.loadBrowseRows() }
-            group.addTask { await self.loadCustomHomeRowContent() }
-            group.addTask { await self.loadImportedListRows() }
         }
     }
     
@@ -228,7 +116,8 @@ class BrowseViewModel: ObservableObject {
         do {
             let items: [MediaItem]
             switch source {
-            case .trendingMovies:
+            case .trendingMovies, .mdblistTrending:
+                // Fallback mdblistTrending to trendingMovies
                 items = try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results
             case .trendingTV:
                 items = try await TMDBService.shared.getTrending(mediaType: .tv, timeWindow: "day").results
@@ -242,46 +131,6 @@ class BrowseViewModel: ObservableObject {
                 items = try await TMDBService.shared.getTopRatedMovies().results
             case .upcomingMovies:
                 items = try await TMDBService.shared.getUpcomingMovies().results
-            case .mdblistTrending:
-                // Fetch MDBList trending list and split into up to 5 movies + 5 TV if mixed
-                let listId = "dualipafan01/trending-titles"
-                let mediaItems: [MediaItem]
-                do {
-                    let savedItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
-                    // Convert to MediaItem array
-                    let converted: [MediaItem] = savedItems.map { saved in
-                        MediaItem(
-                            id: saved.mediaId,
-                            title: saved.mediaType == .movie ? saved.title : nil,
-                            name: saved.mediaType == .tv ? saved.title : nil,
-                            originalTitle: nil,
-                            originalName: nil,
-                            overview: saved.overview,
-                            posterPath: saved.posterPath,
-                            backdropPath: saved.backdropPath,
-                            releaseDate: saved.year,
-                            firstAirDate: saved.year,
-                            voteAverage: saved.voteAverage,
-                            voteCount: nil,
-                            popularity: nil,
-                            genreIds: nil,
-                            mediaType: saved.mediaType.rawValue,
-                            adult: nil,
-                            originalLanguage: nil
-                        )
-                    }
-                    let movies = converted.filter { $0.resolvedMediaType == .movie }
-                    let tv = converted.filter { $0.resolvedMediaType == .tv }
-                    if !movies.isEmpty && !tv.isEmpty {
-                        mediaItems = Array(movies.prefix(5)) + Array(tv.prefix(5))
-                    } else {
-                        mediaItems = converted
-                    }
-                } catch {
-                    print("Error loading MDBList trending: \(error)")
-                    mediaItems = []
-                }
-                items = mediaItems
             }
             heroItems = Array(items.prefix(10))
         } catch {
@@ -296,11 +145,8 @@ class BrowseViewModel: ObservableObject {
         }
 
         rows = []
-        importedListRows = []
-        customRowContent = [:]
         heroItems = []
         networkHubs = []
-        customHomeRows = []
         await loadContent()
     }
     
@@ -333,108 +179,6 @@ class BrowseViewModel: ObservableObject {
         rows = loadedRows.sorted(by: { $0.0 < $1.0 }).map { $0.1 }
     }
     
-    private func loadCustomHomeRowContent() async {
-        for customRow in customHomeRows {
-            switch customRow.rowType {
-            case .importedList:
-                if let importedListId = customRow.importedListId,
-                   let importedList = StorageService.shared.importedLists.first(where: { $0.id == importedListId }),
-                   !importedList.items.isEmpty {
-                    // Convert SavedMediaItems to MediaItems
-                    let items = importedList.items.map { saved -> MediaItem in
-                        MediaItem(
-                            id: saved.mediaId,
-                            title: saved.mediaType == .movie ? saved.title : nil,
-                            name: saved.mediaType == .tv ? saved.title : nil,
-                            originalTitle: nil,
-                            originalName: nil,
-                            overview: saved.overview,
-                            posterPath: saved.posterPath,
-                            backdropPath: saved.backdropPath,
-                            releaseDate: saved.year,
-                            firstAirDate: saved.year,
-                            voteAverage: saved.voteAverage,
-                            voteCount: nil,
-                            popularity: nil,
-                            genreIds: nil,
-                            mediaType: saved.mediaType.rawValue,
-                            adult: nil,
-                            originalLanguage: nil
-                        )
-                    }
-                    customRowContent[customRow.id] = MediaRow(title: customRow.name, items: items)
-                }
-                
-            case .customHub:
-                if let items = customRow.items, !items.isEmpty {
-                    let mediaItems = items.map { saved -> MediaItem in
-                        MediaItem(
-                            id: saved.mediaId,
-                            title: saved.mediaType == .movie ? saved.title : nil,
-                            name: saved.mediaType == .tv ? saved.title : nil,
-                            originalTitle: nil,
-                            originalName: nil,
-                            overview: saved.overview,
-                            posterPath: saved.posterPath,
-                            backdropPath: saved.backdropPath,
-                            releaseDate: saved.year,
-                            firstAirDate: saved.year,
-                            voteAverage: saved.voteAverage,
-                            voteCount: nil,
-                            popularity: nil,
-                            genreIds: nil,
-                            mediaType: saved.mediaType.rawValue,
-                            adult: nil,
-                            originalLanguage: nil
-                        )
-                    }
-                    customRowContent[customRow.id] = MediaRow(title: customRow.name, items: mediaItems)
-                }
-            }
-        }
-    }
-    
-    private func loadImportedListRows() async {
-        // Load imported lists that are set to show on home but don't have a custom row
-        let listsOnHome = StorageService.shared.getImportedListsForHome()
-        let customRowListIds = Set(customHomeRows.compactMap { $0.importedListId })
-        
-        var loadedRows: [MediaRow] = []
-        
-        for list in listsOnHome {
-            // Skip if already in custom rows
-            if customRowListIds.contains(list.id) { continue }
-            
-            let items = list.items.map { saved -> MediaItem in
-                MediaItem(
-                    id: saved.mediaId,
-                    title: saved.mediaType == .movie ? saved.title : nil,
-                    name: saved.mediaType == .tv ? saved.title : nil,
-                    originalTitle: nil,
-                    originalName: nil,
-                    overview: saved.overview,
-                    posterPath: saved.posterPath,
-                    backdropPath: saved.backdropPath,
-                    releaseDate: saved.year,
-                    firstAirDate: saved.year,
-                    voteAverage: saved.voteAverage,
-                    voteCount: nil,
-                    popularity: nil,
-                    genreIds: nil,
-                    mediaType: saved.mediaType.rawValue,
-                    adult: nil,
-                    originalLanguage: nil
-                )
-            }
-            
-            if !items.isEmpty {
-                loadedRows.append(MediaRow(title: list.displayName, items: items))
-            }
-        }
-        
-        importedListRows = loadedRows
-    }
-    
     private func fetchRow(_ endpoint: BrowseRowConfig.BrowseEndpoint) async throws -> [MediaItem] {
         switch endpoint {
         case .trendingMovies:
@@ -461,13 +205,6 @@ class BrowseViewModel: ObservableObject {
     }
 }
 
-struct StudioHub: Identifiable {
-    let id = UUID()
-    let name: String
-    let logoURL: String
-    let listId: String
-}
-
 // MARK: - Network Hubs Row (Streaming Services)
 struct NetworkHubsRow: View {
     let hubs: [NetworkHub]
@@ -487,58 +224,6 @@ struct NetworkHubsRow: View {
                             .onTapGesture {
                                 onHubTap(hub)
                             }
-                    }
-                }
-                .padding(.horizontal)
-            }
-        }
-    }
-}
-
-struct StudiosRow: View {
-    let studios: [StudioHub]
-    let onStudioTap: (StudioHub) -> Void
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Studios")
-                .font(.title3)
-                .fontWeight(.bold)
-                .padding(.horizontal)
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(studios) { studio in
-                        VStack(spacing: 8) {
-                            ZStack {
-                                Circle()
-                                    .stroke(Color(.systemGray4), lineWidth: 1)
-                                    .frame(width: 72, height: 72)
-                                
-                                AsyncImage(url: URL(string: studio.logoURL)) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image
-                                            .resizable()
-                                            .renderingMode(.template)
-                                            .foregroundStyle(colorScheme == .light ? .black : .white)
-                                            .aspectRatio(contentMode: .fit)
-                                            .frame(width: 56, height: 56)
-                                    default:
-                                        EmptyView()
-                                    }
-                                }
-                            }
-                            Text(studio.name)
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .multilineTextAlignment(.center)
-                                .lineLimit(2)
-                                .frame(width: 80)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture { onStudioTap(studio) }
                     }
                 }
                 .padding(.horizontal)
@@ -704,63 +389,12 @@ struct NetworkHubSheet: View {
             region = "GB"
         }
         
-        // Special-case: Disney Channel hub uses curated MDBList content instead of provider-based discovery
+        // Skip Disney Channel since it requires MDBList (removed)
         if hub.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "disney channel" {
-            do {
-                // Fetch MDBList items and convert to MediaItem
-                let savedItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: "dualipafan01/disney-channel")
-                let converted: [MediaItem] = savedItems.map { saved in
-                    MediaItem(
-                        id: saved.mediaId,
-                        title: saved.mediaType == .movie ? saved.title : nil,
-                        name: saved.mediaType == .tv ? saved.title : nil,
-                        originalTitle: nil,
-                        originalName: nil,
-                        overview: saved.overview,
-                        posterPath: saved.posterPath,
-                        backdropPath: saved.backdropPath,
-                        releaseDate: saved.year,
-                        firstAirDate: saved.year,
-                        voteAverage: saved.voteAverage,
-                        voteCount: nil,
-                        popularity: nil,
-                        genreIds: nil,
-                        mediaType: saved.mediaType.rawValue,
-                        adult: nil,
-                        originalLanguage: nil
-                    )
-                }
-                // Split into movies and TV, then ensure content is visible
-                let m = converted.filter { $0.resolvedMediaType == .movie }
-                let t = converted.filter { $0.resolvedMediaType == .tv }
-                await MainActor.run {
-                    if m.isEmpty && !t.isEmpty {
-                        self.movies = t
-                        self.tvShows = t
-                        self.selectedTab = 1 // TV Shows
-                    } else if t.isEmpty && !m.isEmpty {
-                        self.movies = m
-                        self.tvShows = m
-                        self.selectedTab = 0 // Movies
-                    } else if m.isEmpty && t.isEmpty {
-                        // Fallback: show all items in both tabs
-                        self.movies = converted
-                        self.tvShows = converted
-                        self.selectedTab = 0
-                    } else {
-                        self.movies = m
-                        self.tvShows = t
-                        self.selectedTab = 0
-                    }
-                    self.isLoading = false
-                }
-            } catch {
-                print("Error loading Disney Channel MDBList: \(error)")
-                await MainActor.run {
-                    self.movies = []
-                    self.tvShows = []
-                    self.isLoading = false
-                }
+            await MainActor.run {
+                self.movies = []
+                self.tvShows = []
+                self.isLoading = false
             }
             return
         }
@@ -799,134 +433,7 @@ struct NetworkHubSheet: View {
     }
 }
 
-struct StudioHubSheet: View {
-    let studio: StudioHub
-    @Binding var selectedItem: MediaItem?
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var movies: [MediaItem] = []
-    @State private var tvShows: [MediaItem] = []
-    @State private var isLoading = true
-    @State private var selectedTab = 0
-    
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Header with logo
-                AsyncImage(url: URL(string: studio.logoURL)) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .renderingMode(.template)
-                            .foregroundStyle(colorScheme == .light ? .black : .white)
-                            .aspectRatio(contentMode: .fit)
-                            .frame(height: 40)
-                    default:
-                        EmptyView()
-                    }
-                }
-                .padding(.vertical, 8)
-                
-                // Tab picker
-                Picker("Content Type", selection: $selectedTab) {
-                    Text("Movies").tag(0)
-                    Text("TV Shows").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .padding()
-                
-                if isLoading {
-                    Spacer()
-                    ProgressView()
-                        .scaleEffect(1.2)
-                    Spacer()
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: [
-                            GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
-                        ], spacing: 20) {
-                            let items = selectedTab == 0 ? movies : tvShows
-                            ForEach(items) { item in
-                                MediaPosterCard(item: item)
-                                    .onTapGesture {
-                                        selectedItem = item
-                                        dismiss()
-                                    }
-                            }
-                        }
-                        .padding()
-                    }
-                }
-            }
-            .navigationTitle(studio.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
-            }
-        }
-        .task { await loadContent() }
-    }
-    
-    private func loadContent() async {
-        await MainActor.run { isLoading = true }
-        do {
-            let savedItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: studio.listId)
-            let converted: [MediaItem] = savedItems.map { saved in
-                MediaItem(
-                    id: saved.mediaId,
-                    title: saved.mediaType == .movie ? saved.title : nil,
-                    name: saved.mediaType == .tv ? saved.title : nil,
-                    originalTitle: nil,
-                    originalName: nil,
-                    overview: saved.overview,
-                    posterPath: saved.posterPath,
-                    backdropPath: saved.backdropPath,
-                    releaseDate: saved.year,
-                    firstAirDate: saved.year,
-                    voteAverage: saved.voteAverage,
-                    voteCount: nil,
-                    popularity: nil,
-                    genreIds: nil,
-                    mediaType: saved.mediaType.rawValue,
-                    adult: nil,
-                    originalLanguage: nil
-                )
-            }
-            let m = converted.filter { $0.resolvedMediaType == .movie }
-            let t = converted.filter { $0.resolvedMediaType == .tv }
-            await MainActor.run {
-                if m.isEmpty && !t.isEmpty {
-                    self.movies = t
-                    self.tvShows = t
-                    self.selectedTab = 1
-                } else if t.isEmpty && !m.isEmpty {
-                    self.movies = m
-                    self.tvShows = m
-                    self.selectedTab = 0
-                } else if m.isEmpty && t.isEmpty {
-                    self.movies = converted
-                    self.tvShows = converted
-                    self.selectedTab = 0
-                } else {
-                    self.movies = m
-                    self.tvShows = t
-                    self.selectedTab = 0
-                }
-                self.isLoading = false
-            }
-        } catch {
-            print("Error loading studio list: \(error)")
-            await MainActor.run {
-                self.movies = []
-                self.tvShows = []
-                self.isLoading = false
-            }
-        }
-    }
-}
+
 
 // MARK: - Browse Customize Sheet (Legacy - kept for backwards compatibility)
 struct BrowseCustomizeSheet: View {

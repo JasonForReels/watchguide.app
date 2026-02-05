@@ -11,8 +11,6 @@ struct SettingsView: View {
     @ObservedObject private var authService = AuthService.shared
     @State private var settings: UserSettings
     @State private var showClearDataAlert = false
-    @State private var showSyncOptions = false
-    @State private var syncMessage: String?
     @State private var showAuthSheet = false
     
     init() {
@@ -110,18 +108,7 @@ struct SettingsView: View {
                     .foregroundColor(.primary)
                 }
                 
-                NavigationLink(destination: CustomHomeRowsSettingsView()) {
-                    HStack {
-                        Image(systemName: "square.grid.2x2")
-                            .foregroundColor(.orange)
-                            .frame(width: 24)
-                        Text("Custom Rows & Hubs")
-                        Spacer()
-                        Text("\(storage.customHomeRows.filter { $0.isEnabled }.count)")
-                            .foregroundColor(.secondary)
-                    }
-                    .foregroundColor(.primary)
-                }
+
                 
                 NavigationLink(destination: NetworkHubsSettingsView()) {
                     HStack {
@@ -137,129 +124,9 @@ struct SettingsView: View {
                 }
             }
             
-            // Integrations
-            Section {
-                NavigationLink(destination: ImportedListsSettingsView()) {
-                    HStack {
-                        Image(systemName: "list.bullet.clipboard")
-                            .foregroundColor(.orange)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("PublicMetaDB")
-                            Text("Import curated movie & TV lists")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        Text("\(storage.importedLists.filter { $0.source == .publicMetaDB }.count)")
-                            .foregroundColor(.secondary)
-                    }
-                    .foregroundColor(.primary)
-                }
-            } header: {
-                Text("Integrations")
-            }
+
             
-            // Extensions
-            Section {
-                NavigationLink(destination: MDBListExtensionView()) {
-                    HStack {
-                        Image(systemName: "list.star")
-                            .foregroundColor(.purple)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("MDBList")
-                            Text("Curated comedy list")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .foregroundColor(.primary)
-                }
-            } header: {
-                Text("Extensions")
-            }
-            
-            // Cloud Sync
-            Section {
-                Toggle("Enable Cloud Sync", isOn: Binding(
-                    get: { storage.cloudSyncEnabled },
-                    set: { storage.setCloudSyncEnabled($0) }
-                ))
-                .disabled(!storage.isCloudConfigured)
-                
-                if storage.isCloudConfigured {
-                    HStack {
-                        Text("Status")
-                        Spacer()
-                        if storage.isSyncing {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else if let error = storage.lastSyncError {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundColor(.red)
-                                .lineLimit(1)
-                        } else {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                            if authService.isAuthenticated {
-                                Text("Signed in")
-                                    .foregroundColor(.secondary)
-                            } else {
-                                Text("Device sync")
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    
-                    if let lastSync = storage.lastSyncTime {
-                        HStack {
-                            Text("Last Synced")
-                            Spacer()
-                            Text(lastSync.formatted(.relative(presentation: .named)))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    
-                    Button {
-                        showSyncOptions = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                            Text("Sync Options")
-                        }
-                    }
-                    .disabled(storage.isSyncing)
-                } else {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(.orange)
-                        Text("Link a Supabase project to enable sync")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    NavigationLink(destination: SupabaseSetupGuideView()) {
-                        HStack {
-                            Image(systemName: "book.pages")
-                            Text("Setup Guide")
-                        }
-                    }
-                }
-            } header: {
-                Text("Cloud Sync")
-            } footer: {
-                if authService.isAuthenticated {
-                    Text("Your lists sync across all devices signed into this account")
-                } else {
-                    Text("Sign in above to sync across devices, or use device-only sync")
-                }
-            }
+
             
             // Data Management
             Section("Data Management") {
@@ -336,31 +203,6 @@ struct SettingsView: View {
             }
         } message: {
             Text("This will remove all your lists, watched history, and preferences. This cannot be undone.")
-        }
-        .confirmationDialog("Sync Options", isPresented: $showSyncOptions, titleVisibility: .visible) {
-            Button("Upload to Cloud") {
-                Task {
-                    await storage.uploadToCloud()
-                    syncMessage = storage.lastSyncError == nil ? "Upload complete!" : nil
-                }
-            }
-            Button("Download from Cloud") {
-                Task {
-                    await storage.downloadFromCloud()
-                    syncMessage = storage.lastSyncError == nil ? "Download complete!" : nil
-                }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Choose how to sync your data")
-        }
-        .alert("Sync Complete", isPresented: .init(
-            get: { syncMessage != nil },
-            set: { if !$0 { syncMessage = nil } }
-        )) {
-            Button("OK") { syncMessage = nil }
-        } message: {
-            Text(syncMessage ?? "")
         }
         .sheet(isPresented: $showAuthSheet) {
             AuthView()
