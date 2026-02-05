@@ -182,25 +182,32 @@ struct HeroCarouselView: View {
                 }
             }
             
-            for item in items.prefix(10) {
-                do {
-                    let videos: VideosResponse
-                    if item.resolvedMediaType == .movie {
-                        videos = try await TMDBService.shared.getMovieVideos(id: item.id)
-                    } else {
-                        videos = try await TMDBService.shared.getTVShowVideos(id: item.id)
-                    }
-                    
-                    // Find the best trailer (official trailer preferred, exclude teasers/final trailers)
-                    let trailer = selectBestOfficialTrailer(from: videos.results)
-                    
-                    if let trailer = trailer {
-                        await MainActor.run {
-                            trailers[item.id] = trailer
+            // Load remaining trailers concurrently for faster loading
+            await withTaskGroup(of: (Int, Video?).self) { group in
+                for item in items.prefix(10).dropFirst() {
+                    group.addTask {
+                        do {
+                            let videos: VideosResponse
+                            if item.resolvedMediaType == .movie {
+                                videos = try await TMDBService.shared.getMovieVideos(id: item.id)
+                            } else {
+                                videos = try await TMDBService.shared.getTVShowVideos(id: item.id)
+                            }
+                            let trailer = self.selectBestOfficialTrailer(from: videos.results)
+                            return (item.id, trailer)
+                        } catch {
+                            print("Error loading trailer for \(item.displayTitle): \(error)")
+                            return (item.id, nil)
                         }
                     }
-                } catch {
-                    print("Error loading trailer for \(item.displayTitle): \(error)")
+                }
+                
+                for await (itemId, trailer) in group {
+                    if let trailer = trailer {
+                        await MainActor.run {
+                            trailers[itemId] = trailer
+                        }
+                    }
                 }
             }
         }
@@ -215,7 +222,7 @@ struct HeroCarouselView: View {
         }
     }
     
-    private func selectBestOfficialTrailer(from videos: [Video]) -> Video? {
+    private nonisolated func selectBestOfficialTrailer(from videos: [Video]) -> Video? {
         // Filter to only YouTube trailers (excluding teasers)
         let trailers = videos.filter {
             $0.site.lowercased() == "youtube" &&
@@ -709,9 +716,7 @@ struct YouTubePlayerView: UIViewRepresentable {
         let autoPlayValue = autoPlay ? 1 : 0
         let muteValue = isMuted ? 1 : 0
         
-        let primaryHost = "https://www.youtube-nocookie.com"
-        let fallbackHost = "https://yewtu.be"
-        
+        // Use YouTube's official IFrame Player API for faster, more reliable loading
         let html = """
         <!DOCTYPE html>
         <html>
@@ -719,8 +724,8 @@ struct YouTubePlayerView: UIViewRepresentable {
             <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
-                html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
-                #player-wrapper {
+                html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+                #player-container {
                     position: absolute;
                     top: 50%;
                     left: 50%;
@@ -730,169 +735,149 @@ struct YouTubePlayerView: UIViewRepresentable {
                     min-height: 56.25vw;
                     transform: translate(-50%, -50%);
                 }
-                iframe {
+                #player {
                     position: absolute;
                     top: 0;
                     left: 0;
                     width: 100%;
                     height: 100%;
-                    border: none;
                 }
-                .loading {
-                    position: absolute;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    color: #fff;
-                    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-                    text-align: center;
-                    z-index: 10;
-                }
-                .spinner {
-                    width: 40px;
-                    height: 40px;
-                    border: 3px solid rgba(255,255,255,0.3);
-                    border-top-color: #fff;
-                    border-radius: 50%;
-                    animation: spin 1s linear infinite;
-                    margin: 0 auto 10px;
-                }
-                @keyframes spin { to { transform: rotate(360deg); } }
-                .hidden { display: none; }
             </style>
         </head>
         <body>
-            <div id="loading" class="loading">
-                <div class="spinner"></div>
-                <div>Loading trailer...</div>
-            </div>
-            <div id="player-wrapper">
-                <iframe 
-                    id="player"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    referrerpolicy="no-referrer"
-                    allowfullscreen>
-                </iframe>
+            <div id="player-container">
+                <div id="player"></div>
             </div>
             
             <script>
-                const PRIMARY_HOST = "\(primaryHost)";
-                const FALLBACK_HOST = "\(fallbackHost)";
-                const VIDEO_KEY = "\(sanitizedKey)";
-                const AUTOPLAY = \(autoPlayValue);
-                const MUTE = \(muteValue);
+                var tag = document.createElement('script');
+                tag.src = "https://www.youtube.com/iframe_api";
+                var firstScriptTag = document.getElementsByTagName('script')[0];
+                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
                 
-                let usingFallback = false;
-                let hasNotifiedReady = false;
-                let hasNotifiedError = false;
-                let hasNotifiedEnded = false;
-                
-                const iframe = document.getElementById('player');
-                const loadingDiv = document.getElementById('loading');
-                
-                function buildSrc(host) {
-                    return host + '/embed/' + VIDEO_KEY + '?autoplay=' + AUTOPLAY + '&mute=' + MUTE + '&controls=0&modestbranding=1&rel=0&iv_load_policy=3&showinfo=0&playsinline=1';
-                }
+                var player;
+                var hasNotifiedReady = false;
+                var hasNotifiedError = false;
+                var hasNotifiedEnded = false;
+                var apiReady = false;
+                var createAttempted = false;
                 
                 function notifyReady() {
                     if (!hasNotifiedReady) {
                         hasNotifiedReady = true;
-                        window.webkit.messageHandlers.playerReady.postMessage('ready');
+                        try { window.webkit.messageHandlers.playerReady.postMessage('ready'); } catch(e) {}
                     }
                 }
                 
                 function notifyError(msg) {
                     if (!hasNotifiedError) {
                         hasNotifiedError = true;
-                        window.webkit.messageHandlers.playerError.postMessage(msg);
+                        try { window.webkit.messageHandlers.playerError.postMessage(msg); } catch(e) {}
                     }
                 }
                 
                 function notifyEnded() {
                     if (!hasNotifiedEnded) {
                         hasNotifiedEnded = true;
-                        window.webkit.messageHandlers.playerEnded.postMessage('ended');
+                        try { window.webkit.messageHandlers.playerEnded.postMessage('ended'); } catch(e) {}
                     }
                 }
                 
-                function switchToFallback() {
-                    if (usingFallback) return;
-                    usingFallback = true;
-                    iframe.src = buildSrc(FALLBACK_HOST);
-                }
-                
-                iframe.src = buildSrc(PRIMARY_HOST);
-                
-                iframe.addEventListener('load', () => {
-                    loadingDiv.classList.add('hidden');
-                    notifyReady();
-                });
-                
-                iframe.addEventListener('error', () => {
-                    if (!usingFallback) {
-                        switchToFallback();
-                    } else {
-                        notifyError('Iframe failed to load');
-                    }
-                });
-                
-                setTimeout(() => {
-                    if (!hasNotifiedReady) {
-                        switchToFallback();
-                    }
-                }, 1500);
-                
-                // Listen for messages from YouTube iframe (postMessage API)
-                window.addEventListener('message', function(event) {
-                    var origin = event.origin || event.originalEvent.origin;
-                    // Accept messages only from youtube domains
-                    if (origin.indexOf('youtube') === -1 && origin.indexOf('youtube-nocookie') === -1) return;
+                function createPlayer() {
+                    if (createAttempted) return;
+                    createAttempted = true;
                     
-                    try {
-                        var data = JSON.parse(event.data);
-                        
-                        // Check for player state changes
-                        if (data.event === 'onStateChange') {
-                            try {
-                                window.webkit.messageHandlers.playerStateChange.postMessage(data.info);
-                            } catch(e) {}
-                            
-                            // State 0 = ended
-                            if (data.info === 0 && !hasNotifiedEnded) {
-                                notifyEnded();
-                            }
+                    player = new YT.Player('player', {
+                        videoId: '\(sanitizedKey)',
+                        playerVars: {
+                            'autoplay': \(autoPlayValue),
+                            'mute': \(muteValue),
+                            'controls': 0,
+                            'modestbranding': 1,
+                            'rel': 0,
+                            'iv_load_policy': 3,
+                            'showinfo': 0,
+                            'playsinline': 1,
+                            'enablejsapi': 1,
+                            'origin': window.location.origin
+                        },
+                        events: {
+                            'onReady': onPlayerReady,
+                            'onStateChange': onPlayerStateChange,
+                            'onError': onPlayerError
                         }
-                        
-                        // Check for errors
-                        if (data.event === 'onError' && !hasNotifiedError) {
-                            notifyError('Video error: ' + data.info);
-                        }
-                    } catch(e) {
-                        // Not JSON, ignore
-                    }
-                });
+                    });
+                }
                 
-                // Fallback: notify ready after timeout if iframe hasn't loaded
+                function onYouTubeIframeAPIReady() {
+                    apiReady = true;
+                    createPlayer();
+                }
+                
+                function onPlayerReady(event) {
+                    notifyReady();
+                    if (\(autoPlayValue) === 1) {
+                        event.target.playVideo();
+                    }
+                }
+                
+                function onPlayerStateChange(event) {
+                    try { window.webkit.messageHandlers.playerStateChange.postMessage(event.data); } catch(e) {}
+                    
+                    // State 1 = playing - notify ready when video actually starts
+                    if (event.data === 1 && !hasNotifiedReady) {
+                        notifyReady();
+                    }
+                    // State 0 = ended
+                    if (event.data === 0) {
+                        notifyEnded();
+                    }
+                }
+                
+                function onPlayerError(event) {
+                    notifyError('YouTube error: ' + event.data);
+                }
+                
+                // Timeout: if API doesn't load within 4 seconds, try fallback iframe
                 setTimeout(function() {
-                    loadingDiv.classList.add('hidden');
+                    if (!apiReady && !hasNotifiedError) {
+                        // Fallback to direct iframe embed
+                        var container = document.getElementById('player-container');
+                        container.innerHTML = '<iframe id="fallback-player" src="https://www.youtube-nocookie.com/embed/\(sanitizedKey)?autoplay=\(autoPlayValue)&mute=\(muteValue)&controls=0&modestbranding=1&rel=0&playsinline=1" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
+                        
+                        var fallbackIframe = document.getElementById('fallback-player');
+                        fallbackIframe.onload = function() {
+                            notifyReady();
+                        };
+                        
+                        // Notify ready after short delay even if onload doesn't fire
+                        setTimeout(function() {
+                            if (!hasNotifiedReady && !hasNotifiedError) {
+                                notifyReady();
+                            }
+                        }, 1000);
+                    }
+                }, 4000);
+                
+                // Final fallback: notify ready after 6 seconds no matter what
+                setTimeout(function() {
                     if (!hasNotifiedReady && !hasNotifiedError) {
                         notifyReady();
                     }
-                }, 3000);
+                }, 6000);
                 
-                // Auto-advance after estimated video duration (fallback for when postMessage doesn't work)
-                // Most trailers are 2-3 minutes, we'll use a 3 minute timeout as fallback
+                // Auto-advance after 3 minutes (typical trailer length)
                 setTimeout(function() {
                     if (!hasNotifiedEnded) {
                         notifyEnded();
                     }
-                }, 180000); // 3 minutes
+                }, 180000);
             </script>
         </body>
         </html>
         """
         
-        webView.loadHTMLString(html, baseURL: URL(string: primaryHost))
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
     }
     
     func makeCoordinator() -> Coordinator {
