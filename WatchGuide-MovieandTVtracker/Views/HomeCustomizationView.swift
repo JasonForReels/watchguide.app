@@ -106,10 +106,12 @@ struct HomeCustomizationView: View {
                 loadData()
             }
             .sheet(isPresented: $showAddRowSheet) {
-                AddHomeRowSheet(
-                    importedLists: importedLists,
-                    onAdd: { row in
+                AddMDBListRowSheet(
+                    onAdd: { row, importedList in
                         customHomeRows.append(row)
+                        if let list = importedList {
+                            importedLists.append(list)
+                        }
                     }
                 )
             }
@@ -451,66 +453,95 @@ struct HomeCustomizationView: View {
     }
 }
 
-// MARK: - Add Home Row Sheet
+// MARK: - Add MDBList Row Sheet
 
-struct AddHomeRowSheet: View {
-    let importedLists: [ImportedListItem]
-    let onAdd: (CustomHomeRow) -> Void
+struct AddMDBListRowSheet: View {
+    let onAdd: (CustomHomeRow, ImportedListItem?) -> Void
     
     @Environment(\.dismiss) private var dismiss
-    @State private var rowType: CustomHomeRow.CustomRowType = .importedList
-    @State private var name = ""
+    @ObservedObject private var storage = StorageService.shared
+    
+    // MDBList import states
+    @State private var mdblistURL = ""
+    @State private var isLoadingMDBList = false
+    @State private var mdblistError: String?
+    @State private var previewItems: [SavedMediaItem] = []
+    @State private var mdblistName = ""
+    @State private var customName = ""
     @State private var imageURL = ""
-    @State private var selectedList: ImportedListItem?
     
     var body: some View {
         NavigationStack {
             Form {
+                // MDBList URL input - required for custom rows
                 Section {
-                    Picker("Row Type", selection: $rowType) {
-                        Text("From Imported List").tag(CustomHomeRow.CustomRowType.importedList)
-                        Text("Custom Hub").tag(CustomHomeRow.CustomRowType.customHub)
-                    }
-                    .pickerStyle(.segmented)
-                }
-                
-                if rowType == .importedList {
-                    Section("Select List") {
-                        if importedLists.isEmpty {
-                            Text("No imported lists available")
-                                .foregroundColor(.secondary)
-                        } else {
-                            ForEach(importedLists) { list in
-                                Button {
-                                    selectedList = list
-                                    if name.isEmpty {
-                                        name = list.displayName
-                                    }
-                                } label: {
-                                    HStack {
-                                        Image(systemName: list.source.iconName)
-                                            .foregroundColor(list.source == .mdblist ? .purple : .orange)
-                                        Text(list.displayName)
-                                            .foregroundColor(.primary)
-                                        Spacer()
-                                        if selectedList?.id == list.id {
-                                            Image(systemName: "checkmark")
-                                                .foregroundColor(.accentColor)
-                                        }
-                                    }
-                                }
+                    TextField("e.g. username/list-name", text: $mdblistURL)
+                        .textContentType(.URL)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .onChange(of: mdblistURL) { _, _ in
+                            previewItems = []
+                            mdblistName = ""
+                            mdblistError = nil
+                        }
+                    
+                    Button {
+                        Task { await previewMDBList() }
+                    } label: {
+                        HStack {
+                            Text("Load List")
+                            if isLoadingMDBList {
+                                Spacer()
+                                ProgressView()
                             }
                         }
                     }
-                    
-                    if selectedList != nil {
-                        Section {
-                            TextField("Display Name (optional)", text: $name)
+                    .disabled(mdblistURL.isEmpty || isLoadingMDBList)
+                } header: {
+                    Label("MDBList URL (Required)", systemImage: "list.star")
+                } footer: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Custom rows are powered by MDBList. Enter the list URL or ID.")
+                        Text("Find lists at mdblist.com")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                if let error = mdblistError {
+                    Section {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                     }
-                } else {
-                    Section("Hub Details") {
-                        TextField("Row Name", text: $name)
+                }
+                
+                if !previewItems.isEmpty {
+                    Section("Preview (\(previewItems.count) items)") {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(previewItems.prefix(8)) { item in
+                                    VStack(spacing: 4) {
+                                        PosterImageView(posterPath: item.posterPath, size: .small)
+                                            .frame(width: 50, height: 75)
+                                        Text(item.title)
+                                            .font(.caption2)
+                                            .lineLimit(1)
+                                            .frame(width: 50)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    }
+                    
+                    Section("Options") {
+                        TextField("Custom Name (optional)", text: $customName)
                         TextField("Header Image URL (optional)", text: $imageURL)
                             .textContentType(.URL)
                             .autocapitalization(.none)
@@ -518,14 +549,14 @@ struct AddHomeRowSheet: View {
                     }
                     
                     if !imageURL.isEmpty, let url = URL(string: imageURL) {
-                        Section("Preview") {
+                        Section("Header Preview") {
                             AsyncImage(url: url) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image
                                         .resizable()
                                         .aspectRatio(contentMode: .fill)
-                                        .frame(height: 80)
+                                        .frame(height: 60)
                                         .clipped()
                                         .cornerRadius(8)
                                 case .failure:
@@ -539,7 +570,7 @@ struct AddHomeRowSheet: View {
                     }
                 }
             }
-            .navigationTitle("Add Row")
+            .navigationTitle("Add Custom Row")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -550,38 +581,70 @@ struct AddHomeRowSheet: View {
                     Button("Add") {
                         addRow()
                     }
-                    .disabled(!canAdd)
+                    .disabled(previewItems.isEmpty)
                 }
             }
         }
     }
     
-    private var canAdd: Bool {
-        if rowType == .importedList {
-            return selectedList != nil
+    private func previewMDBList() async {
+        isLoadingMDBList = true
+        mdblistError = nil
+        
+        let listId = MDBListService.shared.parseListId(from: mdblistURL)
+        
+        // Extract name from URL
+        if listId.contains("/") {
+            let components = listId.split(separator: "/")
+            if components.count >= 2 {
+                mdblistName = String(components.last ?? "MDBList")
+                    .replacingOccurrences(of: "-", with: " ")
+                    .capitalized
+            }
         } else {
-            return !name.isEmpty
+            mdblistName = "MDBList"
         }
+        
+        do {
+            previewItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
+            if previewItems.isEmpty {
+                mdblistError = "List is empty or could not be found."
+            }
+        } catch {
+            mdblistError = "Failed to load list. Please check the URL or ID."
+            print("MDBList error: \(error)")
+        }
+        
+        isLoadingMDBList = false
     }
     
     private func addRow() {
-        var row: CustomHomeRow
+        // Create a new imported list from MDBList
+        let listId = MDBListService.shared.parseListId(from: mdblistURL)
+        let finalName = customName.isEmpty ? mdblistName : customName
         
-        if rowType == .importedList, let list = selectedList {
-            row = CustomHomeRow.importedListRow(
-                name: name.isEmpty ? list.displayName : name,
-                listId: list.id,
-                sortOrder: 0
-            )
-        } else {
-            row = CustomHomeRow.hubRow(
-                name: name,
-                imageURL: imageURL.isEmpty ? nil : imageURL,
-                sortOrder: 0
-            )
+        var newList = ImportedListItem(
+            name: finalName,
+            listId: listId,
+            showOnHome: true,
+            source: .mdblist
+        )
+        newList.items = previewItems
+        newList.lastSynced = Date()
+        
+        if !customName.isEmpty {
+            newList.customName = customName
         }
         
-        onAdd(row)
+        // Create a custom home row with the items
+        var row = CustomHomeRow.hubRow(
+            name: finalName,
+            imageURL: imageURL.isEmpty ? nil : imageURL,
+            sortOrder: 0
+        )
+        row.items = previewItems
+        
+        onAdd(row, newList)
         dismiss()
     }
 }

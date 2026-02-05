@@ -1000,26 +1000,88 @@ struct CustomHomeRowsSettingsView: View {
 struct AddCustomHomeRowSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var storage = StorageService.shared
-    @State private var rowType: CustomHomeRow.CustomRowType = .customHub
-    @State private var name = ""
+    
+    // MDBList import states
+    @State private var mdblistURL = ""
+    @State private var isLoadingMDBList = false
+    @State private var mdblistError: String?
+    @State private var previewItems: [SavedMediaItem] = []
+    @State private var mdblistName = ""
+    @State private var customName = ""
     @State private var imageURL = ""
-    @State private var selectedImportedList: ImportedListItem?
     
     var body: some View {
         NavigationStack {
             Form {
+                // MDBList URL input - required for custom rows
                 Section {
-                    Picker("Row Type", selection: $rowType) {
-                        Text("Custom Hub").tag(CustomHomeRow.CustomRowType.customHub)
-                        Text("Imported List").tag(CustomHomeRow.CustomRowType.importedList)
+                    TextField("e.g. username/list-name", text: $mdblistURL)
+                        .textContentType(.URL)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .onChange(of: mdblistURL) { _, _ in
+                            previewItems = []
+                            mdblistName = ""
+                            mdblistError = nil
+                        }
+                    
+                    Button {
+                        Task { await previewMDBList() }
+                    } label: {
+                        HStack {
+                            Text("Load List")
+                            if isLoadingMDBList {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
                     }
-                    .pickerStyle(.segmented)
+                    .disabled(mdblistURL.isEmpty || isLoadingMDBList)
+                } header: {
+                    Label("MDBList URL (Required)", systemImage: "list.star")
+                } footer: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Custom rows are powered by MDBList. Enter the list URL or ID.")
+                        Text("Find lists at mdblist.com")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
                 }
                 
-                if rowType == .customHub {
-                    Section("Custom Hub") {
-                        TextField("Row Name", text: $name)
-                        
+                if let error = mdblistError {
+                    Section {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                
+                if !previewItems.isEmpty {
+                    Section("Preview (\(previewItems.count) items)") {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(previewItems.prefix(8)) { item in
+                                    VStack(spacing: 4) {
+                                        PosterImageView(posterPath: item.posterPath, size: .small)
+                                            .frame(width: 50, height: 75)
+                                        Text(item.title)
+                                            .font(.caption2)
+                                            .lineLimit(1)
+                                            .frame(width: 50)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    }
+                    
+                    Section("Options") {
+                        TextField("Custom Name (optional)", text: $customName)
                         TextField("Header Image URL (optional)", text: $imageURL)
                             .textContentType(.URL)
                             .autocapitalization(.none)
@@ -1027,14 +1089,14 @@ struct AddCustomHomeRowSheet: View {
                     }
                     
                     if !imageURL.isEmpty, let url = URL(string: imageURL) {
-                        Section("Preview") {
+                        Section("Header Preview") {
                             AsyncImage(url: url) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image
                                         .resizable()
                                         .aspectRatio(contentMode: .fill)
-                                        .frame(height: 100)
+                                        .frame(height: 60)
                                         .clipped()
                                         .cornerRadius(8)
                                 case .failure:
@@ -1046,39 +1108,9 @@ struct AddCustomHomeRowSheet: View {
                             }
                         }
                     }
-                } else {
-                    Section("Select Imported List") {
-                        if storage.importedLists.isEmpty {
-                            Text("No lists imported yet")
-                                .foregroundColor(.secondary)
-                        } else {
-                            ForEach(storage.importedLists) { list in
-                                Button {
-                                    selectedImportedList = list
-                                    name = list.displayName
-                                } label: {
-                                    HStack {
-                                        Text(list.displayName)
-                                            .foregroundColor(.primary)
-                                        Spacer()
-                                        if selectedImportedList?.id == list.id {
-                                            Image(systemName: "checkmark")
-                                                .foregroundColor(.accentColor)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    if selectedImportedList != nil {
-                        Section {
-                            TextField("Custom Name (optional)", text: $name)
-                        }
-                    }
                 }
             }
-            .navigationTitle("Add Row")
+            .navigationTitle("Add Custom Row")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1089,28 +1121,71 @@ struct AddCustomHomeRowSheet: View {
                     Button("Add") {
                         addRow()
                     }
-                    .disabled(name.isEmpty && selectedImportedList == nil)
+                    .disabled(previewItems.isEmpty)
                 }
             }
         }
     }
     
-    private func addRow() {
-        var row: CustomHomeRow
+    private func previewMDBList() async {
+        isLoadingMDBList = true
+        mdblistError = nil
         
-        if rowType == .importedList, let list = selectedImportedList {
-            row = CustomHomeRow.importedListRow(
-                name: name.isEmpty ? list.displayName : name,
-                listId: list.id,
-                sortOrder: storage.customHomeRows.count
-            )
+        let listId = MDBListService.shared.parseListId(from: mdblistURL)
+        
+        // Extract name from URL
+        if listId.contains("/") {
+            let components = listId.split(separator: "/")
+            if components.count >= 2 {
+                mdblistName = String(components.last ?? "MDBList")
+                    .replacingOccurrences(of: "-", with: " ")
+                    .capitalized
+            }
         } else {
-            row = CustomHomeRow.hubRow(
-                name: name,
-                imageURL: imageURL.isEmpty ? nil : imageURL,
-                sortOrder: storage.customHomeRows.count
-            )
+            mdblistName = "MDBList"
         }
+        
+        do {
+            previewItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
+            if previewItems.isEmpty {
+                mdblistError = "List is empty or could not be found."
+            }
+        } catch {
+            mdblistError = "Failed to load list. Please check the URL or ID."
+            print("MDBList error: \(error)")
+        }
+        
+        isLoadingMDBList = false
+    }
+    
+    private func addRow() {
+        // Create a new imported list from MDBList
+        let listId = MDBListService.shared.parseListId(from: mdblistURL)
+        let finalName = customName.isEmpty ? mdblistName : customName
+        
+        var newList = ImportedListItem(
+            name: finalName,
+            listId: listId,
+            showOnHome: true,
+            source: .mdblist
+        )
+        newList.items = previewItems
+        newList.lastSynced = Date()
+        
+        if !customName.isEmpty {
+            newList.customName = customName
+        }
+        
+        // Add the imported list to storage
+        storage.addImportedList(newList)
+        
+        // Create a custom home row with the items
+        var row = CustomHomeRow.hubRow(
+            name: finalName,
+            imageURL: imageURL.isEmpty ? nil : imageURL,
+            sortOrder: storage.customHomeRows.count
+        )
+        row.items = previewItems
         
         storage.addCustomHomeRow(row)
         dismiss()
