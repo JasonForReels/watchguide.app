@@ -362,16 +362,23 @@ struct HeroSlideView: View {
         showTrailer && !trailerFailed && trailer != nil && autoPlayEnabled && isCurrentSlide && !trailerKey.isEmpty
     }
     
+    // Only hide backdrop once trailer is actually ready and playing
+    private var shouldHideBackdrop: Bool {
+        shouldShowTrailer && trailerReady
+    }
+    
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             if StorageService.shared.settings.ambientModeEnabled {
                 AmbientBackground(color: ambientColor)
             }
             
-            // Always show backdrop first as base layer
+            // Show backdrop until trailer is ready and playing - with smooth fade out
             backdropView
                 .frame(width: width, height: height)
                 .clipped()
+                .opacity(shouldHideBackdrop ? 0 : 1)
+                .animation(.easeInOut(duration: 0.5), value: shouldHideBackdrop)
                 .zIndex(0)
             
             // Video overlay (only when ready and valid)
@@ -381,7 +388,9 @@ struct HeroSlideView: View {
                     autoPlay: true,
                     isMuted: isMuted,
                     onReady: {
-                        trailerReady = true
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            trailerReady = true
+                        }
                     },
                     onError: { error in
                         print("Trailer error: \(error)")
