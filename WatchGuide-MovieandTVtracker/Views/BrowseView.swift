@@ -10,7 +10,7 @@ struct BrowseView: View {
     @Binding var selectedItem: MediaItem?
     @State private var showNetworkHub = false
     @State private var selectedNetworkHub: NetworkHub?
-    @State private var showStudioHub = false
+    @State private var showTwentiethCenturySheet = false
     @State private var showCustomizeSheet = false
     
     var body: some View {
@@ -36,17 +36,8 @@ struct BrowseView: View {
                         .padding(.top, 4)
                     }
                     
-                    // Studios Section
-                    if !viewModel.studioHubs.isEmpty {
-                        StudioHubsRow(studios: viewModel.studioHubs) { studio in
-                            viewModel.selectedStudio = studio
-                            showStudioHub = true
-                        }
-                        .padding(.top, 4)
-                    }
-                    
-                    // Browse Rows
-                    ForEach(viewModel.rows, id: \.title) { row in
+                    // Browse Rows with 20th Century Studios button inserted
+                    ForEach(Array(viewModel.rows.enumerated()), id: \.element.title) { index, row in
                         if !row.items.isEmpty {
                             MediaRowView(
                                 title: row.title,
@@ -56,9 +47,15 @@ struct BrowseView: View {
                                 }
                             )
                         }
+                        
+                        // Insert 20th Century Studios button after Popular Movies row
+                        if row.title == "Popular Movies" {
+                            TwentiethCenturyStudiosButton {
+                                showTwentiethCenturySheet = true
+                            }
+                            .padding(.horizontal)
+                        }
                     }
-                    
-
                 }
                 .padding(.vertical)
             }
@@ -82,10 +79,8 @@ struct BrowseView: View {
                     NetworkHubSheet(hub: hub, selectedItem: $selectedItem)
                 }
             }
-            .sheet(isPresented: $showStudioHub) {
-                if let studio = viewModel.selectedStudio {
-                    StudioHubSheet(studio: studio, selectedItem: $selectedItem)
-                }
+            .sheet(isPresented: $showTwentiethCenturySheet) {
+                TwentiethCenturyStudiosSheet(selectedItem: $selectedItem)
             }
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
@@ -97,26 +92,165 @@ struct BrowseView: View {
     }
 }
 
-// MARK: - Studio Hub Model
-struct StudioHub: Identifiable {
-    let id: String
-    let name: String
-    let logoURL: String?
-    let companyIds: [Int]
+// MARK: - 20th Century Studios Button
+struct TwentiethCenturyStudiosButton: View {
+    let action: () -> Void
+    @State private var isPressed = false
     
-    static var defaultStudios: [StudioHub] {
-        [
-            StudioHub(id: "marvel", name: "Marvel Studios", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Marvel_Logo.svg/1200px-Marvel_Logo.svg.png", companyIds: [420]),
-            StudioHub(id: "dc", name: "DC Studios", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/DC_Comics_logo.svg/1200px-DC_Comics_logo.svg.png", companyIds: [128064, 174, 429]),
-            StudioHub(id: "pixar", name: "Pixar", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Pixar_Animation_Studios_logo.svg/1200px-Pixar_Animation_Studios_logo.svg.png", companyIds: [3]),
-            StudioHub(id: "disney", name: "Walt Disney Pictures", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6c/Walt_Disney_Pictures_2011_logo.svg/1200px-Walt_Disney_Pictures_2011_logo.svg.png", companyIds: [2]),
-            StudioHub(id: "warner", name: "Warner Bros.", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Warner_Bros_logo.svg/1200px-Warner_Bros_logo.svg.png", companyIds: [174, 17, 429]),
-            StudioHub(id: "universal", name: "Universal Pictures", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Universal_Pictures_2024_%282%29.svg/1200px-Universal_Pictures_2024_%282%29.svg.png", companyIds: [33]),
-            StudioHub(id: "paramount", name: "Paramount Pictures", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Paramount_Pictures_2022_%28Blue%29.svg/1200px-Paramount_Pictures_2022_%28Blue%29.svg.png", companyIds: [4]),
-            StudioHub(id: "sony", name: "Sony Pictures", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Sony_Pictures_Television_logo.svg/1200px-Sony_Pictures_Television_logo.svg.png", companyIds: [34]),
-            StudioHub(id: "lionsgate", name: "Lionsgate", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Lionsgate_2024.svg/1200px-Lionsgate_2024.svg.png", companyIds: [1632]),
-            StudioHub(id: "a24", name: "A24", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/68/A24_Logo.svg/1200px-A24_Logo.svg.png", companyIds: [41077])
-        ]
+    var body: some View {
+        VStack(spacing: 8) {
+            Button(action: action) {
+                ZStack {
+                    Circle()
+                        .fill(Color(.systemGray6))
+                        .frame(width: 80, height: 80)
+                        .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
+                    
+                    AsyncImage(url: URL(string: "https://i.ibb.co/0VZ8BZdZ/20th-century-studios-seeklogo.png")) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 60, height: 60)
+                        case .failure, .empty:
+                            Text("20th")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                        @unknown default:
+                            ProgressView()
+                        }
+                    }
+                }
+                .scaleEffect(isPressed ? 1.05 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
+            }
+            .buttonStyle(.plain)
+            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+                isPressed = pressing
+            }, perform: {})
+            
+            Text("20th Century Studios")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+    }
+}
+
+// MARK: - 20th Century Studios Sheet
+struct TwentiethCenturyStudiosSheet: View {
+    @Binding var selectedItem: MediaItem?
+    @Environment(\.dismiss) private var dismiss
+    @State private var movies: [SavedMediaItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Header with logo
+                AsyncImage(url: URL(string: "https://i.ibb.co/0VZ8BZdZ/20th-century-studios-seeklogo.png")) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(height: 60)
+                    default:
+                        EmptyView()
+                    }
+                }
+                .padding(.vertical, 16)
+                
+                if isLoading {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Spacer()
+                } else if let error = error {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundColor(.orange)
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                    Spacer()
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [
+                            GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                        ], spacing: 20) {
+                            ForEach(movies) { item in
+                                SavedMediaPosterCard(item: item)
+                                    .onTapGesture {
+                                        // Convert SavedMediaItem to MediaItem
+                                        let mediaItem = MediaItem(
+                                            id: item.mediaId,
+                                            title: item.mediaType == .movie ? item.title : nil,
+                                            name: item.mediaType == .tv ? item.title : nil,
+                                            originalTitle: nil,
+                                            originalName: nil,
+                                            overview: item.overview,
+                                            posterPath: item.posterPath,
+                                            backdropPath: item.backdropPath,
+                                            releaseDate: item.year,
+                                            firstAirDate: item.year,
+                                            voteAverage: item.voteAverage,
+                                            voteCount: nil,
+                                            popularity: nil,
+                                            genreIds: nil,
+                                            mediaType: item.mediaType.rawValue,
+                                            adult: nil,
+                                            originalLanguage: nil
+                                        )
+                                        selectedItem = mediaItem
+                                        dismiss()
+                                    }
+                            }
+                        }
+                        .padding()
+                    }
+                }
+            }
+            .navigationTitle("20th Century Studios")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .task {
+            await loadContent()
+        }
+    }
+    
+    private func loadContent() async {
+        isLoading = true
+        error = nil
+        
+        do {
+            // Fetch from MDBList: dualipafan01/20th-century-studios
+            movies = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: "dualipafan01/20th-century-studios")
+            if movies.isEmpty {
+                error = "No movies found in this list."
+            }
+        } catch {
+            self.error = "Failed to load movies. Please try again."
+            print("20th Century Studios error: \(error)")
+        }
+        
+        isLoading = false
     }
 }
 
@@ -126,8 +260,6 @@ class BrowseViewModel: ObservableObject {
     @Published var heroItems: [MediaItem] = []
     @Published var rows: [MediaRow] = []
     @Published var networkHubs: [NetworkHub] = []
-    @Published var studioHubs: [StudioHub] = []
-    @Published var selectedStudio: StudioHub?
     @Published var isLoading = false
     
     struct MediaRow {
@@ -142,9 +274,6 @@ class BrowseViewModel: ObservableObject {
         
         // Load network hubs (streaming services)
         networkHubs = StorageService.shared.getEnabledNetworkHubs()
-        
-        // Load studio hubs
-        studioHubs = StudioHub.defaultStudios
         
         // Load hero items based on user's selected source (concurrently)
         await withTaskGroup(of: Void.self) { group in
@@ -190,7 +319,6 @@ class BrowseViewModel: ObservableObject {
         rows = []
         heroItems = []
         networkHubs = []
-        studioHubs = []
         await loadContent()
     }
     
@@ -484,167 +612,7 @@ struct NetworkHubSheet: View {
 
 
 
-// MARK: - Studio Hubs Row
-struct StudioHubsRow: View {
-    let studios: [StudioHub]
-    let onStudioTap: (StudioHub) -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Studios")
-                .font(.title3)
-                .fontWeight(.bold)
-                .padding(.horizontal)
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(studios) { studio in
-                        StudioHubCard(studio: studio)
-                            .onTapGesture {
-                                onStudioTap(studio)
-                            }
-                    }
-                }
-                .padding(.horizontal)
-            }
-        }
-    }
-}
 
-struct StudioHubCard: View {
-    let studio: StudioHub
-    @State private var isHovered = false
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.systemGray6))
-                    .frame(width: 100, height: 56)
-                
-                if let logoURL = studio.logoURL, let url = URL(string: logoURL) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .renderingMode(.template)
-                                .foregroundStyle(colorScheme == .light ? .black : .white)
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 80, height: 40)
-                        case .failure, .empty:
-                            Text(studio.name)
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .multilineTextAlignment(.center)
-                                .lineLimit(2)
-                                .padding(.horizontal, 4)
-                        @unknown default:
-                            Text(studio.name)
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                        }
-                    }
-                } else {
-                    Text(studio.name)
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .padding(.horizontal, 4)
-                }
-            }
-            .shadow(color: .black.opacity(0.15), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
-            .scaleEffect(isHovered ? 1.05 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
-        }
-        .onHover { hovering in
-            isHovered = hovering
-        }
-    }
-}
-
-// MARK: - Studio Hub Sheet
-struct StudioHubSheet: View {
-    let studio: StudioHub
-    @Binding var selectedItem: MediaItem?
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var movies: [MediaItem] = []
-    @State private var isLoading = true
-    
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Header with logo
-                if let logoURL = studio.logoURL, let url = URL(string: logoURL) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .renderingMode(.template)
-                                .foregroundStyle(colorScheme == .light ? .black : .white)
-                                .aspectRatio(contentMode: .fit)
-                                .frame(height: 40)
-                        default:
-                            EmptyView()
-                        }
-                    }
-                    .padding(.vertical, 8)
-                }
-                
-                if isLoading {
-                    Spacer()
-                    ProgressView()
-                        .scaleEffect(1.2)
-                    Spacer()
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: [
-                            GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
-                        ], spacing: 20) {
-                            ForEach(movies) { item in
-                                MediaPosterCard(item: item)
-                                    .onTapGesture {
-                                        selectedItem = item
-                                        dismiss()
-                                    }
-                            }
-                        }
-                        .padding()
-                    }
-                }
-            }
-            .navigationTitle(studio.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-        .task {
-            await loadContent()
-        }
-    }
-    
-    private func loadContent() async {
-        await MainActor.run { isLoading = true }
-        
-        do {
-            let response = try await TMDBService.shared.discoverMoviesByCompany(companyIds: studio.companyIds)
-            await MainActor.run { movies = response.results }
-        } catch {
-            print("Error loading studio movies: \(error)")
-        }
-        
-        await MainActor.run { isLoading = false }
-    }
-}
 
 // MARK: - Browse Customize Sheet (Legacy - kept for backwards compatibility)
 struct BrowseCustomizeSheet: View {
