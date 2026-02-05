@@ -14,6 +14,7 @@ struct HeroCarouselView: View {
     @State private var currentIndex = 0
     @State private var timer: Timer?
     @State private var trailers: [Int: Video] = [:] // mediaId -> trailer
+    @State private var trailerCandidates: [Int: [Video]] = [:] // mediaId -> fallback trailers
     @State private var isPlayingTrailer = false
     @State private var borderRotation: Angle = .degrees(0)
     @State private var borderAnimating: Bool = true
@@ -60,12 +61,16 @@ struct HeroCarouselView: View {
                             width: geometry.size.width,
                             height: geometry.size.width * 9.0 / 16.0,
                             trailer: trailers[item.id],
+                            trailerCandidates: trailerCandidates[item.id] ?? [],
                             isCurrentSlide: index == currentIndex,
                             autoPlayEnabled: autoPlayEnabled,
                             isPlayingTrailer: $isPlayingTrailer,
                             onTrailerEnded: {
                                 // Advance to next item when trailer ends
                                 advanceToNextItem()
+                            },
+                            onTrailerFailed: { error in
+                                print("All trailers failed for \(item.displayTitle): \(error)")
                             }
                         )
                         .tag(index)
@@ -172,9 +177,11 @@ struct HeroCarouselView: View {
                     } else {
                         videos = try await TMDBService.shared.getTVShowVideos(id: first.id)
                     }
-                    if let best = selectBestOfficialTrailer(from: videos.results) {
+                    let candidates = selectTrailerCandidates(from: videos.results, limit: 3)
+                    if let best = candidates.first {
                         await MainActor.run {
                             trailers[first.id] = best
+                            trailerCandidates[first.id] = candidates
                         }
                     }
                 } catch {
@@ -183,7 +190,7 @@ struct HeroCarouselView: View {
             }
             
             // Load remaining trailers concurrently for faster loading
-            await withTaskGroup(of: (Int, Video?).self) { group in
+            await withTaskGroup(of: (Int, [Video]).self) { group in
                 for item in items.prefix(10).dropFirst() {
                     group.addTask {
                         do {
@@ -193,19 +200,20 @@ struct HeroCarouselView: View {
                             } else {
                                 videos = try await TMDBService.shared.getTVShowVideos(id: item.id)
                             }
-                            let trailer = self.selectBestOfficialTrailer(from: videos.results)
-                            return (item.id, trailer)
+                            let candidates = self.selectTrailerCandidates(from: videos.results, limit: 3)
+                            return (item.id, candidates)
                         } catch {
                             print("Error loading trailer for \(item.displayTitle): \(error)")
-                            return (item.id, nil)
+                            return (item.id, [])
                         }
                     }
                 }
                 
-                for await (itemId, trailer) in group {
-                    if let trailer = trailer {
+                for await (itemId, candidates) in group {
+                    if let first = candidates.first {
                         await MainActor.run {
-                            trailers[itemId] = trailer
+                            trailers[itemId] = first
+                            trailerCandidates[itemId] = candidates
                         }
                     }
                 }
@@ -242,7 +250,7 @@ struct HeroCarouselView: View {
             var score = 0
             let nameLower = video.name.lowercased()
             
-            // Strong preference for official trailers
+            // Strong preference for official trailers (these are less likely to have embed restrictions)
             if video.official == true {
                 score += 100
             }
@@ -279,7 +287,43 @@ struct HeroCarouselView: View {
         // Sort by score descending
         let sorted = scored.sorted { $0.score > $1.score }
         
+        // Return multiple candidates so we can try alternatives if first fails
         return sorted.first?.video
+    }
+    
+    /// Returns sorted list of trailer candidates for fallback support
+    private nonisolated func selectTrailerCandidates(from videos: [Video], limit: Int = 3) -> [Video] {
+        let trailers = videos.filter {
+            $0.site.lowercased() == "youtube" &&
+            ($0.type == "Trailer" || $0.type == "Teaser")
+        }
+        
+        guard !trailers.isEmpty else { return [] }
+        
+        let excludeKeywords = ["tv spot", "featurette", "clip", "behind", "making of", "interview"]
+        let preferKeywords = ["official trailer", "theatrical trailer", "main trailer"]
+        
+        let scored = trailers.map { video -> (video: Video, score: Int) in
+            var score = 0
+            let nameLower = video.name.lowercased()
+            
+            if video.official == true { score += 100 }
+            
+            for keyword in preferKeywords {
+                if nameLower.contains(keyword) { score += 50; break }
+            }
+            
+            for keyword in excludeKeywords {
+                if nameLower.contains(keyword) { score -= 200; break }
+            }
+            
+            if nameLower.contains("trailer") && !nameLower.contains("teaser") { score += 20 }
+            if video.type == "Teaser" { score -= 10 }
+            
+            return (video, score)
+        }
+        
+        return scored.sorted { $0.score > $1.score }.prefix(limit).map { $0.video }
     }
     
     private func startBorderAnimation() {
@@ -344,15 +388,18 @@ struct HeroSlideView: View {
     let width: CGFloat
     var height: CGFloat = 400
     let trailer: Video?
+    let trailerCandidates: [Video]
     let isCurrentSlide: Bool
     let autoPlayEnabled: Bool
     @Binding var isPlayingTrailer: Bool
     var onTrailerEnded: (() -> Void)?
+    var onTrailerFailed: ((String) -> Void)?
     
     @State private var showTrailer = false
     @State private var trailerReady = false
     @State private var trailerFailed = false
     @State private var trailerKey: String = ""
+    @State private var currentTrailerIndex: Int = 0
     @State private var isMuted: Bool = StorageService.shared.settings.autoPlayTrailersMuted
     @State private var ambientColor: Color = .black
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -402,9 +449,8 @@ struct HeroSlideView: View {
                     onError: { error in
                         print("Trailer error: \(error)")
                         DispatchQueue.main.async {
-                            trailerFailed = true
-                            showTrailer = false
-                            isPlayingTrailer = false
+                            // Try next candidate trailer if available
+                            tryNextTrailerCandidate(afterError: error)
                         }
                     },
                     onEnded: {
@@ -536,6 +582,7 @@ struct HeroSlideView: View {
             trailerFailed = false
             trailerReady = false
             trailerKey = ""
+            currentTrailerIndex = 0
             // Removed resetting isMuted to true here to preserve initial setting from StorageService
             // isMuted = true
             
@@ -590,15 +637,52 @@ struct HeroSlideView: View {
     
     // MARK: - Helper Methods
     private func startTrailer() {
-        guard let trailer = trailer, !trailer.key.isEmpty else {
-            trailerFailed = true
+        // Start with the first candidate (index 0)
+        guard !trailerCandidates.isEmpty else {
+            // Fall back to single trailer if no candidates
+            guard let trailer = trailer, !trailer.key.isEmpty else {
+                trailerFailed = true
+                return
+            }
+            withAnimation(.easeInOut(duration: 0.3)) {
+                trailerKey = trailer.key
+                showTrailer = true
+                isPlayingTrailer = true
+            }
             return
         }
         
+        currentTrailerIndex = 0
+        let candidate = trailerCandidates[currentTrailerIndex]
+        
         withAnimation(.easeInOut(duration: 0.3)) {
-            trailerKey = trailer.key
+            trailerKey = candidate.key
             showTrailer = true
             isPlayingTrailer = true
+        }
+    }
+    
+    private func tryNextTrailerCandidate(afterError error: String) {
+        // If we have more candidates to try, use the next one
+        let nextIndex = currentTrailerIndex + 1
+        
+        if nextIndex < trailerCandidates.count {
+            print("Trying fallback trailer \(nextIndex + 1) of \(trailerCandidates.count)")
+            currentTrailerIndex = nextIndex
+            let nextCandidate = trailerCandidates[nextIndex]
+            
+            // Reset state and try next
+            trailerReady = false
+            trailerKey = nextCandidate.key
+            // Keep showTrailer true to load the next candidate
+        } else {
+            // No more candidates - mark as failed and hide
+            print("All trailer candidates failed, showing backdrop")
+            trailerFailed = true
+            showTrailer = false
+            isPlayingTrailer = false
+            trailerKey = ""
+            onTrailerFailed?(error)
         }
     }
     
@@ -606,6 +690,7 @@ struct HeroSlideView: View {
         showTrailer = false
         trailerReady = false
         trailerKey = ""
+        currentTrailerIndex = 0
     }
     
     private func updateAmbientColor(from uiImage: UIImage) {
@@ -835,7 +920,18 @@ struct YouTubePlayerView: UIViewRepresentable {
                 }
                 
                 function onPlayerError(event) {
-                    notifyError('YouTube error: ' + event.data);
+                    // Error codes: 2=invalid param, 5=HTML5 error, 100=not found, 101/150=embed disabled, 152/153=playback restricted
+                    var errorCodes = {
+                        2: 'Invalid video parameter',
+                        5: 'HTML5 player error',
+                        100: 'Video not found',
+                        101: 'Embedding disabled',
+                        150: 'Embedding disabled',
+                        152: 'Playback restricted',
+                        153: 'Embedding not allowed'
+                    };
+                    var msg = errorCodes[event.data] || 'YouTube error ' + event.data;
+                    notifyError(msg);
                 }
                 
                 // Timeout: if API doesn't load within 4 seconds, try fallback iframe
