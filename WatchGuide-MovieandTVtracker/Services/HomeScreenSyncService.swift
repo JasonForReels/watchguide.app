@@ -32,13 +32,20 @@ actor HomeScreenSyncService {
         if let userId = userId {
             return userId
         }
-        // Fallback to device ID
+        // Fallback to device ID - ensure it's stored consistently
         if let existingId = UserDefaults.standard.string(forKey: "supabase_device_id") {
             return existingId
         }
         let newId = UUID().uuidString
         UserDefaults.standard.set(newId, forKey: "supabase_device_id")
         return newId
+    }
+    
+    // Check if user is authenticated
+    private func isAuthenticated() async -> Bool {
+        await MainActor.run {
+            AuthService.shared.isAuthenticated
+        }
     }
     
     private func getAccessToken() async -> String? {
@@ -207,16 +214,37 @@ actor HomeScreenSyncService {
     func uploadExtensionLists(_ lists: [ImportedListItem]) async throws {
         let userId = await getUserId()
         
-        // Delete existing
+        // Validate userId is not empty
+        guard !userId.isEmpty else {
+            throw HomeScreenSyncError.apiError("User ID is empty. Please sign in or try again.")
+        }
+        
+        // Delete existing - wrap in do/catch to continue even if delete fails (table might not exist)
         let deleteQuery = [URLQueryItem(name: "user_id", value: "eq.\(userId)")]
-        try await requestNoResponse(endpoint: "extension_lists", method: "DELETE", queryItems: deleteQuery)
-        try await requestNoResponse(endpoint: "extension_list_items", method: "DELETE", queryItems: deleteQuery)
+        do {
+            try await requestNoResponse(endpoint: "extension_lists", method: "DELETE", queryItems: deleteQuery)
+        } catch {
+            print("Warning: Could not delete existing extension_lists: \(error)")
+        }
+        do {
+            try await requestNoResponse(endpoint: "extension_list_items", method: "DELETE", queryItems: deleteQuery)
+        } catch {
+            print("Warning: Could not delete existing extension_list_items: \(error)")
+        }
         
         // Upload lists
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        
         for list in lists {
+            // Create a sanitized list ID that matches database constraints
+            let sanitizedListId = list.listId.replacingOccurrences(of: " ", with: "-")
+                .lowercased()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            
             let syncList = SyncedExtensionList(
                 userId: userId,
-                listId: list.listId,
+                listId: sanitizedListId,
                 name: list.name,
                 source: list.source.rawValue,
                 customName: list.customName,
@@ -225,8 +253,6 @@ actor HomeScreenSyncService {
                 createdAt: list.createdAt
             )
             
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
             let body = try encoder.encode([syncList])
             try await requestNoResponse(endpoint: "extension_lists", method: "POST", body: body)
             
@@ -235,7 +261,7 @@ actor HomeScreenSyncService {
                 let syncItems = list.items.enumerated().map { index, item in
                     SyncedExtensionListItem(
                         userId: userId,
-                        listId: list.listId,
+                        listId: sanitizedListId,
                         mediaId: item.mediaId,
                         mediaType: item.mediaType.rawValue,
                         title: item.title,

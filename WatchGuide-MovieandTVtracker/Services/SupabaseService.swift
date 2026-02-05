@@ -30,11 +30,18 @@ actor SupabaseService {
         let userId: String? = await MainActor.run {
             AuthService.shared.userId
         }
-        if let userId = userId {
+        if let userId = userId, !userId.isEmpty {
             return userId
         }
         // Fallback to device ID for anonymous sync
         return deviceId
+    }
+    
+    // Check if user is authenticated
+    private func isAuthenticated() async -> Bool {
+        await MainActor.run {
+            AuthService.shared.isAuthenticated
+        }
     }
     
     // Access token for authenticated requests
@@ -224,9 +231,19 @@ actor SupabaseService {
     ) async throws {
         let currentSyncId = await getSyncId()
         
+        // Validate syncId is not empty
+        guard !currentSyncId.isEmpty else {
+            throw SupabaseError.apiError("User ID is empty. Please sign in or try again.")
+        }
+        
         // First, delete all existing items for this user/device
         let deleteQuery = [URLQueryItem(name: "device_id", value: "eq.\(currentSyncId)")]
-        try await requestNoResponse(endpoint: "media_items", method: "DELETE", queryItems: deleteQuery)
+        do {
+            try await requestNoResponse(endpoint: "media_items", method: "DELETE", queryItems: deleteQuery)
+        } catch {
+            print("Warning: Could not delete existing media_items: \(error)")
+            // Continue anyway - the table might not exist or be empty
+        }
         
         // Upload all items
         var allItems: [SyncedMediaItem] = []
