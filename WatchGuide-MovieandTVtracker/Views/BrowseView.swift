@@ -10,6 +10,7 @@ struct BrowseView: View {
     @Binding var selectedItem: MediaItem?
     @State private var showNetworkHub = false
     @State private var selectedNetworkHub: NetworkHub?
+    @State private var showStudioHub = false
     @State private var showCustomizeSheet = false
     
     var body: some View {
@@ -31,6 +32,15 @@ struct BrowseView: View {
                         NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
                             selectedNetworkHub = hub
                             showNetworkHub = true
+                        }
+                        .padding(.top, 4)
+                    }
+                    
+                    // Studios Section
+                    if !viewModel.studioHubs.isEmpty {
+                        StudioHubsRow(studios: viewModel.studioHubs) { studio in
+                            viewModel.selectedStudio = studio
+                            showStudioHub = true
                         }
                         .padding(.top, 4)
                     }
@@ -72,6 +82,11 @@ struct BrowseView: View {
                     NetworkHubSheet(hub: hub, selectedItem: $selectedItem)
                 }
             }
+            .sheet(isPresented: $showStudioHub) {
+                if let studio = viewModel.selectedStudio {
+                    StudioHubSheet(studio: studio, selectedItem: $selectedItem)
+                }
+            }
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
             }
@@ -82,12 +97,37 @@ struct BrowseView: View {
     }
 }
 
+// MARK: - Studio Hub Model
+struct StudioHub: Identifiable {
+    let id: String
+    let name: String
+    let logoURL: String?
+    let companyIds: [Int]
+    
+    static var defaultStudios: [StudioHub] {
+        [
+            StudioHub(id: "marvel", name: "Marvel Studios", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Marvel_Logo.svg/1200px-Marvel_Logo.svg.png", companyIds: [420]),
+            StudioHub(id: "dc", name: "DC Studios", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/DC_Comics_logo.svg/1200px-DC_Comics_logo.svg.png", companyIds: [128064, 174, 429]),
+            StudioHub(id: "pixar", name: "Pixar", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Pixar_Animation_Studios_logo.svg/1200px-Pixar_Animation_Studios_logo.svg.png", companyIds: [3]),
+            StudioHub(id: "disney", name: "Walt Disney Pictures", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6c/Walt_Disney_Pictures_2011_logo.svg/1200px-Walt_Disney_Pictures_2011_logo.svg.png", companyIds: [2]),
+            StudioHub(id: "warner", name: "Warner Bros.", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Warner_Bros_logo.svg/1200px-Warner_Bros_logo.svg.png", companyIds: [174, 17, 429]),
+            StudioHub(id: "universal", name: "Universal Pictures", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Universal_Pictures_2024_%282%29.svg/1200px-Universal_Pictures_2024_%282%29.svg.png", companyIds: [33]),
+            StudioHub(id: "paramount", name: "Paramount Pictures", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Paramount_Pictures_2022_%28Blue%29.svg/1200px-Paramount_Pictures_2022_%28Blue%29.svg.png", companyIds: [4]),
+            StudioHub(id: "sony", name: "Sony Pictures", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Sony_Pictures_Television_logo.svg/1200px-Sony_Pictures_Television_logo.svg.png", companyIds: [34]),
+            StudioHub(id: "lionsgate", name: "Lionsgate", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Lionsgate_2024.svg/1200px-Lionsgate_2024.svg.png", companyIds: [1632]),
+            StudioHub(id: "a24", name: "A24", logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/68/A24_Logo.svg/1200px-A24_Logo.svg.png", companyIds: [41077])
+        ]
+    }
+}
+
 // MARK: - Browse View Model
 @MainActor
 class BrowseViewModel: ObservableObject {
     @Published var heroItems: [MediaItem] = []
     @Published var rows: [MediaRow] = []
     @Published var networkHubs: [NetworkHub] = []
+    @Published var studioHubs: [StudioHub] = []
+    @Published var selectedStudio: StudioHub?
     @Published var isLoading = false
     
     struct MediaRow {
@@ -102,6 +142,9 @@ class BrowseViewModel: ObservableObject {
         
         // Load network hubs (streaming services)
         networkHubs = StorageService.shared.getEnabledNetworkHubs()
+        
+        // Load studio hubs
+        studioHubs = StudioHub.defaultStudios
         
         // Load hero items based on user's selected source (concurrently)
         await withTaskGroup(of: Void.self) { group in
@@ -147,11 +190,17 @@ class BrowseViewModel: ObservableObject {
         rows = []
         heroItems = []
         networkHubs = []
+        studioHubs = []
         await loadContent()
     }
     
     private func loadBrowseRows() async {
-        let configs = StorageService.shared.browseRows.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }
+        var configs = StorageService.shared.browseRows.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }
+        
+        // If no enabled configs, use defaults
+        if configs.isEmpty {
+            configs = BrowseRowConfig.defaultRows.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }
+        }
         
         var loadedRows: [(Int, MediaRow)] = []
         
@@ -434,6 +483,168 @@ struct NetworkHubSheet: View {
 }
 
 
+
+// MARK: - Studio Hubs Row
+struct StudioHubsRow: View {
+    let studios: [StudioHub]
+    let onStudioTap: (StudioHub) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Studios")
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(studios) { studio in
+                        StudioHubCard(studio: studio)
+                            .onTapGesture {
+                                onStudioTap(studio)
+                            }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+struct StudioHubCard: View {
+    let studio: StudioHub
+    @State private var isHovered = false
+    @Environment(\.colorScheme) private var colorScheme
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.systemGray6))
+                    .frame(width: 100, height: 56)
+                
+                if let logoURL = studio.logoURL, let url = URL(string: logoURL) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .renderingMode(.template)
+                                .foregroundStyle(colorScheme == .light ? .black : .white)
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 80, height: 40)
+                        case .failure, .empty:
+                            Text(studio.name)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .padding(.horizontal, 4)
+                        @unknown default:
+                            Text(studio.name)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        }
+                    }
+                } else {
+                    Text(studio.name)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .padding(.horizontal, 4)
+                }
+            }
+            .shadow(color: .black.opacity(0.15), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
+            .scaleEffect(isHovered ? 1.05 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+        }
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+}
+
+// MARK: - Studio Hub Sheet
+struct StudioHubSheet: View {
+    let studio: StudioHub
+    @Binding var selectedItem: MediaItem?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var movies: [MediaItem] = []
+    @State private var isLoading = true
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Header with logo
+                if let logoURL = studio.logoURL, let url = URL(string: logoURL) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .renderingMode(.template)
+                                .foregroundStyle(colorScheme == .light ? .black : .white)
+                                .aspectRatio(contentMode: .fit)
+                                .frame(height: 40)
+                        default:
+                            EmptyView()
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+                
+                if isLoading {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Spacer()
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [
+                            GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                        ], spacing: 20) {
+                            ForEach(movies) { item in
+                                MediaPosterCard(item: item)
+                                    .onTapGesture {
+                                        selectedItem = item
+                                        dismiss()
+                                    }
+                            }
+                        }
+                        .padding()
+                    }
+                }
+            }
+            .navigationTitle(studio.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .task {
+            await loadContent()
+        }
+    }
+    
+    private func loadContent() async {
+        await MainActor.run { isLoading = true }
+        
+        do {
+            let response = try await TMDBService.shared.discoverMoviesByCompany(companyIds: studio.companyIds)
+            await MainActor.run { movies = response.results }
+        } catch {
+            print("Error loading studio movies: \(error)")
+        }
+        
+        await MainActor.run { isLoading = false }
+    }
+}
 
 // MARK: - Browse Customize Sheet (Legacy - kept for backwards compatibility)
 struct BrowseCustomizeSheet: View {
