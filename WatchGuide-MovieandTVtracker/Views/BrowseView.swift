@@ -49,8 +49,8 @@ struct BrowseView: View {
                             )
                         }
                         
-                        // Insert Studios buttons after Popular Movies row
-                        if row.title == "Popular Movies" {
+                        // Insert Studios buttons after Trending TV Shows row
+                        if row.title == "Trending TV Shows" {
                             StudiosHubRow(
                                 onTwentiethCenturyTap: {
                                     showTwentiethCenturySheet = true
