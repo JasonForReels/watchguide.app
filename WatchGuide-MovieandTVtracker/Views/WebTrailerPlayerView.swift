@@ -51,20 +51,46 @@ struct WebTrailerPlayerView: UIViewRepresentable {
         <!DOCTYPE html>
         <html>
         <head>
-        <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
         <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
           html, body {
-            margin: 0; padding: 0; height: 100%; background-color: black;
+            width: 100%;
+            height: 100%;
+            background-color: black;
+            overflow: hidden;
+          }
+          .video-container {
+            position: relative;
+            width: 100%;
+            height: 0;
+            padding-bottom: 56.25%; /* 16:9 aspect ratio */
             overflow: hidden;
           }
           #\(playerDivId) {
             position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+          }
+          iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
           }
         </style>
         </head>
         <body>
-          <div id="\(playerDivId)"></div>
+          <div class="video-container">
+            <div id="\(playerDivId)"></div>
+          </div>
           <script>
             var tag = document.createElement('script');
             tag.src = "https://www.youtube.com/iframe_api";

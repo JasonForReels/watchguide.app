@@ -209,9 +209,12 @@ struct MediaDetailView: View {
                     TabView {
                         ForEach(trailerVideos) { video in
                             ZStack(alignment: .bottomLeading) {
-                                WebTrailerPlayerView(videoKey: video.key, autoplay: true, muted: !isHeroUnmuted)
-                                    .frame(width: width, height: height)
-                                    .background(Color.black)
+                                // Container that clips the video to bounds
+                                Color.black
+                                    .overlay(
+                                        WebTrailerPlayerView(videoKey: video.key, autoplay: true, muted: !isHeroUnmuted)
+                                    )
+                                    .clipped()
                                 
                                 LinearGradient(
                                     colors: [.clear, .black.opacity(0.6), .black.opacity(0.9)],
@@ -233,9 +236,11 @@ struct MediaDetailView: View {
                                 .padding(.bottom, 40)
                             }
                             .frame(width: width, height: height)
+                            .clipped()
                         }
                     }
                     .frame(width: width, height: height)
+                    .clipped()
                     .tabViewStyle(.page(indexDisplayMode: .automatic))
                     .onTapGesture {
                         withAnimation {
@@ -260,6 +265,7 @@ struct MediaDetailView: View {
                     )
                 }
                 .aspectRatio(16.0/9.0, contentMode: .fit)
+                .clipped()
             )
         } else {
             AnyView(staticHeaderSection)
