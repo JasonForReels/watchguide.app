@@ -137,24 +137,6 @@ struct SettingsView: View {
                 }
             }
             
-            // Community
-            Section {
-                Link(destination: URL(string: "https://discord.watchguide.app")!) {
-                    HStack {
-                        Image(systemName: "bubble.left.and.bubble.right.fill")
-                            .foregroundColor(.indigo)
-                            .frame(width: 24)
-                        Text("Join our Discord")
-                        Spacer()
-                        Image(systemName: "arrow.up.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            } header: {
-                Text("Community")
-            }
-            
             // About
             Section("About") {
                 HStack {
