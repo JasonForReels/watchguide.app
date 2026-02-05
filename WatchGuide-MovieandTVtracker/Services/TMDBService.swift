@@ -59,7 +59,40 @@ actor TMDBService {
     // MARK: - Trending
     func getTrending(mediaType: MediaType, timeWindow: String = "week", page: Int = 1) async throws -> TMDBResponse<MediaItem> {
         let endpoint = "/trending/\(mediaType.rawValue)/\(timeWindow)"
-        return try await request(endpoint, queryItems: [URLQueryItem(name: "page", value: "\(page)")])
+        let response: TMDBResponse<MediaItem> = try await request(endpoint, queryItems: [URLQueryItem(name: "page", value: "\(page)")])
+        
+        // Ensure mediaType is set correctly for items that might be missing it
+        let updatedResults = response.results.map { item -> MediaItem in
+            if item.mediaType == nil {
+                return MediaItem(
+                    id: item.id,
+                    title: item.title,
+                    name: item.name,
+                    originalTitle: item.originalTitle,
+                    originalName: item.originalName,
+                    overview: item.overview,
+                    posterPath: item.posterPath,
+                    backdropPath: item.backdropPath,
+                    releaseDate: item.releaseDate,
+                    firstAirDate: item.firstAirDate,
+                    voteAverage: item.voteAverage,
+                    voteCount: item.voteCount,
+                    popularity: item.popularity,
+                    genreIds: item.genreIds,
+                    mediaType: mediaType.rawValue,
+                    adult: item.adult,
+                    originalLanguage: item.originalLanguage
+                )
+            }
+            return item
+        }
+        
+        return TMDBResponse(
+            page: response.page,
+            results: updatedResults,
+            totalPages: response.totalPages,
+            totalResults: response.totalResults
+        )
     }
     
     // MARK: - Movies
