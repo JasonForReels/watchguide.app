@@ -15,6 +15,7 @@ struct HeroCarouselView: View {
     @State private var timer: Timer?
     @State private var trailers: [Int: Video] = [:] // mediaId -> trailer
     @State private var trailerCandidates: [Int: [Video]] = [:] // mediaId -> fallback trailers
+    @State private var preloadedStreamURLs: [String: String] = [:] // videoKey -> streamURL
     @State private var isPlayingTrailer = false
     @State private var borderRotation: Angle = .degrees(0)
     @State private var borderAnimating: Bool = true
@@ -62,6 +63,7 @@ struct HeroCarouselView: View {
                             height: geometry.size.width * 9.0 / 16.0,
                             trailer: trailers[item.id],
                             trailerCandidates: trailerCandidates[item.id] ?? [],
+                            preloadedStreamURL: preloadedStreamURLs[trailers[item.id]?.key ?? ""],
                             isCurrentSlide: index == currentIndex,
                             autoPlayEnabled: autoPlayEnabled,
                             isPlayingTrailer: $isPlayingTrailer,
@@ -183,6 +185,12 @@ struct HeroCarouselView: View {
                             trailers[first.id] = best
                             trailerCandidates[first.id] = candidates
                         }
+                        // Preload stream URL for faster playback
+                        if let streamURL = await preloadStreamURL(for: best.key) {
+                            await MainActor.run {
+                                preloadedStreamURLs[best.key] = streamURL
+                            }
+                        }
                     }
                 } catch {
                     print("Error loading trailer for first item: \(error)")
@@ -215,10 +223,70 @@ struct HeroCarouselView: View {
                             trailers[itemId] = first
                             trailerCandidates[itemId] = candidates
                         }
+                        // Preload stream URLs for next few items
+                        if let streamURL = await preloadStreamURL(for: first.key) {
+                            await MainActor.run {
+                                preloadedStreamURLs[first.key] = streamURL
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+    
+    // Preload stream URL from Invidious for faster playback
+    private func preloadStreamURL(for videoKey: String) async -> String? {
+        let instances = [
+            "https://inv.nadeko.net",
+            "https://invidious.nerdvpn.de",
+            "https://invidious.privacyredirect.com"
+        ]
+        
+        for instance in instances {
+            let apiURL = "\(instance)/api/v1/videos/\(videoKey)"
+            guard let url = URL(string: apiURL) else { continue }
+            
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 5
+            
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode) else {
+                    continue
+                }
+                
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    continue
+                }
+                
+                // Get format streams (combined audio+video, faster to load)
+                if let formatStreams = json["formatStreams"] as? [[String: Any]] {
+                    let sorted = formatStreams.sorted { a, b in
+                        let qualityA = (a["qualityLabel"] as? String) ?? ""
+                        let qualityB = (b["qualityLabel"] as? String) ?? ""
+                        return qualityPriority(qualityA) > qualityPriority(qualityB)
+                    }
+                    
+                    if let best = sorted.first, let streamUrl = best["url"] as? String {
+                        return streamUrl
+                    }
+                }
+            } catch {
+                continue
+            }
+        }
+        return nil
+    }
+    
+    private func qualityPriority(_ quality: String) -> Int {
+        if quality.contains("720") { return 100 }
+        if quality.contains("480") { return 90 }
+        if quality.contains("360") { return 80 }
+        if quality.contains("1080") { return 70 }
+        return 0
     }
     
     private func ensureCurrentHasTrailerOrAdvance() {
@@ -389,6 +457,7 @@ struct HeroSlideView: View {
     var height: CGFloat = 400
     let trailer: Video?
     let trailerCandidates: [Video]
+    let preloadedStreamURL: String?
     let isCurrentSlide: Bool
     let autoPlayEnabled: Bool
     @Binding var isPlayingTrailer: Bool
@@ -399,6 +468,7 @@ struct HeroSlideView: View {
     @State private var trailerReady = false
     @State private var trailerFailed = false
     @State private var trailerKey: String = ""
+    @State private var streamURL: String = ""
     @State private var currentTrailerIndex: Int = 0
     @State private var isMuted: Bool = StorageService.shared.settings.autoPlayTrailersMuted
     @State private var ambientColor: Color = .black
@@ -412,13 +482,14 @@ struct HeroSlideView: View {
         UIDevice.current.userInterfaceIdiom == .phone
     }
     
-    private var shouldShowTrailer: Bool {
+    // Show the video player element when trailer should be loading
+    private var shouldShowTrailerPlayer: Bool {
         showTrailer && !trailerFailed && trailer != nil && autoPlayEnabled && isCurrentSlide && !trailerKey.isEmpty
     }
     
     // Only hide backdrop once trailer is actually ready and playing
     private var shouldHideBackdrop: Bool {
-        shouldShowTrailer && trailerReady
+        shouldShowTrailerPlayer && trailerReady
     }
     
     var body: some View {
@@ -435,14 +506,15 @@ struct HeroSlideView: View {
                 .animation(.easeInOut(duration: 0.5), value: shouldHideBackdrop)
                 .zIndex(0)
             
-            // Video overlay (only when ready and valid)
-            if shouldShowTrailer {
-                YouTubePlayerView(
+            // Video overlay (loads immediately, but backdrop stays until ready)
+            if shouldShowTrailerPlayer {
+                InvidiousPlayerView(
                     videoKey: trailerKey,
+                    preloadedStreamURL: streamURL.isEmpty ? nil : streamURL,
                     autoPlay: true,
                     isMuted: isMuted,
                     onReady: {
-                        withAnimation(.easeInOut(duration: 0.5)) {
+                        withAnimation(.easeInOut(duration: 0.3)) {
                             trailerReady = true
                         }
                     },
@@ -461,19 +533,21 @@ struct HeroSlideView: View {
                             }
                             isPlayingTrailer = false
                             trailerKey = ""
+                            streamURL = ""
                             onTrailerEnded?()
                         }
                     }
                 )
                 .frame(width: width, height: height)
                 .clipped()
+                .opacity(trailerReady ? 1 : 0) // Hide video player until ready
                 .transition(.opacity)
                 .zIndex(1)
             }
             
             // Gradient overlay (lighter when video is playing)
             LinearGradient(
-                colors: [.clear, .black.opacity(shouldShowTrailer ? 0.5 : 0.7), .black.opacity(shouldShowTrailer ? 0.7 : 0.9)],
+                colors: [.clear, .black.opacity(shouldHideBackdrop ? 0.5 : 0.7), .black.opacity(shouldHideBackdrop ? 0.7 : 0.9)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -496,7 +570,7 @@ struct HeroSlideView: View {
                     Spacer()
                     
                     // Trailer play button (hide if already playing or failed)
-                    if trailer != nil && autoPlayEnabled && !trailerFailed && !showTrailer {
+                    if trailer != nil && autoPlayEnabled && !trailerFailed && !shouldShowTrailerPlayer {
                         Button {
                             startTrailer()
                         } label: {
@@ -518,7 +592,7 @@ struct HeroSlideView: View {
                 
                 Spacer()
                 
-                if !(isPhone && shouldShowTrailer) {
+                if !(isPhone && shouldHideBackdrop) {
                     Text(item.displayTitle)
                         .font(isCompactHeight ? .title2 : .title)
                         .fontWeight(.bold)
@@ -545,7 +619,7 @@ struct HeroSlideView: View {
                 .font(.subheadline)
                 
                 // Overview (hide when trailer is playing or in compact height)
-                if !shouldShowTrailer && !isCompactHeight, let overview = item.overview, !overview.isEmpty {
+                if !shouldHideBackdrop && !isCompactHeight, let overview = item.overview, !overview.isEmpty {
                     Text(overview)
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.8))
@@ -559,7 +633,7 @@ struct HeroSlideView: View {
         .aspectRatio(16.0/9.0, contentMode: .fill)
         .preferredColorScheme(StorageService.shared.settings.ambientModeEnabled ? .dark : nil)
         .onTapGesture {
-            if shouldShowTrailer && isMuted {
+            if shouldHideBackdrop && isMuted {
                 isMuted = false
             }
         }
@@ -644,22 +718,25 @@ struct HeroSlideView: View {
                 trailerFailed = true
                 return
             }
-            withAnimation(.easeInOut(duration: 0.3)) {
-                trailerKey = trailer.key
-                showTrailer = true
-                isPlayingTrailer = true
-            }
+            trailerKey = trailer.key
+            streamURL = preloadedStreamURL ?? ""
+            showTrailer = true
+            isPlayingTrailer = true
             return
         }
         
         currentTrailerIndex = 0
         let candidate = trailerCandidates[currentTrailerIndex]
         
-        withAnimation(.easeInOut(duration: 0.3)) {
-            trailerKey = candidate.key
-            showTrailer = true
-            isPlayingTrailer = true
+        trailerKey = candidate.key
+        // Use preloaded stream URL if available for first trailer
+        if currentTrailerIndex == 0 {
+            streamURL = preloadedStreamURL ?? ""
+        } else {
+            streamURL = ""
         }
+        showTrailer = true
+        isPlayingTrailer = true
     }
     
     private func tryNextTrailerCandidate(afterError error: String) {
@@ -690,6 +767,7 @@ struct HeroSlideView: View {
         showTrailer = false
         trailerReady = false
         trailerKey = ""
+        streamURL = ""
         currentTrailerIndex = 0
     }
     
@@ -742,21 +820,31 @@ struct AmbientBackground: View {
     }
 }
 
-// MARK: - YouTube Player View using YouTube IFrame API with nocookie fallback
-struct YouTubePlayerView: UIViewRepresentable {
+// MARK: - Invidious Proxy Player View for reliable trailer playback
+struct InvidiousPlayerView: UIViewRepresentable {
     let videoKey: String
+    var preloadedStreamURL: String?
     var autoPlay: Bool = false
     var isMuted: Bool = false
     var onReady: (() -> Void)?
     var onError: ((String) -> Void)?
     var onEnded: (() -> Void)?
     
+    // Invidious instances sorted by reliability/speed
+    private static let invidiousInstances = [
+        "https://inv.nadeko.net",
+        "https://invidious.nerdvpn.de",
+        "https://invidious.privacyredirect.com",
+        "https://iv.ggtyler.dev",
+        "https://invidious.protokolla.fi"
+    ]
+    
     func makeUIView(context: Context) -> WKWebView {
         let contentController = WKUserContentController()
         contentController.add(context.coordinator, name: "playerReady")
         contentController.add(context.coordinator, name: "playerError")
         contentController.add(context.coordinator, name: "playerEnded")
-        contentController.add(context.coordinator, name: "playerStateChange")
+        contentController.add(context.coordinator, name: "playerPlaying")
         
         let preferences = WKWebpagePreferences()
         preferences.allowsContentJavaScript = true
@@ -770,8 +858,8 @@ struct YouTubePlayerView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.scrollView.isScrollEnabled = false
         webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
+        webView.backgroundColor = .black
+        webView.scrollView.backgroundColor = .black
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = false
         
@@ -792,184 +880,256 @@ struct YouTubePlayerView: UIViewRepresentable {
         context.coordinator.currentVideoKey = videoKey
         context.coordinator.lastMuteValue = isMuted
         context.coordinator.hasErrored = false
+        context.coordinator.currentInstanceIndex = 0
         
-        loadYouTubePlayer(webView: webView, context: context)
-    }
-    
-    private func loadYouTubePlayer(webView: WKWebView, context: Context) {
-        let sanitizedKey = videoKey.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? videoKey
-        let autoPlayValue = autoPlay ? 1 : 0
-        let muteValue = isMuted ? 1 : 0
-        
-        // Use YouTube IFrame Player API for better control and reliability
-        let html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-            <style>
-                * { margin: 0; padding: 0; box-sizing: border-box; }
-                html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
-                #player-container {
-                    position: absolute;
-                    top: 50%;
-                    left: 50%;
-                    width: 177.78vh;
-                    height: 100vh;
-                    min-width: 100%;
-                    min-height: 56.25vw;
-                    transform: translate(-50%, -50%);
-                }
-                #player {
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                }
-                iframe {
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    border: none;
-                }
-            </style>
-        </head>
-        <body>
-            <div id="player-container">
-                <div id="player"></div>
-            </div>
-            
-            <script>
-                var tag = document.createElement('script');
-                tag.src = "https://www.youtube.com/iframe_api";
-                var firstScriptTag = document.getElementsByTagName('script')[0];
-                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-                
-                var player;
-                var hasNotifiedReady = false;
-                var hasNotifiedError = false;
-                var hasNotifiedEnded = false;
-                var apiLoadTimeout = null;
-                
-                function notifyReady() {
-                    if (!hasNotifiedReady) {
-                        hasNotifiedReady = true;
-                        try { window.webkit.messageHandlers.playerReady.postMessage('ready'); } catch(e) {}
-                    }
-                }
-                
-                function notifyError(msg) {
-                    if (!hasNotifiedError) {
-                        hasNotifiedError = true;
-                        try { window.webkit.messageHandlers.playerError.postMessage(msg); } catch(e) {}
-                    }
-                }
-                
-                function notifyEnded() {
-                    if (!hasNotifiedEnded) {
-                        hasNotifiedEnded = true;
-                        try { window.webkit.messageHandlers.playerEnded.postMessage('ended'); } catch(e) {}
-                    }
-                }
-                
-                function onYouTubeIframeAPIReady() {
-                    if (apiLoadTimeout) clearTimeout(apiLoadTimeout);
-                    
-                    player = new YT.Player('player', {
-                        videoId: '\(sanitizedKey)',
-                        playerVars: {
-                            'autoplay': \(autoPlayValue),
-                            'mute': \(muteValue),
-                            'controls': 0,
-                            'disablekb': 1,
-                            'fs': 0,
-                            'iv_load_policy': 3,
-                            'modestbranding': 1,
-                            'playsinline': 1,
-                            'rel': 0,
-                            'showinfo': 0,
-                            'origin': 'https://www.youtube.com'
-                        },
-                        events: {
-                            'onReady': onPlayerReady,
-                            'onStateChange': onPlayerStateChange,
-                            'onError': onPlayerError
-                        }
-                    });
-                }
-                
-                function onPlayerReady(event) {
-                    if (\(autoPlayValue) === 1) {
-                        event.target.playVideo();
-                    }
-                }
-                
-                function onPlayerStateChange(event) {
-                    // YT.PlayerState.PLAYING = 1
-                    if (event.data === 1) {
-                        notifyReady();
-                    }
-                    // YT.PlayerState.ENDED = 0
-                    if (event.data === 0) {
-                        notifyEnded();
-                    }
-                    try { window.webkit.messageHandlers.playerStateChange.postMessage(event.data); } catch(e) {}
-                }
-                
-                function onPlayerError(event) {
-                    // Error codes: 2 (invalid param), 5 (HTML5 error), 100 (not found), 101/150 (embed not allowed)
-                    var errorMsg = 'YouTube error: ' + event.data;
-                    notifyError(errorMsg);
-                }
-                
-                // Fallback if YouTube API doesn't load within 4 seconds
-                apiLoadTimeout = setTimeout(function() {
-                    if (typeof YT === 'undefined' || typeof YT.Player === 'undefined') {
-                        // Fall back to direct iframe embed
-                        var container = document.getElementById('player-container');
-                        container.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/\(sanitizedKey)?autoplay=\(autoPlayValue)&mute=\(muteValue)&controls=0&modestbranding=1&rel=0&playsinline=1&enablejsapi=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
-                        
-                        setTimeout(function() {
-                            if (!hasNotifiedReady && !hasNotifiedError) {
-                                notifyReady();
-                            }
-                        }, 1500);
-                    }
-                }, 4000);
-                
-                // Auto-advance after 3 minutes (typical trailer length)
-                setTimeout(function() {
-                    if (!hasNotifiedEnded) {
-                        notifyEnded();
-                    }
-                }, 180000);
-            </script>
-        </body>
-        </html>
-        """
-        
-        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
+        // If we have a preloaded stream URL, use it directly for faster playback
+        if let preloaded = preloadedStreamURL, !preloaded.isEmpty {
+            context.coordinator.loadHTMLPlayer(webView: webView, streamURL: preloaded, autoPlay: autoPlay, isMuted: isMuted)
+        } else {
+            // Start fetching video stream URL from Invidious
+            Task {
+                await context.coordinator.loadVideoStream(
+                    videoKey: videoKey,
+                    webView: webView,
+                    autoPlay: autoPlay,
+                    isMuted: isMuted
+                )
+            }
+        }
     }
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(onReady: onReady, onError: onError, onEnded: onEnded)
+        Coordinator(
+            instances: Self.invidiousInstances,
+            onReady: onReady,
+            onError: onError,
+            onEnded: onEnded
+        )
     }
     
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var currentVideoKey: String?
         var lastMuteValue: Bool? = nil
         var hasErrored: Bool = false
+        var currentInstanceIndex: Int = 0
+        let instances: [String]
         var onReady: (() -> Void)?
         var onError: ((String) -> Void)?
         var onEnded: (() -> Void)?
         
-        init(onReady: (() -> Void)?, onError: ((String) -> Void)?, onEnded: (() -> Void)?) {
+        init(instances: [String], onReady: (() -> Void)?, onError: ((String) -> Void)?, onEnded: (() -> Void)?) {
+            self.instances = instances
             self.onReady = onReady
             self.onError = onError
             self.onEnded = onEnded
+        }
+        
+        @MainActor
+        func loadVideoStream(videoKey: String, webView: WKWebView, autoPlay: Bool, isMuted: Bool) async {
+            // Try each Invidious instance until one works
+            for (index, instance) in instances.enumerated() {
+                currentInstanceIndex = index
+                
+                if let streamURL = await fetchStreamURL(from: instance, videoKey: videoKey) {
+                    loadHTMLPlayer(webView: webView, streamURL: streamURL, autoPlay: autoPlay, isMuted: isMuted)
+                    return
+                }
+            }
+            
+            // All instances failed
+            hasErrored = true
+            onError?("All proxy instances failed")
+        }
+        
+        private func fetchStreamURL(from instance: String, videoKey: String) async -> String? {
+            let apiURL = "\(instance)/api/v1/videos/\(videoKey)"
+            
+            guard let url = URL(string: apiURL) else { return nil }
+            
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 4 // Short timeout for faster fallback
+            
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode) else {
+                    return nil
+                }
+                
+                // Parse JSON response
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    return nil
+                }
+                
+                // Prefer format streams (combined audio+video) for faster loading
+                if let formatStreams = json["formatStreams"] as? [[String: Any]] {
+                    let sorted = formatStreams.sorted { a, b in
+                        let qualityA = (a["qualityLabel"] as? String) ?? ""
+                        let qualityB = (b["qualityLabel"] as? String) ?? ""
+                        return qualityPriority(qualityA) > qualityPriority(qualityB)
+                    }
+                    
+                    if let best = sorted.first, let streamUrl = best["url"] as? String {
+                        return streamUrl
+                    }
+                }
+                
+                // Fallback to adaptive formats
+                if let adaptiveFormats = json["adaptiveFormats"] as? [[String: Any]] {
+                    let videoFormats = adaptiveFormats.filter { format in
+                        guard let type = format["type"] as? String else { return false }
+                        return type.contains("video/mp4")
+                    }
+                    
+                    let sorted = videoFormats.sorted { a, b in
+                        let qualityA = (a["qualityLabel"] as? String) ?? ""
+                        let qualityB = (b["qualityLabel"] as? String) ?? ""
+                        return qualityPriority(qualityA) > qualityPriority(qualityB)
+                    }
+                    
+                    if let best = sorted.first, let streamUrl = best["url"] as? String {
+                        return streamUrl
+                    }
+                }
+                
+                return nil
+            } catch {
+                print("Invidious fetch error from \(instance): \(error)")
+                return nil
+            }
+        }
+        
+        private func qualityPriority(_ quality: String) -> Int {
+            if quality.contains("720") { return 100 }
+            if quality.contains("480") { return 90 }
+            if quality.contains("360") { return 80 }
+            if quality.contains("1080") { return 70 }
+            if quality.contains("240") { return 60 }
+            return 0
+        }
+        
+        @MainActor
+        func loadHTMLPlayer(webView: WKWebView, streamURL: String, autoPlay: Bool, isMuted: Bool) {
+            let autoPlayAttr = autoPlay ? "autoplay" : ""
+            let mutedAttr = isMuted ? "muted" : ""
+            
+            let html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    html, body { 
+                        width: 100%; 
+                        height: 100%; 
+                        overflow: hidden; 
+                        background: #000;
+                    }
+                    #video-container {
+                        position: absolute;
+                        top: 50%;
+                        left: 50%;
+                        width: 177.78vh;
+                        height: 100vh;
+                        min-width: 100%;
+                        min-height: 56.25vw;
+                        transform: translate(-50%, -50%);
+                    }
+                    video {
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        object-fit: cover;
+                        background: #000;
+                    }
+                </style>
+            </head>
+            <body>
+                <div id="video-container">
+                    <video id="player" playsinline \(autoPlayAttr) \(mutedAttr)>
+                        <source src="\(streamURL)" type="video/mp4">
+                    </video>
+                </div>
+                
+                <script>
+                    var video = document.getElementById('player');
+                    var hasNotifiedReady = false;
+                    var hasNotifiedError = false;
+                    var hasNotifiedEnded = false;
+                    
+                    function notifyReady() {
+                        if (!hasNotifiedReady) {
+                            hasNotifiedReady = true;
+                            try { window.webkit.messageHandlers.playerReady.postMessage('ready'); } catch(e) {}
+                        }
+                    }
+                    
+                    function notifyPlaying() {
+                        try { window.webkit.messageHandlers.playerPlaying.postMessage('playing'); } catch(e) {}
+                    }
+                    
+                    function notifyError(msg) {
+                        if (!hasNotifiedError) {
+                            hasNotifiedError = true;
+                            try { window.webkit.messageHandlers.playerError.postMessage(msg); } catch(e) {}
+                        }
+                    }
+                    
+                    function notifyEnded() {
+                        if (!hasNotifiedEnded) {
+                            hasNotifiedEnded = true;
+                            try { window.webkit.messageHandlers.playerEnded.postMessage('ended'); } catch(e) {}
+                        }
+                    }
+                    
+                    // Notify ready when video starts playing
+                    video.addEventListener('playing', function() {
+                        notifyReady();
+                        notifyPlaying();
+                    });
+                    
+                    video.addEventListener('ended', notifyEnded);
+                    
+                    video.addEventListener('error', function(e) {
+                        var msg = 'Video error';
+                        if (video.error) {
+                            msg = 'Error code: ' + video.error.code;
+                        }
+                        notifyError(msg);
+                    });
+                    
+                    // Stall detection - if video stalls for too long, report error
+                    video.addEventListener('stalled', function() {
+                        setTimeout(function() {
+                            if (!hasNotifiedReady && !hasNotifiedError && video.readyState < 3) {
+                                notifyError('Video stalled');
+                            }
+                        }, 5000);
+                    });
+                    
+                    // Timeout fallback - if nothing happens in 6 seconds, report error
+                    setTimeout(function() {
+                        if (!hasNotifiedReady && !hasNotifiedError) {
+                            notifyError('Timeout loading video');
+                        }
+                    }, 6000);
+                    
+                    // Auto-end after 3 minutes (typical trailer length)
+                    setTimeout(function() {
+                        if (!hasNotifiedEnded) {
+                            notifyEnded();
+                        }
+                    }, 180000);
+                </script>
+            </body>
+            </html>
+            """
+            
+            webView.loadHTMLString(html, baseURL: nil)
         }
         
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -978,6 +1138,8 @@ struct YouTubePlayerView: UIViewRepresentable {
                 DispatchQueue.main.async {
                     self.onReady?()
                 }
+            case "playerPlaying":
+                break
             case "playerError":
                 guard !hasErrored else { return }
                 hasErrored = true
@@ -989,9 +1151,6 @@ struct YouTubePlayerView: UIViewRepresentable {
                 DispatchQueue.main.async {
                     self.onEnded?()
                 }
-            case "playerStateChange":
-                // Can be used for additional state tracking if needed
-                break
             default:
                 break
             }
@@ -1011,6 +1170,111 @@ struct YouTubePlayerView: UIViewRepresentable {
             DispatchQueue.main.async {
                 self.onError?("Failed to load: \(error.localizedDescription)")
             }
+        }
+    }
+}
+
+// MARK: - YouTube Player View (for AI Assistant and other uses)
+struct YouTubePlayerView: UIViewRepresentable {
+    let videoKey: String
+    var autoPlay: Bool = false
+    var isMuted: Bool = false
+    var onReady: (() -> Void)?
+    var onError: ((String) -> Void)?
+    var onEnded: (() -> Void)?
+    
+    func makeUIView(context: Context) -> WKWebView {
+        let contentController = WKUserContentController()
+        contentController.add(context.coordinator, name: "playerReady")
+        contentController.add(context.coordinator, name: "playerError")
+        contentController.add(context.coordinator, name: "playerEnded")
+        
+        let preferences = WKWebpagePreferences()
+        preferences.allowsContentJavaScript = true
+        
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController = contentController
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        configuration.defaultWebpagePreferences = preferences
+        
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.scrollView.isScrollEnabled = false
+        webView.isOpaque = false
+        webView.backgroundColor = .black
+        webView.scrollView.backgroundColor = .black
+        webView.navigationDelegate = context.coordinator
+        
+        return webView
+    }
+    
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        guard !videoKey.isEmpty else { return }
+        
+        if context.coordinator.currentVideoKey == videoKey {
+            return
+        }
+        context.coordinator.currentVideoKey = videoKey
+        
+        let autoPlayValue = autoPlay ? 1 : 0
+        let muteValue = isMuted ? 1 : 0
+        
+        let html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                * { margin: 0; padding: 0; }
+                html, body { width: 100%; height: 100%; background: #000; }
+                iframe { width: 100%; height: 100%; border: none; }
+            </style>
+        </head>
+        <body>
+            <iframe src="https://www.youtube-nocookie.com/embed/\(videoKey)?autoplay=\(autoPlayValue)&mute=\(muteValue)&controls=1&modestbranding=1&rel=0&playsinline=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+            <script>
+                setTimeout(function() {
+                    try { window.webkit.messageHandlers.playerReady.postMessage('ready'); } catch(e) {}
+                }, 1000);
+            </script>
+        </body>
+        </html>
+        """
+        
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onReady: onReady, onError: onError, onEnded: onEnded)
+    }
+    
+    class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+        var currentVideoKey: String?
+        var onReady: (() -> Void)?
+        var onError: ((String) -> Void)?
+        var onEnded: (() -> Void)?
+        
+        init(onReady: (() -> Void)?, onError: ((String) -> Void)?, onEnded: (() -> Void)?) {
+            self.onReady = onReady
+            self.onError = onError
+            self.onEnded = onEnded
+        }
+        
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            switch message.name {
+            case "playerReady":
+                DispatchQueue.main.async { self.onReady?() }
+            case "playerError":
+                DispatchQueue.main.async { self.onError?(message.body as? String ?? "Error") }
+            case "playerEnded":
+                DispatchQueue.main.async { self.onEnded?() }
+            default:
+                break
+            }
+        }
+        
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            DispatchQueue.main.async { self.onError?(error.localizedDescription) }
         }
     }
 }
