@@ -11,6 +11,7 @@ struct BrowseView: View {
     @State private var showNetworkHub = false
     @State private var selectedNetworkHub: NetworkHub?
     @State private var showTwentiethCenturySheet = false
+    @State private var showWarnerBrosSheet = false
     @State private var showCustomizeSheet = false
     
     var body: some View {
@@ -48,11 +49,16 @@ struct BrowseView: View {
                             )
                         }
                         
-                        // Insert 20th Century Studios button after Popular Movies row
+                        // Insert Studios buttons after Popular Movies row
                         if row.title == "Popular Movies" {
-                            TwentiethCenturyStudiosButton {
-                                showTwentiethCenturySheet = true
-                            }
+                            StudiosHubRow(
+                                onTwentiethCenturyTap: {
+                                    showTwentiethCenturySheet = true
+                                },
+                                onWarnerBrosTap: {
+                                    showWarnerBrosSheet = true
+                                }
+                            )
                             .padding(.horizontal)
                         }
                     }
@@ -89,6 +95,21 @@ struct BrowseView: View {
                 Task { await viewModel.refresh() }
             }
         }
+    }
+}
+
+// MARK: - Studios Hub Row
+struct StudiosHubRow: View {
+    let onTwentiethCenturyTap: () -> Void
+    let onWarnerBrosTap: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 32) {
+            TwentiethCenturyStudiosButton(action: onTwentiethCenturyTap)
+            WarnerBrosButton(action: onWarnerBrosTap)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
     }
 }
 
@@ -133,13 +154,60 @@ struct TwentiethCenturyStudiosButton: View {
                 isPressed = pressing
             }, perform: {})
             
-            Text("20th Century Studios")
+            Text("20th Century")
                 .font(.caption)
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Warner Bros Button
+struct WarnerBrosButton: View {
+    let action: () -> Void
+    @State private var isPressed = false
+    @Environment(\.colorScheme) private var colorScheme
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            Button(action: action) {
+                ZStack {
+                    Circle()
+                        .fill(Color(.systemGray6))
+                        .frame(width: 80, height: 80)
+                        .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
+                    
+                    AsyncImage(url: URL(string: "https://i.ibb.co/wZ1HR70w/Pik-Png-com-warner-bros-logo-png-1514023.png")) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .renderingMode(.template)
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 60, height: 60)
+                        case .failure, .empty:
+                            Text("WB")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                        @unknown default:
+                            ProgressView()
+                        }
+                    }
+                }
+                .scaleEffect(isPressed ? 1.05 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
+            }
+            .buttonStyle(.plain)
+            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+                isPressed = pressing
+            }, perform: {})
+            
+            Text("Warner Bros")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+        }
     }
 }
 
@@ -287,6 +355,156 @@ struct TwentiethCenturyStudiosSheet: View {
         } catch {
             self.error = "Failed to load content. Please try again."
             print("20th Century Studios error: \(error)")
+        }
+        
+        isLoading = false
+    }
+}
+
+// MARK: - Warner Bros Sheet
+struct WarnerBrosSheet: View {
+    @Binding var selectedItem: MediaItem?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var allItems: [SavedMediaItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var selectedTab = 0
+    
+    private var movies: [SavedMediaItem] {
+        allItems.filter { $0.mediaType == .movie }
+    }
+    
+    private var tvShows: [SavedMediaItem] {
+        allItems.filter { $0.mediaType == .tv }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Header with logo
+                AsyncImage(url: URL(string: "https://i.ibb.co/wZ1HR70w/Pik-Png-com-warner-bros-logo-png-1514023.png")) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .renderingMode(.template)
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(height: 60)
+                    default:
+                        EmptyView()
+                    }
+                }
+                .padding(.vertical, 16)
+                
+                // Tab picker
+                Picker("Content Type", selection: $selectedTab) {
+                    Text("Movies").tag(0)
+                    Text("TV").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.bottom, 16)
+                
+                if isLoading {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Spacer()
+                } else if let error = error {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundColor(.orange)
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                    Spacer()
+                } else {
+                    let items = selectedTab == 0 ? movies : tvShows
+                    
+                    if items.isEmpty {
+                        Spacer()
+                        VStack(spacing: 12) {
+                            Image(systemName: selectedTab == 0 ? "film" : "tv")
+                                .font(.largeTitle)
+                                .foregroundColor(.secondary)
+                            Text("No \(selectedTab == 0 ? "movies" : "TV shows") found")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    } else {
+                        ScrollView {
+                            LazyVGrid(columns: [
+                                GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                            ], spacing: 20) {
+                                ForEach(items) { item in
+                                    SavedMediaPosterCard(item: item)
+                                        .onTapGesture {
+                                            // Convert SavedMediaItem to MediaItem
+                                            let mediaItem = MediaItem(
+                                                id: item.mediaId,
+                                                title: item.mediaType == .movie ? item.title : nil,
+                                                name: item.mediaType == .tv ? item.title : nil,
+                                                originalTitle: nil,
+                                                originalName: nil,
+                                                overview: item.overview,
+                                                posterPath: item.posterPath,
+                                                backdropPath: item.backdropPath,
+                                                releaseDate: item.year,
+                                                firstAirDate: item.year,
+                                                voteAverage: item.voteAverage,
+                                                voteCount: nil,
+                                                popularity: nil,
+                                                genreIds: nil,
+                                                mediaType: item.mediaType.rawValue,
+                                                adult: nil,
+                                                originalLanguage: nil
+                                            )
+                                            selectedItem = mediaItem
+                                            dismiss()
+                                        }
+                                }
+                            }
+                            .padding()
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Warner Bros")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .task {
+            await loadContent()
+        }
+    }
+    
+    private func loadContent() async {
+        isLoading = true
+        error = nil
+        
+        do {
+            // Fetch from MDBList: dualipafan01/warner-bros
+            allItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: "dualipafan01/warner-bros")
+            if allItems.isEmpty {
+                error = "No content found in this list."
+            }
+        } catch {
+            self.error = "Failed to load content. Please try again."
+            print("Warner Bros error: \(error)")
         }
         
         isLoading = false
