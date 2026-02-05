@@ -88,6 +88,9 @@ struct BrowseView: View {
             .sheet(isPresented: $showTwentiethCenturySheet) {
                 TwentiethCenturyStudiosSheet(selectedItem: $selectedItem)
             }
+            .sheet(isPresented: $showWarnerBrosSheet) {
+                WarnerBrosSheet(selectedItem: $selectedItem)
+            }
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
             }
