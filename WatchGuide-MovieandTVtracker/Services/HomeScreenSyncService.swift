@@ -237,16 +237,20 @@ actor HomeScreenSyncService {
         encoder.dateEncodingStrategy = .iso8601
         
         for list in lists {
-            // Create a sanitized list ID that matches database constraints
-            let sanitizedListId = list.listId.replacingOccurrences(of: " ", with: "-")
-                .lowercased()
+            // Create a sanitized list ID that replaces problematic characters
+            // The list_id should be URL-safe and match database text field requirements
+            let sanitizedListId = list.listId
+                .replacingOccurrences(of: " ", with: "-")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Ensure source matches expected values
+            let sourceValue = list.source.rawValue
             
             let syncList = SyncedExtensionList(
                 userId: userId,
                 listId: sanitizedListId,
                 name: list.name,
-                source: list.source.rawValue,
+                source: sourceValue,
                 customName: list.customName,
                 showOnHome: list.showOnHome,
                 lastSynced: list.lastSynced,

@@ -245,10 +245,15 @@ actor SupabaseService {
             // Continue anyway - the table might not exist or be empty
         }
         
-        // Upload all items
+        // Upload all items - deduplicate by (list_type, media_id, media_type) to avoid unique constraint violations
+        var seenKeys = Set<String>()
         var allItems: [SyncedMediaItem] = []
         
         for item in wantToWatch {
+            let key = "\(SyncListType.wantToWatch.rawValue)-\(item.mediaId)-\(item.mediaType.rawValue)"
+            guard !seenKeys.contains(key) else { continue }
+            seenKeys.insert(key)
+            
             allItems.append(SyncedMediaItem(
                 id: nil,
                 deviceId: currentSyncId,
@@ -266,6 +271,10 @@ actor SupabaseService {
         }
         
         for item in watched {
+            let key = "\(SyncListType.watched.rawValue)-\(item.mediaId)-\(item.mediaType.rawValue)"
+            guard !seenKeys.contains(key) else { continue }
+            seenKeys.insert(key)
+            
             allItems.append(SyncedMediaItem(
                 id: nil,
                 deviceId: currentSyncId,
@@ -283,6 +292,10 @@ actor SupabaseService {
         }
         
         for item in liked {
+            let key = "\(SyncListType.liked.rawValue)-\(item.mediaId)-\(item.mediaType.rawValue)"
+            guard !seenKeys.contains(key) else { continue }
+            seenKeys.insert(key)
+            
             allItems.append(SyncedMediaItem(
                 id: nil,
                 deviceId: currentSyncId,
@@ -352,10 +365,15 @@ actor SupabaseService {
 }
 
 // MARK: - Sync List Type
-enum SyncListType: String {
+enum SyncListType: String, CaseIterable {
     case wantToWatch = "want_to_watch"
     case watched = "watched"
     case liked = "liked"
+    
+    // Validate that a string matches expected list types
+    static func isValid(_ value: String) -> Bool {
+        return Self.allCases.contains { $0.rawValue == value }
+    }
 }
 
 // MARK: - Synced Media Item (Supabase table model)
