@@ -742,7 +742,7 @@ struct AmbientBackground: View {
     }
 }
 
-// MARK: - YouTube Player View using Invidious Proxy
+// MARK: - YouTube Player View using YouTube IFrame API with nocookie fallback
 struct YouTubePlayerView: UIViewRepresentable {
     let videoKey: String
     var autoPlay: Bool = false
@@ -750,15 +750,6 @@ struct YouTubePlayerView: UIViewRepresentable {
     var onReady: (() -> Void)?
     var onError: ((String) -> Void)?
     var onEnded: (() -> Void)?
-    
-    // Invidious instances that support video embedding (public proxies)
-    private static let invidiousInstances = [
-        "https://inv.nadeko.net",
-        "https://invidious.privacyredirect.com",
-        "https://vid.puffyan.us",
-        "https://invidious.nerdvpn.de",
-        "https://yt.artemislena.eu"
-    ]
     
     func makeUIView(context: Context) -> WKWebView {
         let contentController = WKUserContentController()
@@ -779,8 +770,8 @@ struct YouTubePlayerView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.scrollView.isScrollEnabled = false
         webView.isOpaque = false
-        webView.backgroundColor = .black
-        webView.scrollView.backgroundColor = .black
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = false
         
@@ -801,20 +792,16 @@ struct YouTubePlayerView: UIViewRepresentable {
         context.coordinator.currentVideoKey = videoKey
         context.coordinator.lastMuteValue = isMuted
         context.coordinator.hasErrored = false
-        context.coordinator.currentInstanceIndex = 0
         
-        loadProxyPlayer(webView: webView, context: context)
+        loadYouTubePlayer(webView: webView, context: context)
     }
     
-    private func loadProxyPlayer(webView: WKWebView, context: Context) {
+    private func loadYouTubePlayer(webView: WKWebView, context: Context) {
         let sanitizedKey = videoKey.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? videoKey
         let autoPlayValue = autoPlay ? 1 : 0
-        let muteValue = isMuted ? "true" : "false"
+        let muteValue = isMuted ? 1 : 0
         
-        // Build instance URLs for fallback chain
-        let instancesJSON = Self.invidiousInstances.map { "\"\($0)\"" }.joined(separator: ",")
-        
-        // Use Invidious embed with fallback chain
+        // Use YouTube IFrame Player API for better control and reliability
         let html = """
         <!DOCTYPE html>
         <html>
@@ -822,7 +809,7 @@ struct YouTubePlayerView: UIViewRepresentable {
             <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
-                html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+                html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
                 #player-container {
                     position: absolute;
                     top: 50%;
@@ -833,56 +820,39 @@ struct YouTubePlayerView: UIViewRepresentable {
                     min-height: 56.25vw;
                     transform: translate(-50%, -50%);
                 }
-                video, iframe {
+                #player {
                     position: absolute;
                     top: 0;
                     left: 0;
                     width: 100%;
                     height: 100%;
-                    object-fit: cover;
+                }
+                iframe {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
                     border: none;
                 }
-                #loading {
-                    position: absolute;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    color: white;
-                    font-family: -apple-system, sans-serif;
-                    font-size: 14px;
-                    text-align: center;
-                }
-                .spinner {
-                    width: 40px;
-                    height: 40px;
-                    border: 3px solid rgba(255,255,255,0.3);
-                    border-top-color: white;
-                    border-radius: 50%;
-                    animation: spin 1s linear infinite;
-                    margin: 0 auto 10px;
-                }
-                @keyframes spin { to { transform: rotate(360deg); } }
             </style>
         </head>
         <body>
             <div id="player-container">
-                <div id="loading">
-                    <div class="spinner"></div>
-                    Loading trailer...
-                </div>
+                <div id="player"></div>
             </div>
             
             <script>
-                var instances = [\(instancesJSON)];
-                var currentInstance = 0;
-                var videoId = '\(sanitizedKey)';
-                var autoPlay = \(autoPlayValue) === 1;
-                var muted = \(muteValue);
+                var tag = document.createElement('script');
+                tag.src = "https://www.youtube.com/iframe_api";
+                var firstScriptTag = document.getElementsByTagName('script')[0];
+                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                
+                var player;
                 var hasNotifiedReady = false;
                 var hasNotifiedError = false;
                 var hasNotifiedEnded = false;
-                var videoElement = null;
-                var loadTimeout = null;
+                var apiLoadTimeout = null;
                 
                 function notifyReady() {
                     if (!hasNotifiedReady) {
@@ -905,147 +875,70 @@ struct YouTubePlayerView: UIViewRepresentable {
                     }
                 }
                 
-                function hideLoading() {
-                    var loadingEl = document.getElementById('loading');
-                    if (loadingEl) loadingEl.style.display = 'none';
-                }
-                
-                function tryNextInstance() {
-                    currentInstance++;
-                    if (currentInstance < instances.length) {
-                        loadVideo();
-                    } else {
-                        // All instances failed, try direct YouTube embed as last resort
-                        tryYouTubeEmbed();
-                    }
-                }
-                
-                function tryYouTubeEmbed() {
-                    var container = document.getElementById('player-container');
-                    container.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + videoId + '?autoplay=' + (autoPlay ? 1 : 0) + '&mute=' + (muted ? 1 : 0) + '&controls=0&modestbranding=1&rel=0&playsinline=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
+                function onYouTubeIframeAPIReady() {
+                    if (apiLoadTimeout) clearTimeout(apiLoadTimeout);
                     
-                    // Give it a moment then notify ready
-                    setTimeout(function() {
-                        if (!hasNotifiedReady && !hasNotifiedError) {
-                            notifyReady();
+                    player = new YT.Player('player', {
+                        videoId: '\(sanitizedKey)',
+                        playerVars: {
+                            'autoplay': \(autoPlayValue),
+                            'mute': \(muteValue),
+                            'controls': 0,
+                            'disablekb': 1,
+                            'fs': 0,
+                            'iv_load_policy': 3,
+                            'modestbranding': 1,
+                            'playsinline': 1,
+                            'rel': 0,
+                            'showinfo': 0,
+                            'origin': 'https://www.youtube.com'
+                        },
+                        events: {
+                            'onReady': onPlayerReady,
+                            'onStateChange': onPlayerStateChange,
+                            'onError': onPlayerError
                         }
-                    }, 2000);
-                    
-                    // If still nothing after 5 seconds, error
-                    setTimeout(function() {
-                        if (!hasNotifiedReady && !hasNotifiedError) {
-                            notifyError('All sources failed');
-                        }
-                    }, 5000);
+                    });
                 }
                 
-                function loadVideo() {
-                    if (currentInstance >= instances.length) {
-                        tryYouTubeEmbed();
-                        return;
+                function onPlayerReady(event) {
+                    if (\(autoPlayValue) === 1) {
+                        event.target.playVideo();
                     }
-                    
-                    var instance = instances[currentInstance];
-                    var container = document.getElementById('player-container');
-                    
-                    // Clear previous content except loading indicator
-                    if (videoElement) {
-                        videoElement.remove();
-                        videoElement = null;
+                }
+                
+                function onPlayerStateChange(event) {
+                    // YT.PlayerState.PLAYING = 1
+                    if (event.data === 1) {
+                        notifyReady();
                     }
-                    
-                    // Clear any existing timeout
-                    if (loadTimeout) clearTimeout(loadTimeout);
-                    
-                    // Create video element with direct stream URL
-                    videoElement = document.createElement('video');
-                    videoElement.setAttribute('playsinline', '');
-                    videoElement.setAttribute('webkit-playsinline', '');
-                    if (muted) videoElement.muted = true;
-                    if (autoPlay) videoElement.autoplay = true;
-                    videoElement.controls = false;
-                    
-                    // Use Invidious API to get direct video URL
-                    var apiUrl = instance + '/api/v1/videos/' + videoId;
-                    
-                    fetch(apiUrl)
-                        .then(function(response) {
-                            if (!response.ok) throw new Error('API error');
-                            return response.json();
-                        })
-                        .then(function(data) {
-                            // Find best quality stream (prefer 720p or 480p for faster loading)
-                            var streams = data.formatStreams || [];
-                            var adaptiveStreams = data.adaptiveFormats || [];
-                            
-                            // Prefer format streams (combined audio+video)
-                            var selectedStream = null;
-                            var preferredQualities = ['720p', '480p', '360p', '1080p'];
-                            
-                            for (var i = 0; i < preferredQualities.length; i++) {
-                                var quality = preferredQualities[i];
-                                for (var j = 0; j < streams.length; j++) {
-                                    if (streams[j].qualityLabel && streams[j].qualityLabel.includes(quality)) {
-                                        selectedStream = streams[j];
-                                        break;
-                                    }
-                                }
-                                if (selectedStream) break;
-                            }
-                            
-                            // Fallback to first available stream
-                            if (!selectedStream && streams.length > 0) {
-                                selectedStream = streams[0];
-                            }
-                            
-                            if (!selectedStream) {
-                                throw new Error('No streams available');
-                            }
-                            
-                            videoElement.src = selectedStream.url;
-                            container.appendChild(videoElement);
-                            hideLoading();
-                            
-                            videoElement.onloadeddata = function() {
+                    // YT.PlayerState.ENDED = 0
+                    if (event.data === 0) {
+                        notifyEnded();
+                    }
+                    try { window.webkit.messageHandlers.playerStateChange.postMessage(event.data); } catch(e) {}
+                }
+                
+                function onPlayerError(event) {
+                    // Error codes: 2 (invalid param), 5 (HTML5 error), 100 (not found), 101/150 (embed not allowed)
+                    var errorMsg = 'YouTube error: ' + event.data;
+                    notifyError(errorMsg);
+                }
+                
+                // Fallback if YouTube API doesn't load within 4 seconds
+                apiLoadTimeout = setTimeout(function() {
+                    if (typeof YT === 'undefined' || typeof YT.Player === 'undefined') {
+                        // Fall back to direct iframe embed
+                        var container = document.getElementById('player-container');
+                        container.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/\(sanitizedKey)?autoplay=\(autoPlayValue)&mute=\(muteValue)&controls=0&modestbranding=1&rel=0&playsinline=1&enablejsapi=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
+                        
+                        setTimeout(function() {
+                            if (!hasNotifiedReady && !hasNotifiedError) {
                                 notifyReady();
-                                if (autoPlay) {
-                                    videoElement.play().catch(function(e) {
-                                        // Autoplay blocked, still notify ready
-                                        notifyReady();
-                                    });
-                                }
-                            };
-                            
-                            videoElement.onended = function() {
-                                notifyEnded();
-                            };
-                            
-                            videoElement.onerror = function() {
-                                tryNextInstance();
-                            };
-                            
-                            // Timeout for this instance
-                            loadTimeout = setTimeout(function() {
-                                if (!hasNotifiedReady) {
-                                    tryNextInstance();
-                                }
-                            }, 8000);
-                        })
-                        .catch(function(error) {
-                            console.log('Instance ' + currentInstance + ' failed:', error);
-                            tryNextInstance();
-                        });
-                }
-                
-                // Start loading
-                loadVideo();
-                
-                // Global timeout - if nothing works after 15 seconds, notify error
-                setTimeout(function() {
-                    if (!hasNotifiedReady && !hasNotifiedError) {
-                        notifyError('Timeout loading video');
+                            }
+                        }, 1500);
                     }
-                }, 15000);
+                }, 4000);
                 
                 // Auto-advance after 3 minutes (typical trailer length)
                 setTimeout(function() {
@@ -1069,7 +962,6 @@ struct YouTubePlayerView: UIViewRepresentable {
         var currentVideoKey: String?
         var lastMuteValue: Bool? = nil
         var hasErrored: Bool = false
-        var currentInstanceIndex: Int = 0
         var onReady: (() -> Void)?
         var onError: ((String) -> Void)?
         var onEnded: (() -> Void)?
