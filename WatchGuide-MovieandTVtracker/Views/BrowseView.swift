@@ -15,105 +15,107 @@ struct BrowseView: View {
     @State private var showCustomizeSheet = false
     
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 24) {
-                // Hero Carousel
-                if !viewModel.heroItems.isEmpty {
-                    HeroCarouselView(items: viewModel.heroItems) { item in
-                        selectedItem = item
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 24) {
+                    // Hero Carousel
+                    if !viewModel.heroItems.isEmpty {
+                        HeroCarouselView(items: viewModel.heroItems) { item in
+                            selectedItem = item
+                        }
+                        .aspectRatio(16.0/9.0, contentMode: .fit)
+                        .padding(.horizontal)
+                        .padding(.bottom, 12)
                     }
-                    .aspectRatio(16.0/9.0, contentMode: .fit)
-                    .padding(.horizontal)
-                    .padding(.bottom, 12)
-                }
-                
-                // Networks Section (Streaming Services)
-                if !viewModel.networkHubs.isEmpty {
-                    NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
-                        selectedNetworkHub = hub
-                        showNetworkHub = true
+                    
+                    // Networks Section (Streaming Services)
+                    if !viewModel.networkHubs.isEmpty {
+                        NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
+                            selectedNetworkHub = hub
+                            showNetworkHub = true
+                        }
+                        .padding(.top, 4)
                     }
-                    .padding(.top, 4)
-                }
-                
-                // Custom Home Rows (MDBList and Custom Hubs)
-                ForEach(viewModel.customHomeRows) { customRow in
-                    if let row = viewModel.customRowContent[customRow.id], !row.items.isEmpty {
-                        CustomHomeRowView(
-                            row: customRow,
-                            items: row.items,
-                            onItemTap: { item in
-                                selectedItem = item
-                            }
-                        )
+                    
+                    // Custom Home Rows (MDBList and Custom Hubs)
+                    ForEach(viewModel.customHomeRows) { customRow in
+                        if let row = viewModel.customRowContent[customRow.id], !row.items.isEmpty {
+                            CustomHomeRowView(
+                                row: customRow,
+                                items: row.items,
+                                onItemTap: { item in
+                                    selectedItem = item
+                                }
+                            )
+                        }
                     }
-                }
-                
-                // Browse Rows
-                ForEach(viewModel.rows, id: \.title) { row in
-                    if !row.items.isEmpty {
-                        MediaRowView(
-                            title: row.title,
-                            items: row.items,
-                            onItemTap: { item in
-                                selectedItem = item
+                    
+                    // Browse Rows
+                    ForEach(viewModel.rows, id: \.title) { row in
+                        if !row.items.isEmpty {
+                            MediaRowView(
+                                title: row.title,
+                                items: row.items,
+                                onItemTap: { item in
+                                    selectedItem = item
+                                }
+                            )
+                            if row.title == "Popular Movies" && !viewModel.studios.isEmpty {
+                                StudiosRow(studios: viewModel.studios) { studio in
+                                    selectedStudioHub = studio
+                                    showStudioHub = true
+                                }
+                                .padding(.top, 4)
                             }
-                        )
-                        if row.title == "Popular Movies" && !viewModel.studios.isEmpty {
-                            StudiosRow(studios: viewModel.studios) { studio in
-                                selectedStudioHub = studio
-                                showStudioHub = true
-                            }
-                            .padding(.top, 4)
+                        }
+                    }
+                    
+                    // Imported Lists Rows (for backward compatibility)
+                    ForEach(viewModel.importedListRows, id: \.title) { row in
+                        if !row.items.isEmpty {
+                            MediaRowView(
+                                title: row.title,
+                                items: row.items,
+                                onItemTap: { item in
+                                    selectedItem = item
+                                }
+                            )
                         }
                     }
                 }
-                
-                // Imported Lists Rows (for backward compatibility)
-                ForEach(viewModel.importedListRows, id: \.title) { row in
-                    if !row.items.isEmpty {
-                        MediaRowView(
-                            title: row.title,
-                            items: row.items,
-                            onItemTap: { item in
-                                selectedItem = item
-                            }
-                        )
+                .padding(.vertical)
+            }
+            .refreshable {
+                await viewModel.refresh()
+            }
+            .task {
+                await viewModel.loadContent()
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showCustomizeSheet = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
                     }
                 }
             }
-            .padding(.vertical)
-        }
-        .refreshable {
-            await viewModel.refresh()
-        }
-        .task {
-            await viewModel.loadContent()
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showCustomizeSheet = true
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
+            .sheet(isPresented: $showNetworkHub) {
+                if let hub = selectedNetworkHub {
+                    NetworkHubSheet(hub: hub, selectedItem: $selectedItem)
                 }
             }
-        }
-        .sheet(isPresented: $showNetworkHub) {
-            if let hub = selectedNetworkHub {
-                NetworkHubSheet(hub: hub, selectedItem: $selectedItem)
+            .sheet(isPresented: $showStudioHub) {
+                if let studio = selectedStudioHub {
+                    StudioHubSheet(studio: studio, selectedItem: $selectedItem)
+                }
             }
-        }
-        .sheet(isPresented: $showStudioHub) {
-            if let studio = selectedStudioHub {
-                StudioHubSheet(studio: studio, selectedItem: $selectedItem)
+            .sheet(isPresented: $showCustomizeSheet) {
+                HomeCustomizationView()
             }
-        }
-        .sheet(isPresented: $showCustomizeSheet) {
-            BrowseCustomizeSheet()
-        }
-        .onChange(of: StorageService.shared.settings.heroCarouselSource) { _, _ in
-            Task { await viewModel.refresh() }
+            .onChange(of: StorageService.shared.settings.heroCarouselSource) { _, _ in
+                Task { await viewModel.refresh() }
+            }
         }
     }
 }
@@ -297,6 +299,8 @@ class BrowseViewModel: ObservableObject {
         importedListRows = []
         customRowContent = [:]
         heroItems = []
+        networkHubs = []
+        customHomeRows = []
         await loadContent()
     }
     
@@ -924,7 +928,7 @@ struct StudioHubSheet: View {
     }
 }
 
-// MARK: - Browse Customize Sheet
+// MARK: - Browse Customize Sheet (Legacy - kept for backwards compatibility)
 struct BrowseCustomizeSheet: View {
     @ObservedObject private var storage = StorageService.shared
     @Environment(\.dismiss) private var dismiss
@@ -1085,4 +1089,5 @@ struct BrowseCustomizeSheet: View {
 #Preview {
     BrowseView(selectedItem: .constant(nil))
 }
+
 
