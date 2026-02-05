@@ -199,10 +199,6 @@ struct MediaDetailView: View {
     
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     
-    private var headerHeight: CGFloat {
-        verticalSizeClass == .compact ? 250 : 350
-    }
-    
     private var headerSection: some View {
         if !trailerVideos.isEmpty {
             AnyView(
@@ -272,32 +268,35 @@ struct MediaDetailView: View {
     
     private var staticHeaderSection: some View {
         GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = width * 9.0 / 16.0
             let isCompact = verticalSizeClass == .compact
             
             ZStack(alignment: .bottomLeading) {
-                // Backdrop
+                // Backdrop - use aspectRatio fit to show entire image
                 AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
                     switch phase {
                     case .success(let image):
                         image
                             .resizable()
-                            .aspectRatio(contentMode: .fill)
+                            .aspectRatio(contentMode: .fit)
                     default:
                         Rectangle()
                             .fill(Color(.systemGray4))
                     }
                 }
-                .frame(width: geometry.size.width, height: headerHeight)
-                .clipped()
+                .frame(width: width, height: height)
+                .background(Color.black)
                 
-                // Gradient
+                // Gradient overlay
                 LinearGradient(
-                    colors: [.clear, .black.opacity(0.8), .black],
+                    colors: [.clear, .black.opacity(0.7), .black.opacity(0.95)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
+                .frame(width: width, height: height)
                 
-                // Content
+                // Content overlay
                 HStack(alignment: .bottom, spacing: isCompact ? 12 : 16) {
                     // Poster
                     PosterImageView(posterPath: item.posterPath, size: .large)
@@ -356,8 +355,9 @@ struct MediaDetailView: View {
                 .padding(isCompact ? 12 : 16)
                 .padding(.bottom, isCompact ? 4 : 8)
             }
+            .frame(width: width, height: height)
         }
-        .frame(height: headerHeight)
+        .aspectRatio(16.0/9.0, contentMode: .fit)
     }
     
     // MARK: - Seasons Section
