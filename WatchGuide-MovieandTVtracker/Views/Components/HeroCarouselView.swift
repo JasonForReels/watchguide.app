@@ -106,6 +106,23 @@ struct HeroCarouselView: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.width * 9.0 / 16.0)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                // Thin fading border line
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.4),
+                                Color.white.opacity(0.3),
+                                Color.white.opacity(0.15),
+                                Color.white.opacity(0.0)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+            )
             .aspectRatio(16.0/9.0, contentMode: .fit)
         }
         .padding(.horizontal)

@@ -96,6 +96,7 @@ struct BrowseView: View {
 struct TwentiethCenturyStudiosButton: View {
     let action: () -> Void
     @State private var isPressed = false
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         VStack(spacing: 8) {
@@ -111,6 +112,8 @@ struct TwentiethCenturyStudiosButton: View {
                         case .success(let image):
                             image
                                 .resizable()
+                                .renderingMode(.template)
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
                                 .aspectRatio(contentMode: .fit)
                                 .frame(width: 60, height: 60)
                         case .failure, .empty:
@@ -144,9 +147,19 @@ struct TwentiethCenturyStudiosButton: View {
 struct TwentiethCenturyStudiosSheet: View {
     @Binding var selectedItem: MediaItem?
     @Environment(\.dismiss) private var dismiss
-    @State private var movies: [SavedMediaItem] = []
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var allItems: [SavedMediaItem] = []
     @State private var isLoading = true
     @State private var error: String?
+    @State private var selectedTab = 0
+    
+    private var movies: [SavedMediaItem] {
+        allItems.filter { $0.mediaType == .movie }
+    }
+    
+    private var tvShows: [SavedMediaItem] {
+        allItems.filter { $0.mediaType == .tv }
+    }
     
     var body: some View {
         NavigationStack {
@@ -157,6 +170,8 @@ struct TwentiethCenturyStudiosSheet: View {
                     case .success(let image):
                         image
                             .resizable()
+                            .renderingMode(.template)
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
                             .aspectRatio(contentMode: .fit)
                             .frame(height: 60)
                     default:
@@ -164,6 +179,15 @@ struct TwentiethCenturyStudiosSheet: View {
                     }
                 }
                 .padding(.vertical, 16)
+                
+                // Tab picker
+                Picker("Content Type", selection: $selectedTab) {
+                    Text("Movies").tag(0)
+                    Text("TV").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.bottom, 16)
                 
                 if isLoading {
                     Spacer()
@@ -184,39 +208,54 @@ struct TwentiethCenturyStudiosSheet: View {
                     .padding()
                     Spacer()
                 } else {
-                    ScrollView {
-                        LazyVGrid(columns: [
-                            GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
-                        ], spacing: 20) {
-                            ForEach(movies) { item in
-                                SavedMediaPosterCard(item: item)
-                                    .onTapGesture {
-                                        // Convert SavedMediaItem to MediaItem
-                                        let mediaItem = MediaItem(
-                                            id: item.mediaId,
-                                            title: item.mediaType == .movie ? item.title : nil,
-                                            name: item.mediaType == .tv ? item.title : nil,
-                                            originalTitle: nil,
-                                            originalName: nil,
-                                            overview: item.overview,
-                                            posterPath: item.posterPath,
-                                            backdropPath: item.backdropPath,
-                                            releaseDate: item.year,
-                                            firstAirDate: item.year,
-                                            voteAverage: item.voteAverage,
-                                            voteCount: nil,
-                                            popularity: nil,
-                                            genreIds: nil,
-                                            mediaType: item.mediaType.rawValue,
-                                            adult: nil,
-                                            originalLanguage: nil
-                                        )
-                                        selectedItem = mediaItem
-                                        dismiss()
-                                    }
-                            }
+                    let items = selectedTab == 0 ? movies : tvShows
+                    
+                    if items.isEmpty {
+                        Spacer()
+                        VStack(spacing: 12) {
+                            Image(systemName: selectedTab == 0 ? "film" : "tv")
+                                .font(.largeTitle)
+                                .foregroundColor(.secondary)
+                            Text("No \(selectedTab == 0 ? "movies" : "TV shows") found")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
                         }
-                        .padding()
+                        Spacer()
+                    } else {
+                        ScrollView {
+                            LazyVGrid(columns: [
+                                GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                            ], spacing: 20) {
+                                ForEach(items) { item in
+                                    SavedMediaPosterCard(item: item)
+                                        .onTapGesture {
+                                            // Convert SavedMediaItem to MediaItem
+                                            let mediaItem = MediaItem(
+                                                id: item.mediaId,
+                                                title: item.mediaType == .movie ? item.title : nil,
+                                                name: item.mediaType == .tv ? item.title : nil,
+                                                originalTitle: nil,
+                                                originalName: nil,
+                                                overview: item.overview,
+                                                posterPath: item.posterPath,
+                                                backdropPath: item.backdropPath,
+                                                releaseDate: item.year,
+                                                firstAirDate: item.year,
+                                                voteAverage: item.voteAverage,
+                                                voteCount: nil,
+                                                popularity: nil,
+                                                genreIds: nil,
+                                                mediaType: item.mediaType.rawValue,
+                                                adult: nil,
+                                                originalLanguage: nil
+                                            )
+                                            selectedItem = mediaItem
+                                            dismiss()
+                                        }
+                                }
+                            }
+                            .padding()
+                        }
                     }
                 }
             }
@@ -241,12 +280,12 @@ struct TwentiethCenturyStudiosSheet: View {
         
         do {
             // Fetch from MDBList: dualipafan01/20th-century-studios
-            movies = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: "dualipafan01/20th-century-studios")
-            if movies.isEmpty {
-                error = "No movies found in this list."
+            allItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: "dualipafan01/20th-century-studios")
+            if allItems.isEmpty {
+                error = "No content found in this list."
             }
         } catch {
-            self.error = "Failed to load movies. Please try again."
+            self.error = "Failed to load content. Please try again."
             print("20th Century Studios error: \(error)")
         }
         
