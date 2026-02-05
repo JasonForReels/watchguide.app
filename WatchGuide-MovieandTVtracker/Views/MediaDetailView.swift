@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import WebKit // For WebTrailerPlayerView usage
 
 // MARK: - Person Selection Model
 struct SelectedPerson: Identifiable {
@@ -18,6 +19,36 @@ struct MediaDetailView: View {
     @StateObject private var viewModel: MediaDetailViewModel
     @State private var selectedSeason: Season?
     @State private var selectedPerson: SelectedPerson?
+    @State private var isHeroUnmuted: Bool = false
+
+    // Precomputed first YouTube trailer to reduce type-checking load
+    private var firstYouTubeTrailer: Video? {
+        viewModel.videos.first { video in
+            let site = video.site.lowercased()
+            let type = video.type.lowercased()
+            return site == "youtube" && (type == "trailer" || type == "teaser")
+        }
+    }
+    
+    private var trailerVideos: [Video] {
+        let trailers = viewModel.videos.filter { v in
+            v.site.lowercased() == "youtube" &&
+            v.type.lowercased() == "trailer" &&
+            (v.name.lowercased().contains("official") || (v.official ?? false))
+        }
+        if !trailers.isEmpty {
+            return trailers
+        } else {
+            let teasers = viewModel.videos.filter { v in
+                v.site.lowercased() == "youtube" && v.type.lowercased() == "teaser"
+            }
+            return teasers
+        }
+    }
+    
+    private func youTubeEmbedURL(for key: String) -> URL? {
+        URL(string: "https://www.youtube.com/embed/\(key)?playsinline=1")
+    }
     
     init(item: MediaItem) {
         self.item = item
@@ -88,7 +119,7 @@ struct MediaDetailView: View {
                             seasonsSection(seasons: seasons)
                         }
                         
-                        // Videos/Trailers
+                        // Existing videos row
                         if !viewModel.videos.isEmpty {
                             VideoRowView(videos: viewModel.videos)
                         }
@@ -165,6 +196,7 @@ struct MediaDetailView: View {
     }
     
     // MARK: - Header Section
+    
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     
     private var headerHeight: CGFloat {
@@ -172,6 +204,73 @@ struct MediaDetailView: View {
     }
     
     private var headerSection: some View {
+        if !trailerVideos.isEmpty {
+            AnyView(
+                GeometryReader { geometry in
+                    let width = geometry.size.width
+                    let height = width * 9.0 / 16.0
+                    
+                    TabView {
+                        ForEach(trailerVideos) { video in
+                            ZStack(alignment: .bottomLeading) {
+                                WebTrailerPlayerView(videoKey: video.key, autoplay: true, muted: !isHeroUnmuted)
+                                    .frame(width: width, height: height)
+                                    .background(Color.black)
+                                
+                                LinearGradient(
+                                    colors: [.clear, .black.opacity(0.6), .black.opacity(0.9)],
+                                    startPoint: .center,
+                                    endPoint: .bottom
+                                )
+                                .frame(height: height * 0.4)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                                .allowsHitTesting(false)
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(video.name)
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.white)
+                                        .lineLimit(1)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 40)
+                            }
+                            .frame(width: width, height: height)
+                        }
+                    }
+                    .frame(width: width, height: height)
+                    .tabViewStyle(.page(indexDisplayMode: .automatic))
+                    .onTapGesture {
+                        withAnimation {
+                            isHeroUnmuted = true
+                        }
+                    }
+                    .overlay(
+                        Button {
+                            withAnimation {
+                                isHeroUnmuted.toggle()
+                            }
+                        } label: {
+                            Image(systemName: isHeroUnmuted ? "speaker.wave.3.fill" : "speaker.slash.fill")
+                                .font(.body)
+                                .foregroundColor(.white)
+                                .padding(8)
+                                .background(.black.opacity(0.5))
+                                .clipShape(Circle())
+                        }
+                        .padding(12)
+                        , alignment: .bottomTrailing
+                    )
+                }
+                .aspectRatio(16.0/9.0, contentMode: .fit)
+            )
+        } else {
+            AnyView(staticHeaderSection)
+        }
+    }
+    
+    private var staticHeaderSection: some View {
         GeometryReader { geometry in
             let isCompact = verticalSizeClass == .compact
             
@@ -290,7 +389,8 @@ struct MediaDetailView: View {
                 .font(.title3)
                 .fontWeight(.bold)
             
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            let columns: [GridItem] = [GridItem(.flexible()), GridItem(.flexible())]
+            LazyVGrid(columns: columns, spacing: 12) {
                 if let status = viewModel.status {
                     InfoRow(label: "Status", value: status)
                 }
@@ -323,7 +423,7 @@ struct SeasonCard: View {
                 .frame(width: 100, height: 150)
                 .shadow(radius: isHovered ? 8 : 4)
                 .scaleEffect(isHovered ? 1.03 : 1.0)
-                .animation(.spring(response: 0.3), value: isHovered)
+                .animation(.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0.0), value: isHovered)
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(season.name ?? "Season \(season.seasonNumber)")
@@ -433,11 +533,11 @@ struct EpisodeRow: View {
                     if let rating = episode.voteAverage, rating > 0 {
                         HStack(spacing: 2) {
                             Image(systemName: "star.fill")
-                                .font(.system(size: 8))
                                 .foregroundColor(.yellow)
+                                .font(.system(size: 8))
                             Text(String(format: "%.1f", rating))
+                                .font(.caption2)
                         }
-                        .font(.caption2)
                     }
                 }
                 .foregroundColor(.secondary)
@@ -668,3 +768,4 @@ class MediaDetailViewModel: ObservableObject {
         originalLanguage: nil
     ))
 }
+

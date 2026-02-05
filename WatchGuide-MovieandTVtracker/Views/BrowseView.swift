@@ -199,22 +199,17 @@ class BrowseViewModel: ObservableObject {
         // Load network hubs (streaming services)
         networkHubs = StorageService.shared.getEnabledNetworkHubs()
         
-        // Load custom home rows
-        customHomeRows = StorageService.shared.getEnabledCustomHomeRows()
-        
         // Studios (circular hubs)
         studios = [
             StudioHub(
                 name: "20th Century Studios",
                 logoURL: "https://i.ibb.co/23tL20Sb/20th-century-studios-seeklogo.png",
                 listId: "dualipafan01/20th-century-studios"
-            ),
-            StudioHub(
-                name: "Warner Bros.",
-                logoURL: "https://i.ibb.co/wZ1HR70w/Pik-Png-com-warner-bros-logo-png-1514023.png",
-                listId: "dualipafan01/warner-bros"
             )
         ]
+        
+        // Load custom home rows
+        customHomeRows = StorageService.shared.getEnabledCustomHomeRows()
         
         // Load hero items based on user's selected source (concurrently)
         await withTaskGroup(of: Void.self) { group in
@@ -439,9 +434,9 @@ class BrowseViewModel: ObservableObject {
     private func fetchRow(_ endpoint: BrowseRowConfig.BrowseEndpoint) async throws -> [MediaItem] {
         switch endpoint {
         case .trendingMovies:
-            return try await TMDBService.shared.getTrending(mediaType: .movie).results
+            return try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results
         case .trendingTV:
-            return try await TMDBService.shared.getTrending(mediaType: .tv).results
+            return try await TMDBService.shared.getTrending(mediaType: .tv, timeWindow: "day").results
         case .popularMovies:
             return try await TMDBService.shared.getPopularMovies().results
         case .popularTV:
