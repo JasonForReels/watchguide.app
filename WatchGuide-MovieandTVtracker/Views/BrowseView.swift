@@ -814,13 +814,18 @@ struct DCStudiosSheet: View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Header with logo
-                Image("DCStudiosLogo")
-                    .resizable()
-                    .renderingMode(.template)
-                    .foregroundColor(colorScheme == .dark ? .white : .black)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(height: 60)
-                    .padding(.vertical, 16)
+                AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idnLU4lJS1/w/313/h/313/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1722965181273")) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(height: 60)
+                    default:
+                        EmptyView()
+                    }
+                }
+                .padding(.vertical, 16)
                 
                 // Tab picker
                 Picker("Content Type", selection: $selectedTab) {
