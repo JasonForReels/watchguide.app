@@ -10,6 +10,7 @@ struct HeroCarouselView: View {
     let onItemTap: (MediaItem) -> Void
     
     @State private var currentIndex = 0
+    @State private var autoScrollTimer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     
     var body: some View {
         GeometryReader { geometry in
@@ -125,6 +126,19 @@ struct HeroCarouselView: View {
             )
             .aspectRatio(16.0/9.0, contentMode: .fit)
         }
+        .onReceive(autoScrollTimer) { _ in
+            guard items.count > 1 else { return }
+            withAnimation(.easeInOut(duration: 0.9)) {
+                currentIndex = (currentIndex + 1) % items.count
+            }
+        }
+        .onChange(of: items.count) { _, newCount in
+            if newCount == 0 {
+                currentIndex = 0
+            } else if currentIndex >= newCount {
+                currentIndex = 0
+            }
+        }
         .padding(.horizontal)
         .padding(.bottom, 12)
     }
@@ -141,4 +155,3 @@ extension Array {
 #Preview {
     HeroCarouselView(items: [], onItemTap: { _ in })
 }
-

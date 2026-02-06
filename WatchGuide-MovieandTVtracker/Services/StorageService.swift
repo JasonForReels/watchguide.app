@@ -67,6 +67,7 @@ class StorageService: ObservableObject {
         browseRowsURL = documentsDirectory.appendingPathComponent("browse_rows.json")
         
         loadAll()
+        migrateBrowseRowsIfNeeded()
         initializeDefaultHubs()
         initializeNetworkHubs()
         
@@ -107,6 +108,32 @@ class StorageService: ObservableObject {
         } catch {
             print("Error saving \(url.lastPathComponent): \(error)")
         }
+    }
+
+    private func migrateBrowseRowsIfNeeded() {
+        guard !browseRows.contains(where: { $0.endpoint == .trendingPeople }) else { return }
+        
+        var updated = browseRows
+        let newRow = BrowseRowConfig(
+            id: "trending_people",
+            title: "Trending Actors",
+            endpoint: .trendingPeople,
+            isEnabled: true,
+            sortOrder: 0
+        )
+        
+        if let trendingTVIndex = updated.firstIndex(where: { $0.endpoint == .trendingTV }) {
+            updated.insert(newRow, at: trendingTVIndex + 1)
+        } else {
+            updated.append(newRow)
+        }
+        
+        for (index, _) in updated.enumerated() {
+            updated[index].sortOrder = index
+        }
+        
+        browseRows = updated
+        save(browseRows, to: browseRowsURL)
     }
     
     // MARK: - Default Company Hubs (Legacy)
@@ -532,4 +559,3 @@ class StorageService: ObservableObject {
         save(browseRows, to: browseRowsURL)
     }
 }
-

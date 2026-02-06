@@ -384,6 +384,7 @@ struct BrowseRowConfig: Identifiable, Codable {
     enum BrowseEndpoint: String, Codable {
         case trendingMovies = "trending_movies"
         case trendingTV = "trending_tv"
+        case trendingPeople = "trending_people"
         case popularMovies = "popular_movies"
         case popularTV = "popular_tv"
         case topRatedMovies = "top_rated_movies"
@@ -398,12 +399,13 @@ struct BrowseRowConfig: Identifiable, Codable {
         [
             BrowseRowConfig(id: "1", title: "Trending Movies", endpoint: .trendingMovies, isEnabled: true, sortOrder: 0),
             BrowseRowConfig(id: "2", title: "Trending TV Shows", endpoint: .trendingTV, isEnabled: true, sortOrder: 1),
-            BrowseRowConfig(id: "3", title: "Popular Movies", endpoint: .popularMovies, isEnabled: true, sortOrder: 2),
-            BrowseRowConfig(id: "4", title: "Popular TV Shows", endpoint: .popularTV, isEnabled: true, sortOrder: 3),
-            BrowseRowConfig(id: "5", title: "Now Playing", endpoint: .nowPlayingMovies, isEnabled: true, sortOrder: 4),
-            BrowseRowConfig(id: "6", title: "Top Rated Movies", endpoint: .topRatedMovies, isEnabled: true, sortOrder: 5),
-            BrowseRowConfig(id: "7", title: "Top Rated TV Shows", endpoint: .topRatedTV, isEnabled: true, sortOrder: 6),
-            BrowseRowConfig(id: "8", title: "Upcoming Movies", endpoint: .upcomingMovies, isEnabled: true, sortOrder: 7),
+            BrowseRowConfig(id: "3", title: "Trending Actors", endpoint: .trendingPeople, isEnabled: true, sortOrder: 2),
+            BrowseRowConfig(id: "4", title: "Popular Movies", endpoint: .popularMovies, isEnabled: true, sortOrder: 3),
+            BrowseRowConfig(id: "5", title: "Popular TV Shows", endpoint: .popularTV, isEnabled: true, sortOrder: 4),
+            BrowseRowConfig(id: "6", title: "Now Playing", endpoint: .nowPlayingMovies, isEnabled: true, sortOrder: 5),
+            BrowseRowConfig(id: "7", title: "Top Rated Movies", endpoint: .topRatedMovies, isEnabled: true, sortOrder: 6),
+            BrowseRowConfig(id: "8", title: "Top Rated TV Shows", endpoint: .topRatedTV, isEnabled: true, sortOrder: 7),
+            BrowseRowConfig(id: "9", title: "Upcoming Movies", endpoint: .upcomingMovies, isEnabled: true, sortOrder: 8),
         ]
     }
 }
@@ -420,4 +422,3 @@ struct SearchHistoryItem: Identifiable, Codable {
         self.timestamp = Date()
     }
 }
-

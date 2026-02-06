@@ -94,6 +94,33 @@ actor TMDBService {
             totalResults: response.totalResults
         )
     }
+
+    func getTrendingPeople(timeWindow: String = "week", page: Int = 1) async throws -> TMDBResponse<Person> {
+        let endpoint = "/trending/person/\(timeWindow)"
+        let response: TMDBResponse<Person> = try await request(endpoint, queryItems: [URLQueryItem(name: "page", value: "\(page)")])
+        return response
+    }
+
+    // MARK: - Media Images (Logos)
+    func getMediaLogos(mediaType: MediaType, id: Int) async throws -> [MediaImage] {
+        let endpoint: String
+        switch mediaType {
+        case .movie:
+            endpoint = "/movie/\(id)/images"
+        case .tv:
+            endpoint = "/tv/\(id)/images"
+        case .person:
+            return []
+        }
+        
+        let response: MediaImagesResponse = try await request(
+            endpoint,
+            queryItems: [
+                URLQueryItem(name: "include_image_language", value: "en,null")
+            ]
+        )
+        return response.logos
+    }
     
     // MARK: - Movies
     func getPopularMovies(page: Int = 1) async throws -> TMDBResponse<MediaItem> {

@@ -456,6 +456,30 @@ struct WatchProvider: Identifiable, Codable {
     }
 }
 
+// MARK: - Media Images (Logos)
+struct MediaImagesResponse: Codable {
+    let logos: [MediaImage]
+}
+
+struct MediaImage: Codable {
+    let filePath: String
+    let iso639_1: String?
+    let width: Int?
+    let height: Int?
+    let voteAverage: Double?
+    let voteCount: Int?
+    let aspectRatio: Double?
+    
+    enum CodingKeys: String, CodingKey {
+        case filePath = "file_path"
+        case iso639_1 = "iso_639_1"
+        case width, height
+        case voteAverage = "vote_average"
+        case voteCount = "vote_count"
+        case aspectRatio = "aspect_ratio"
+    }
+}
+
 // MARK: - Person
 struct Person: Identifiable, Codable {
     let id: Int

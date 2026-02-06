@@ -263,6 +263,9 @@ struct MediaDetailView: View {
                         .padding(12)
                         , alignment: .bottomTrailing
                     )
+                    .overlay(alignment: .leading) {
+                        logoOverlay(width: width, height: height)
+                    }
                 }
                 .aspectRatio(16.0/9.0, contentMode: .fit)
                 .clipped()
@@ -303,67 +306,90 @@ struct MediaDetailView: View {
                 .frame(width: width, height: height)
                 
                 // Content overlay
-                HStack(alignment: .bottom, spacing: isCompact ? 12 : 16) {
-                    // Poster
-                    PosterImageView(posterPath: item.posterPath, size: .large)
-                        .frame(width: isCompact ? 80 : 110, height: isCompact ? 120 : 165)
-                        .shadow(radius: 10)
+                VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
+                    // Type badge
+                    Text(item.resolvedMediaType == .movie ? "MOVIE" : "TV SHOW")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(4)
                     
-                    // Info
-                    VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
-                        // Type badge
-                        Text(item.resolvedMediaType == .movie ? "MOVIE" : "TV SHOW")
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Color.accentColor)
-                            .foregroundColor(.white)
-                            .cornerRadius(4)
+                    // Title
+                    Text(item.displayTitle)
+                        .font(isCompact ? .title3 : .title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .lineLimit(isCompact ? 2 : 3)
+                    
+                    // Meta info
+                    HStack(spacing: 12) {
+                        if let year = item.year {
+                            Text(year)
+                        }
                         
-                        // Title
-                        Text(item.displayTitle)
-                            .font(isCompact ? .title3 : .title2)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                            .lineLimit(isCompact ? 2 : 3)
+                        if let runtime = viewModel.runtime {
+                            Text(runtime)
+                        }
                         
-                        // Meta info
-                        HStack(spacing: 12) {
-                            if let year = item.year {
-                                Text(year)
-                            }
-                            
-                            if let runtime = viewModel.runtime {
-                                Text(runtime)
-                            }
-                            
-                            if let rating = item.voteAverage, rating > 0 {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "star.fill")
-                                        .foregroundColor(.yellow)
-                                    Text(String(format: "%.1f", rating))
-                                }
+                        if let rating = item.voteAverage, rating > 0 {
+                            HStack(spacing: 4) {
+                                Image(systemName: "star.fill")
+                                    .foregroundColor(.yellow)
+                                Text(String(format: "%.1f", rating))
                             }
                         }
-                        .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.8))
-                        
-                        // Genres
-                        if let genres = viewModel.genres {
-                            Text(genres)
-                                .font(.caption)
-                                .foregroundColor(.white.opacity(0.7))
-                                .lineLimit(1)
-                        }
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.8))
+                    
+                    // Genres
+                    if let genres = viewModel.genres {
+                        Text(genres)
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.7))
+                            .lineLimit(1)
                     }
                 }
                 .padding(isCompact ? 12 : 16)
                 .padding(.bottom, isCompact ? 4 : 8)
             }
             .frame(width: width, height: height)
+            .overlay(alignment: .leading) {
+                logoOverlay(width: width, height: height)
+            }
         }
         .aspectRatio(16.0/9.0, contentMode: .fit)
+    }
+    
+    @ViewBuilder
+    private func logoOverlay(width: CGFloat, height: CGFloat) -> some View {
+        if let logoPath = viewModel.logoPath,
+           let url = TMDBService.shared.imageURL(path: logoPath, size: .logo) {
+            let maxWidth = min(width * 0.32, 220)
+            let maxHeight = min(height * 0.18, 70)
+            
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .renderingMode(.original)
+                        .resizable()
+                        .scaledToFit()
+                default:
+                    EmptyView()
+                }
+            }
+            .frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: .leading)
+            .frame(width: width, height: height, alignment: .leading)
+            .padding(.leading, 16)
+            .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 3)
+            .allowsHitTesting(false)
+        } else {
+            EmptyView()
+        }
     }
     
     // MARK: - Seasons Section
@@ -592,6 +618,7 @@ class MediaDetailViewModel: ObservableObject {
     @Published var watchProvidersLink: String?
     @Published var seasons: [Season]?
     @Published var savedItem: SavedMediaItem?
+    @Published var logoPath: String?
     
     private let currencyFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -633,14 +660,17 @@ class MediaDetailViewModel: ObservableObject {
             }
             
             savedItem = SavedMediaItem(from: details)
-            
-            // Load OMDb ratings
-            if let imdbId = details.imdbId {
-                ratings = await OMDbService.shared.getRatingsSummary(imdbId: imdbId)
-            }
         } catch {
             print("Error loading movie details: \(error)")
             overview = item.overview
+        }
+        
+        // Load title logo
+        do {
+            let logos = try await TMDBService.shared.getMediaLogos(mediaType: .movie, id: item.id)
+            logoPath = selectPreferredLogo(from: logos)
+        } catch {
+            print("Error loading movie logos: \(error)")
         }
         
         // Load credits
@@ -701,14 +731,17 @@ class MediaDetailViewModel: ObservableObject {
             }
             
             savedItem = SavedMediaItem(from: details)
-            
-            // Load OMDb ratings
-            if let imdbId = details.externalIds?.imdbId {
-                ratings = await OMDbService.shared.getRatingsSummary(imdbId: imdbId)
-            }
         } catch {
             print("Error loading TV details: \(error)")
             overview = item.overview
+        }
+        
+        // Load title logo
+        do {
+            let logos = try await TMDBService.shared.getMediaLogos(mediaType: .tv, id: item.id)
+            logoPath = selectPreferredLogo(from: logos)
+        } catch {
+            print("Error loading TV logos: \(error)")
         }
         
         // Load credits
@@ -750,6 +783,13 @@ class MediaDetailViewModel: ObservableObject {
         } catch {
             print("Error loading similar: \(error)")
         }
+    }
+    
+    private func selectPreferredLogo(from logos: [MediaImage]) -> String? {
+        if let english = logos.first(where: { $0.iso639_1 == "en" }) {
+            return english.filePath
+        }
+        return logos.first?.filePath
     }
 }
 

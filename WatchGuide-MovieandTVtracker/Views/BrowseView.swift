@@ -13,7 +13,9 @@ struct BrowseView: View {
     @State private var showTwentiethCenturySheet = false
     @State private var showWarnerBrosSheet = false
     @State private var showDreamWorksSheet = false
+    @State private var showDCStudiosSheet = false
     @State private var showCustomizeSheet = false
+    @State private var selectedPerson: Person?
     
     var body: some View {
         NavigationStack {
@@ -38,9 +40,17 @@ struct BrowseView: View {
                         .padding(.top, 4)
                     }
                     
-                    // Browse Rows with 20th Century Studios button inserted
-                    ForEach(Array(viewModel.rows.enumerated()), id: \.element.title) { index, row in
-                        if !row.items.isEmpty {
+                    // Browse Rows with Studios buttons inserted
+                    ForEach(Array(viewModel.rows.enumerated()), id: \.element.title) { _, row in
+                        if !row.people.isEmpty {
+                            PeopleRowView(
+                                title: row.title,
+                                people: row.people,
+                                onPersonTap: { person in
+                                    selectedPerson = person
+                                }
+                            )
+                        } else if !row.items.isEmpty {
                             MediaRowView(
                                 title: row.title,
                                 items: row.items,
@@ -61,6 +71,9 @@ struct BrowseView: View {
                                 },
                                 onDreamWorksTap: {
                                     showDreamWorksSheet = true
+                                },
+                                onDCStudiosTap: {
+                                    showDCStudiosSheet = true
                                 }
                             )
                             .padding(.horizontal)
@@ -98,11 +111,21 @@ struct BrowseView: View {
             .sheet(isPresented: $showDreamWorksSheet) {
                 DreamWorksSheet(selectedItem: $selectedItem)
             }
+            .sheet(isPresented: $showDCStudiosSheet) {
+                DCStudiosSheet(selectedItem: $selectedItem)
+            }
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
             }
             .onChange(of: StorageService.shared.settings.heroCarouselSource) { _, _ in
                 Task { await viewModel.refresh() }
+            }
+            .sheet(item: $selectedPerson) { person in
+                PersonDetailView(
+                    personId: person.id,
+                    personName: person.name,
+                    profilePath: person.profilePath
+                )
             }
         }
     }
@@ -113,12 +136,17 @@ struct StudiosHubRow: View {
     let onTwentiethCenturyTap: () -> Void
     let onWarnerBrosTap: () -> Void
     let onDreamWorksTap: () -> Void
+    let onDCStudiosTap: () -> Void
     
     var body: some View {
-        HStack(spacing: 32) {
-            TwentiethCenturyStudiosButton(action: onTwentiethCenturyTap)
-            WarnerBrosButton(action: onWarnerBrosTap)
-            DreamWorksButton(action: onDreamWorksTap)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 20) {
+                TwentiethCenturyStudiosButton(action: onTwentiethCenturyTap)
+                WarnerBrosButton(action: onWarnerBrosTap)
+                DreamWorksButton(action: onDreamWorksTap)
+                DCStudiosButton(action: onDCStudiosTap)
+            }
+            .padding(.horizontal)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
@@ -129,7 +157,6 @@ struct StudiosHubRow: View {
 struct TwentiethCenturyStudiosButton: View {
     let action: () -> Void
     @State private var isPressed = false
-    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         VStack(spacing: 8) {
@@ -140,15 +167,14 @@ struct TwentiethCenturyStudiosButton: View {
                         .frame(width: 80, height: 80)
                         .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
                     
-                    AsyncImage(url: URL(string: "https://i.ibb.co/0VZ8BZdZ/20th-century-studios-seeklogo.png")) { phase in
+                    AsyncImage(url: URL(string: "https://cdn.brandfetch.io/id80eyhRc1/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1667562091449")) { phase in
                         switch phase {
                         case .success(let image):
                             image
                                 .resizable()
-                                .renderingMode(.template)
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 60, height: 60)
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 80, height: 80)
+                                .clipShape(Circle())
                         case .failure, .empty:
                             Text("20th")
                                 .font(.caption)
@@ -158,6 +184,7 @@ struct TwentiethCenturyStudiosButton: View {
                         }
                     }
                 }
+                .clipShape(Circle())
                 .scaleEffect(isPressed ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
             }
@@ -178,7 +205,6 @@ struct TwentiethCenturyStudiosButton: View {
 struct WarnerBrosButton: View {
     let action: () -> Void
     @State private var isPressed = false
-    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         VStack(spacing: 8) {
@@ -189,15 +215,14 @@ struct WarnerBrosButton: View {
                         .frame(width: 80, height: 80)
                         .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
                     
-                    AsyncImage(url: URL(string: "https://i.ibb.co/wZ1HR70w/Pik-Png-com-warner-bros-logo-png-1514023.png")) { phase in
+                    AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idTzC5o569/w/480/h/480/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1758179815308")) { phase in
                         switch phase {
                         case .success(let image):
                             image
                                 .resizable()
-                                .renderingMode(.template)
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 60, height: 60)
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 80, height: 80)
+                                .clipShape(Circle())
                         case .failure, .empty:
                             Text("WB")
                                 .font(.caption)
@@ -207,6 +232,7 @@ struct WarnerBrosButton: View {
                         }
                     }
                 }
+                .clipShape(Circle())
                 .scaleEffect(isPressed ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
             }
@@ -227,7 +253,6 @@ struct WarnerBrosButton: View {
 struct DreamWorksButton: View {
     let action: () -> Void
     @State private var isPressed = false
-    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         VStack(spacing: 8) {
@@ -238,15 +263,14 @@ struct DreamWorksButton: View {
                         .frame(width: 80, height: 80)
                         .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
                     
-                    AsyncImage(url: URL(string: "https://i.ibb.co/ZRKVxnCG/Dream-Works-Animation-2016-Moon-Boy-svg.png")) { phase in
+                    AsyncImage(url: URL(string: "https://cdn.mos.cms.futurecdn.net/xAzmv9D9dkbJeweJuwtWhU.jpg")) { phase in
                         switch phase {
                         case .success(let image):
                             image
                                 .resizable()
-                                .renderingMode(.template)
-                                .foregroundColor(colorScheme == .dark ? .white : .black)
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 60, height: 60)
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 80, height: 80)
+                                .clipShape(Circle())
                         case .failure, .empty:
                             Text("DW")
                                 .font(.caption)
@@ -256,6 +280,7 @@ struct DreamWorksButton: View {
                         }
                     }
                 }
+                .clipShape(Circle())
                 .scaleEffect(isPressed ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
             }
@@ -265,6 +290,54 @@ struct DreamWorksButton: View {
             }, perform: {})
             
             Text("DreamWorks")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
+// MARK: - DC Studios Button
+struct DCStudiosButton: View {
+    let action: () -> Void
+    @State private var isPressed = false
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            Button(action: action) {
+                ZStack {
+                    Circle()
+                        .fill(Color(.systemGray6))
+                        .frame(width: 80, height: 80)
+                        .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
+                    
+                    AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idnLU4lJS1/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1722965171975")) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 80, height: 80)
+                                .clipShape(Circle())
+                        case .failure, .empty:
+                            Text("DC")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                        @unknown default:
+                            ProgressView()
+                        }
+                    }
+                }
+                .clipShape(Circle())
+                .scaleEffect(isPressed ? 1.05 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
+            }
+            .buttonStyle(.plain)
+            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+                isPressed = pressing
+            }, perform: {})
+            
+            Text("DC Studios")
                 .font(.caption)
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
@@ -722,6 +795,149 @@ struct DreamWorksSheet: View {
     }
 }
 
+// MARK: - DC Studios Sheet
+struct DCStudiosSheet: View {
+    @Binding var selectedItem: MediaItem?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var allItems: [SavedMediaItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var selectedTab = 0
+    
+    private var movies: [SavedMediaItem] {
+        allItems.filter { $0.mediaType == .movie }
+    }
+    
+    private var tvShows: [SavedMediaItem] {
+        allItems.filter { $0.mediaType == .tv }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Header with logo
+                Image("DCStudiosLogo")
+                    .resizable()
+                    .renderingMode(.template)
+                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 60)
+                    .padding(.vertical, 16)
+                
+                // Tab picker
+                Picker("Content Type", selection: $selectedTab) {
+                    Text("Movies").tag(0)
+                    Text("TV").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.bottom, 16)
+                
+                if isLoading {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Spacer()
+                } else if let error = error {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundColor(.orange)
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                    Spacer()
+                } else {
+                    let items = selectedTab == 0 ? movies : tvShows
+                    
+                    if items.isEmpty {
+                        Spacer()
+                        VStack(spacing: 12) {
+                            Image(systemName: selectedTab == 0 ? "film" : "tv")
+                                .font(.largeTitle)
+                                .foregroundColor(.secondary)
+                            Text("No \(selectedTab == 0 ? "movies" : "TV shows") found")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    } else {
+                        ScrollView {
+                            LazyVGrid(columns: [
+                                GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                            ], spacing: 20) {
+                                ForEach(items) { item in
+                                    SavedMediaPosterCard(item: item)
+                                        .onTapGesture {
+                                            // Convert SavedMediaItem to MediaItem
+                                            let mediaItem = MediaItem(
+                                                id: item.mediaId,
+                                                title: item.mediaType == .movie ? item.title : nil,
+                                                name: item.mediaType == .tv ? item.title : nil,
+                                                originalTitle: nil,
+                                                originalName: nil,
+                                                overview: item.overview,
+                                                posterPath: item.posterPath,
+                                                backdropPath: item.backdropPath,
+                                                releaseDate: item.year,
+                                                firstAirDate: item.year,
+                                                voteAverage: item.voteAverage,
+                                                voteCount: nil,
+                                                popularity: nil,
+                                                genreIds: nil,
+                                                mediaType: item.mediaType.rawValue,
+                                                adult: nil,
+                                                originalLanguage: nil
+                                            )
+                                            selectedItem = mediaItem
+                                            dismiss()
+                                        }
+                                }
+                            }
+                            .padding()
+                        }
+                    }
+                }
+            }
+            .navigationTitle("DC Studios")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .task {
+            await loadContent()
+        }
+    }
+    
+    private func loadContent() async {
+        isLoading = true
+        error = nil
+        
+        do {
+            // Fetch from MDBList: dualipafan01/dc-studios
+            allItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: "dualipafan01/dc-studios")
+            if allItems.isEmpty {
+                error = "No content found in this list."
+            }
+        } catch {
+            self.error = "Failed to load content. Please try again."
+            print("DC Studios error: \(error)")
+        }
+        
+        isLoading = false
+    }
+}
+
 // MARK: - Browse View Model
 @MainActor
 class BrowseViewModel: ObservableObject {
@@ -733,6 +949,7 @@ class BrowseViewModel: ObservableObject {
     struct MediaRow {
         let title: String
         let items: [MediaItem]
+        let people: [Person]
     }
     
     func loadContent() async {
@@ -804,8 +1021,8 @@ class BrowseViewModel: ObservableObject {
             for (index, config) in configs.enumerated() {
                 group.addTask {
                     do {
-                        let items = try await self.fetchRow(config.endpoint)
-                        return (index, MediaRow(title: config.title, items: items))
+                        let row = try await self.fetchRow(config)
+                        return (index, row)
                     } catch {
                         print("Error loading \(config.title): \(error)")
                         return (index, nil)
@@ -824,28 +1041,41 @@ class BrowseViewModel: ObservableObject {
         rows = loadedRows.sorted(by: { $0.0 < $1.0 }).map { $0.1 }
     }
     
-    private func fetchRow(_ endpoint: BrowseRowConfig.BrowseEndpoint) async throws -> [MediaItem] {
-        switch endpoint {
+    private func fetchRow(_ config: BrowseRowConfig) async throws -> MediaRow {
+        switch config.endpoint {
         case .trendingMovies:
-            return try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results
+            let items = try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results
+            return MediaRow(title: config.title, items: items, people: [])
         case .trendingTV:
-            return try await TMDBService.shared.getTrending(mediaType: .tv, timeWindow: "day").results
+            let items = try await TMDBService.shared.getTrending(mediaType: .tv, timeWindow: "day").results
+            return MediaRow(title: config.title, items: items, people: [])
+        case .trendingPeople:
+            let people = try await TMDBService.shared.getTrendingPeople(timeWindow: "week").results
+            return MediaRow(title: config.title, items: [], people: people)
         case .popularMovies:
-            return try await TMDBService.shared.getPopularMovies().results
+            let items = try await TMDBService.shared.getPopularMovies().results
+            return MediaRow(title: config.title, items: items, people: [])
         case .popularTV:
-            return try await TMDBService.shared.getPopularTV().results
+            let items = try await TMDBService.shared.getPopularTV().results
+            return MediaRow(title: config.title, items: items, people: [])
         case .topRatedMovies:
-            return try await TMDBService.shared.getTopRatedMovies().results
+            let items = try await TMDBService.shared.getTopRatedMovies().results
+            return MediaRow(title: config.title, items: items, people: [])
         case .topRatedTV:
-            return try await TMDBService.shared.getTopRatedTV().results
+            let items = try await TMDBService.shared.getTopRatedTV().results
+            return MediaRow(title: config.title, items: items, people: [])
         case .nowPlayingMovies:
-            return try await TMDBService.shared.getNowPlayingMovies().results
+            let items = try await TMDBService.shared.getNowPlayingMovies().results
+            return MediaRow(title: config.title, items: items, people: [])
         case .airingTodayTV:
-            return try await TMDBService.shared.getAiringTodayTV().results
+            let items = try await TMDBService.shared.getAiringTodayTV().results
+            return MediaRow(title: config.title, items: items, people: [])
         case .upcomingMovies:
-            return try await TMDBService.shared.getUpcomingMovies().results
+            let items = try await TMDBService.shared.getUpcomingMovies().results
+            return MediaRow(title: config.title, items: items, people: [])
         case .onTheAirTV:
-            return try await TMDBService.shared.getOnTheAirTV().results
+            let items = try await TMDBService.shared.getOnTheAirTV().results
+            return MediaRow(title: config.title, items: items, people: [])
         }
     }
 }
@@ -937,9 +1167,6 @@ extension NetworkHub {
         case "Disney Channel":
             // TMDB company id for Disney Channel
             return [2739]
-        case "Showmax":
-            // TMDB company id for Showmax (placeholder if unknown)
-            return [128351]
         default:
             return []
         }
@@ -1243,5 +1470,3 @@ struct BrowseCustomizeSheet: View {
 #Preview {
     BrowseView(selectedItem: .constant(nil))
 }
-
-
