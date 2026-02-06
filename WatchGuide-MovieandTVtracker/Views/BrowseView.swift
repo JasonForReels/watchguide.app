@@ -272,7 +272,8 @@ struct DreamWorksButton: View {
                         .frame(width: 80, height: 80)
                         .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
                     
-                    AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idj7QnEvUG/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1764869429974")) { phase in
+                    // Using PNG icon instead of SVG (SVG not supported by AsyncImage)
+                    AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idj7QnEvUG/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1764869429889")) { phase in
                         switch phase {
                         case .success(let image):
                             image
