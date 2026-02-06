@@ -272,7 +272,7 @@ struct DreamWorksButton: View {
                         .frame(width: 80, height: 80)
                         .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
                     
-                    AsyncImage(url: URL(string: "https://pbs.twimg.com/profile_images/1715478321411346432/Yx2QVz1D_400x400.jpg")) { phase in
+                    AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idj7QnEvUG/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1764869429974")) { phase in
                         switch phase {
                         case .success(let image):
                             image
@@ -1332,6 +1332,8 @@ struct NetworkHubCard: View {
             return "https://cdn.brandfetch.io/idIaTUzyS6/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1764405218519"
         case "Paramount+":
             return "https://cdn.brandfetch.io/idU9biO3N_/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1722978255332"
+        case "Disney Channel":
+            return "https://64.media.tumblr.com/cdece8050f87cea787abc3008ec9ff5b/04293b9d5dd1dd70-70/s500x750/afeff4503924fbc47e2a8c196937d86b070a71d6.png"
         default:
             return hub.logoURL ?? ""
         }
@@ -1418,7 +1420,7 @@ struct NetworkHubSheet: View {
         case "Disney+":
             return "https://cdn.brandfetch.io/idhQlYRiX2/theme/light/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1769147818509"
         case "Netflix":
-            return "https://cdn.brandfetch.io/ideQwN5lBE/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1741362568409"
+            return "https://cdn.brandfetch.io/ideQwN5lBE/theme/light/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1741362568562"
         case "Showmax":
             return "https://cdn.brandfetch.io/id_ej-GSqX/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1712822097790"
         case "Max":
@@ -1427,6 +1429,8 @@ struct NetworkHubSheet: View {
             return "https://cdn.brandfetch.io/idIaTUzyS6/theme/light/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1764405218440"
         case "Paramount+":
             return "https://cdn.brandfetch.io/idU9biO3N_/theme/light/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1758268970538"
+        case "Disney Channel":
+            return "https://cdn.brandfetch.io/idrq2iCmCC/w/300/h/126/theme/light/logo.png?c=1bxid64Mup7aczewSAYMX&t=1769179360009"
         default:
             return hub.logoURL ?? ""
         }
