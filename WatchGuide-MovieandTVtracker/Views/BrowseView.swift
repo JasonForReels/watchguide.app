@@ -14,6 +14,7 @@ struct BrowseView: View {
     @State private var showWarnerBrosSheet = false
     @State private var showDreamWorksSheet = false
     @State private var showDCStudiosSheet = false
+    @State private var showUniversalPicturesSheet = false
     @State private var showCustomizeSheet = false
     @State private var selectedPerson: Person?
     
@@ -74,6 +75,9 @@ struct BrowseView: View {
                                 },
                                 onDCStudiosTap: {
                                     showDCStudiosSheet = true
+                                },
+                                onUniversalPicturesTap: {
+                                    showUniversalPicturesSheet = true
                                 }
                             )
                             .padding(.horizontal)
@@ -114,6 +118,9 @@ struct BrowseView: View {
             .sheet(isPresented: $showDCStudiosSheet) {
                 DCStudiosSheet(selectedItem: $selectedItem)
             }
+            .sheet(isPresented: $showUniversalPicturesSheet) {
+                UniversalPicturesSheet(selectedItem: $selectedItem)
+            }
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
             }
@@ -137,6 +144,7 @@ struct StudiosHubRow: View {
     let onWarnerBrosTap: () -> Void
     let onDreamWorksTap: () -> Void
     let onDCStudiosTap: () -> Void
+    let onUniversalPicturesTap: () -> Void
     
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -145,6 +153,7 @@ struct StudiosHubRow: View {
                 WarnerBrosButton(action: onWarnerBrosTap)
                 DreamWorksButton(action: onDreamWorksTap)
                 DCStudiosButton(action: onDCStudiosTap)
+                UniversalPicturesButton(action: onUniversalPicturesTap)
             }
             .padding(.horizontal)
         }
@@ -263,7 +272,7 @@ struct DreamWorksButton: View {
                         .frame(width: 80, height: 80)
                         .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
                     
-                    AsyncImage(url: URL(string: "https://cdn.mos.cms.futurecdn.net/xAzmv9D9dkbJeweJuwtWhU.jpg")) { phase in
+                    AsyncImage(url: URL(string: "https://pbs.twimg.com/profile_images/1715478321411346432/Yx2QVz1D_400x400.jpg")) { phase in
                         switch phase {
                         case .success(let image):
                             image
@@ -338,6 +347,54 @@ struct DCStudiosButton: View {
             }, perform: {})
             
             Text("DC Studios")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
+// MARK: - Universal Pictures Button
+struct UniversalPicturesButton: View {
+    let action: () -> Void
+    @State private var isPressed = false
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            Button(action: action) {
+                ZStack {
+                    Circle()
+                        .fill(Color(.systemGray6))
+                        .frame(width: 80, height: 80)
+                        .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
+                    
+                    AsyncImage(url: URL(string: "https://cdn.brandfetch.io/id4AnmmNSk/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1767628904945")) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 80, height: 80)
+                                .clipShape(Circle())
+                        case .failure, .empty:
+                            Text("UNI")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                        @unknown default:
+                            ProgressView()
+                        }
+                    }
+                }
+                .clipShape(Circle())
+                .scaleEffect(isPressed ? 1.05 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
+            }
+            .buttonStyle(.plain)
+            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+                isPressed = pressing
+            }, perform: {})
+            
+            Text("Universal")
                 .font(.caption)
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
@@ -933,6 +990,153 @@ struct DCStudiosSheet: View {
         } catch {
             self.error = "Failed to load content. Please try again."
             print("DC Studios error: \(error)")
+        }
+        
+        isLoading = false
+    }
+}
+
+// MARK: - Universal Pictures Sheet
+struct UniversalPicturesSheet: View {
+    @Binding var selectedItem: MediaItem?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var allItems: [SavedMediaItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var selectedTab = 0
+    
+    private var movies: [SavedMediaItem] {
+        allItems.filter { $0.mediaType == .movie }
+    }
+    
+    private var tvShows: [SavedMediaItem] {
+        allItems.filter { $0.mediaType == .tv }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Header with logo
+                AsyncImage(url: URL(string: "https://cdn.brandfetch.io/id4AnmmNSk/theme/light/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1767628904850")) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(height: 60)
+                    default:
+                        EmptyView()
+                    }
+                }
+                .padding(.vertical, 16)
+                
+                // Tab picker
+                Picker("Content Type", selection: $selectedTab) {
+                    Text("Movies").tag(0)
+                    Text("TV").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.bottom, 16)
+                
+                if isLoading {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Spacer()
+                } else if let error = error {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundColor(.orange)
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                    Spacer()
+                } else {
+                    let items = selectedTab == 0 ? movies : tvShows
+                    
+                    if items.isEmpty {
+                        Spacer()
+                        VStack(spacing: 12) {
+                            Image(systemName: selectedTab == 0 ? "film" : "tv")
+                                .font(.largeTitle)
+                                .foregroundColor(.secondary)
+                            Text("No \(selectedTab == 0 ? "movies" : "TV shows") found")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    } else {
+                        ScrollView {
+                            LazyVGrid(columns: [
+                                GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                            ], spacing: 20) {
+                                ForEach(items) { item in
+                                    SavedMediaPosterCard(item: item)
+                                        .onTapGesture {
+                                            // Convert SavedMediaItem to MediaItem
+                                            let mediaItem = MediaItem(
+                                                id: item.mediaId,
+                                                title: item.mediaType == .movie ? item.title : nil,
+                                                name: item.mediaType == .tv ? item.title : nil,
+                                                originalTitle: nil,
+                                                originalName: nil,
+                                                overview: item.overview,
+                                                posterPath: item.posterPath,
+                                                backdropPath: item.backdropPath,
+                                                releaseDate: item.year,
+                                                firstAirDate: item.year,
+                                                voteAverage: item.voteAverage,
+                                                voteCount: nil,
+                                                popularity: nil,
+                                                genreIds: nil,
+                                                mediaType: item.mediaType.rawValue,
+                                                adult: nil,
+                                                originalLanguage: nil
+                                            )
+                                            selectedItem = mediaItem
+                                            dismiss()
+                                        }
+                                }
+                            }
+                            .padding()
+                        }
+                    }
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .task {
+            await loadContent()
+        }
+    }
+    
+    private func loadContent() async {
+        isLoading = true
+        error = nil
+        
+        do {
+            // Fetch from MDBList: dualipafan01/universal-pictures
+            allItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: "dualipafan01/universal-pictures")
+            if allItems.isEmpty {
+                error = "No content found in this list."
+            }
+        } catch {
+            self.error = "Failed to load content. Please try again."
+            print("Universal Pictures error: \(error)")
         }
         
         isLoading = false
