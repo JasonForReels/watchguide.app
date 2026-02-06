@@ -461,7 +461,6 @@ struct TwentiethCenturyStudiosSheet: View {
                     }
                 }
             }
-            .navigationTitle("20th Century Studios")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -611,7 +610,6 @@ struct WarnerBrosSheet: View {
                     }
                 }
             }
-            .navigationTitle("Warner Bros")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -761,7 +759,6 @@ struct DreamWorksSheet: View {
                     }
                 }
             }
-            .navigationTitle("DreamWorks")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -904,7 +901,6 @@ struct DCStudiosSheet: View {
                     }
                 }
             }
-            .navigationTitle("DC Studios")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1112,48 +1108,71 @@ struct NetworkHubCard: View {
     @State private var isHovered = false
     @Environment(\.colorScheme) private var colorScheme
     
+    // Button logo URLs (circular icons with original colors)
+    private var buttonLogoURL: String {
+        switch hub.name {
+        case "Disney+":
+            return "https://cdn.brandfetch.io/idhQlYRiX2/w/160/h/160/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1760938091674"
+        case "Netflix":
+            return "https://cdn.brandfetch.io/ideQwN5lBE/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1741362553726"
+        case "Showmax":
+            return "https://cdn.brandfetch.io/id_ej-GSqX/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1712822087456"
+        case "Max":
+            return "https://cdn.brandfetch.io/idKKo6p4ks/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1754355557626"
+        case "Peacock":
+            return "https://cdn.brandfetch.io/idIaTUzyS6/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1764405218519"
+        case "Paramount+":
+            return "https://cdn.brandfetch.io/idU9biO3N_/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1722978255332"
+        default:
+            return hub.logoURL ?? ""
+        }
+    }
+    
     var body: some View {
         VStack(spacing: 8) {
             ZStack {
-                RoundedRectangle(cornerRadius: 12)
+                Circle()
                     .fill(Color(.systemGray6))
-                    .frame(width: 100, height: 56)
+                    .frame(width: 80, height: 80)
+                    .shadow(color: .black.opacity(0.15), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
                 
-                if let logoURL = hub.logoURL, let url = URL(string: logoURL) {
+                if let url = URL(string: buttonLogoURL), !buttonLogoURL.isEmpty {
                     AsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let image):
                             image
                                 .resizable()
-                                .renderingMode(.template)
-                                .foregroundStyle(colorScheme == .light ? .black : .white)
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 80, height: 40)
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 80, height: 80)
+                                .clipShape(Circle())
                         case .failure, .empty:
                             Text(hub.name)
-                                .font(.caption)
+                                .font(.caption2)
                                 .fontWeight(.semibold)
                                 .multilineTextAlignment(.center)
                                 .lineLimit(2)
-                                .padding(.horizontal, 4)
+                                .frame(width: 70)
                         @unknown default:
-                            Text(hub.name)
-                                .font(.caption)
-                                .fontWeight(.semibold)
+                            ProgressView()
                         }
                     }
                 } else {
                     Text(hub.name)
-                        .font(.caption)
+                        .font(.caption2)
                         .fontWeight(.semibold)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
-                        .padding(.horizontal, 4)
+                        .frame(width: 70)
                 }
             }
-            .shadow(color: .black.opacity(0.15), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
+            .clipShape(Circle())
             .scaleEffect(isHovered ? 1.05 : 1.0)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+            
+            Text(hub.name)
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
         }
         .onHover { hovering in
             isHovered = hovering
@@ -1184,18 +1203,36 @@ struct NetworkHubSheet: View {
     @State private var isLoading = true
     @State private var selectedTab = 0
     
+    // In-hub logo URLs (transparent background SVG logos)
+    private var inHubLogoURL: String {
+        switch hub.name {
+        case "Disney+":
+            return "https://cdn.brandfetch.io/idhQlYRiX2/theme/light/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1769147818509"
+        case "Netflix":
+            return "https://cdn.brandfetch.io/ideQwN5lBE/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1741362568409"
+        case "Showmax":
+            return "https://cdn.brandfetch.io/id_ej-GSqX/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1712822097790"
+        case "Max":
+            return "https://cdn.brandfetch.io/idKKo6p4ks/theme/light/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1719475129913"
+        case "Peacock":
+            return "https://cdn.brandfetch.io/idIaTUzyS6/theme/light/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1764405218440"
+        case "Paramount+":
+            return "https://cdn.brandfetch.io/idU9biO3N_/theme/light/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1758268970538"
+        default:
+            return hub.logoURL ?? ""
+        }
+    }
+    
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Header with logo
-                if let logoURL = hub.logoURL, let url = URL(string: logoURL) {
+                if let url = URL(string: inHubLogoURL), !inHubLogoURL.isEmpty {
                     AsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let image):
                             image
                                 .resizable()
-                                .renderingMode(.template)
-                                .foregroundStyle(colorScheme == .light ? .black : .white)
                                 .aspectRatio(contentMode: .fit)
                                 .frame(height: 40)
                         default:
@@ -1236,7 +1273,6 @@ struct NetworkHubSheet: View {
                     }
                 }
             }
-            .navigationTitle(hub.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
