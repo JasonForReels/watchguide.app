@@ -16,6 +16,7 @@ struct BrowseView: View {
     @State private var showDCStudiosSheet = false
     @State private var showUniversalPicturesSheet = false
     @State private var showCustomizeSheet = false
+    @State private var showSearchSheet = false
     @State private var selectedPerson: Person?
     
     var body: some View {
@@ -92,6 +93,13 @@ struct BrowseView: View {
                 await viewModel.loadContent()
             }
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        showSearchSheet = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showCustomizeSheet = true
@@ -122,6 +130,20 @@ struct BrowseView: View {
             }
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
+            }
+            .sheet(isPresented: $showSearchSheet) {
+                NavigationStack {
+                    SearchView(selectedItem: $selectedItem)
+                        .navigationTitle("Search")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Close") {
+                                    showSearchSheet = false
+                                }
+                            }
+                        }
+                }
             }
             .onChange(of: StorageService.shared.settings.heroCarouselSource) { _, _ in
                 Task { await viewModel.refresh() }

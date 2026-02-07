@@ -12,19 +12,26 @@ struct ContentView: View {
     @State private var selectedMediaItem: MediaItem?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
-    enum Tab: String, CaseIterable, Identifiable {
-        case browse = "Browse"
-        case search = "Search"
-        case lists = "Lists"
-        case ai = "AI"
-        case settings = "Settings"
+    enum Tab: Int, CaseIterable, Identifiable {
+        case browse = 0
+        case lists = 1
+        case ai = 2
+        case settings = 3
         
-        var id: String { rawValue }
+        var id: Int { rawValue }
+        
+        var label: String {
+            switch self {
+            case .browse: return "Home"
+            case .lists: return "Lists"
+            case .ai: return "AI"
+            case .settings: return "Settings"
+            }
+        }
         
         var iconName: String {
             switch self {
-            case .browse: return "rectangle.grid.2x2.fill"
-            case .search: return "magnifyingglass"
+            case .browse: return "house.fill"
             case .lists: return "list.bullet"
             case .ai: return "sparkles"
             case .settings: return "gearshape.fill"
@@ -44,40 +51,38 @@ struct ContentView: View {
     // MARK: - iPhone Layout (TabView)
     private var iPhoneLayout: some View {
         TabView(selection: $selectedTab) {
-            BrowseView(selectedItem: $selectedMediaItem)
-                .tabItem {
-                    Label(Tab.browse.rawValue, systemImage: Tab.browse.iconName)
-                }
-                .tag(Tab.browse)
-            
-            SearchView(selectedItem: $selectedMediaItem)
-                .tabItem {
-                    Label(Tab.search.rawValue, systemImage: Tab.search.iconName)
-                }
-                .tag(Tab.search)
-            
-            ListsView()
-                .tabItem {
-                    Label(Tab.lists.rawValue, systemImage: Tab.lists.iconName)
-                }
-                .tag(Tab.lists)
-            
-            AIRecommendView()
-                .tabItem {
-                    Label(Tab.ai.rawValue, systemImage: Tab.ai.iconName)
-                }
-                .tag(Tab.ai)
-            
-            NavigationStack {
-                SettingsView()
-                    .navigationTitle("Settings")
+            Tab.browse.tab {
+                BrowseView(selectedItem: $selectedMediaItem)
             }
-            .tabItem {
-                Label(Tab.settings.rawValue, systemImage: Tab.settings.iconName)
+            
+            Tab.lists.tab {
+                ListsView()
             }
-            .tag(Tab.settings)
+            
+            Tab.ai.tab {
+                AIRecommendView()
+            }
+            
+            Tab.settings.tab {
+                NavigationStack {
+                    SettingsView()
+                        .navigationTitle("Settings")
+                }
+            }
         }
         .tint(.accentColor)
+    }
+}
+
+// MARK: - Tab Extension for building tab items
+extension ContentView.Tab {
+    @ViewBuilder
+    func tab<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .tabItem {
+                Label(self.label, systemImage: self.iconName)
+            }
+            .tag(self)
     }
 }
 
