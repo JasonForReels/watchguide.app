@@ -14,16 +14,18 @@ struct ContentView: View {
     
     enum Tab: Int, CaseIterable, Identifiable {
         case browse = 0
-        case lists = 1
-        case ai = 2
-        case settings = 3
+        case search = 1
+        case lists = 2
+        case ai = 3
+        case settings = 4
         
         var id: Int { rawValue }
         
         var label: String {
             switch self {
             case .browse: return "Home"
-            case .lists: return "Lists"
+            case .search: return "Search"
+            case .lists: return "Library"
             case .ai: return "AI"
             case .settings: return "Settings"
             }
@@ -32,7 +34,8 @@ struct ContentView: View {
         var iconName: String {
             switch self {
             case .browse: return "house.fill"
-            case .lists: return "list.bullet"
+            case .search: return "magnifyingglass"
+            case .lists: return "list.bullet.below.rectangle"
             case .ai: return "sparkles"
             case .settings: return "gearshape.fill"
             }
@@ -53,6 +56,13 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             Tab.browse.tab {
                 BrowseView(selectedItem: $selectedMediaItem)
+            }
+            
+            Tab.search.tab {
+                NavigationStack {
+                    SearchView(selectedItem: $selectedMediaItem)
+                        .navigationTitle("Search")
+                }
             }
             
             Tab.lists.tab {
