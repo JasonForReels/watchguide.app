@@ -23,9 +23,9 @@ struct ContentView: View {
         
         var label: String {
             switch self {
-            case .browse: return "Home"
+            case .browse: return "Browse"
             case .search: return "Search"
-            case .lists: return "Library"
+            case .lists: return "Lists"
             case .ai: return "AI"
             case .settings: return "Settings"
             }
@@ -33,7 +33,7 @@ struct ContentView: View {
         
         var iconName: String {
             switch self {
-            case .browse: return "house.fill"
+            case .browse: return "popcorn.fill"
             case .search: return "magnifyingglass"
             case .lists: return "list.bullet.below.rectangle"
             case .ai: return "sparkles"
