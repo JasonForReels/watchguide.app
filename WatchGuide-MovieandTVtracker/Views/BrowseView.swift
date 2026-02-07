@@ -154,19 +154,19 @@ struct LiquidGlassHubButton: View {
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .frame(width: 54, height: 54)
+                            .frame(width: 42, height: 42)
                             .clipShape(Circle())
                     case .failure, .empty:
                         Text(fallbackText)
                             .font(.caption2)
                             .fontWeight(.bold)
-                            .frame(width: 54, height: 54)
+                            .frame(width: 42, height: 42)
                     @unknown default:
                         ProgressView()
-                            .frame(width: 54, height: 54)
+                            .frame(width: 42, height: 42)
                     }
                 }
-                .frame(width: 70, height: 70)
+                .frame(width: 64, height: 64)
                 .background(.ultraThinMaterial, in: Circle())
                 .overlay(
                     Circle()
@@ -1191,7 +1191,7 @@ struct NetworkHubCard: View {
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
-                                .frame(width: 54, height: 54)
+                                .frame(width: 42, height: 42)
                                 .clipShape(Circle())
                         case .failure, .empty:
                             Text(hub.name)
@@ -1199,7 +1199,7 @@ struct NetworkHubCard: View {
                                 .fontWeight(.semibold)
                                 .multilineTextAlignment(.center)
                                 .lineLimit(2)
-                                .frame(width: 50)
+                                .frame(width: 40)
                         @unknown default:
                             ProgressView()
                         }
@@ -1210,10 +1210,10 @@ struct NetworkHubCard: View {
                         .fontWeight(.semibold)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
-                        .frame(width: 50)
+                        .frame(width: 40)
                 }
             }
-            .frame(width: 70, height: 70)
+            .frame(width: 64, height: 64)
             .background(.ultraThinMaterial, in: Circle())
             .overlay(
                 Circle()
