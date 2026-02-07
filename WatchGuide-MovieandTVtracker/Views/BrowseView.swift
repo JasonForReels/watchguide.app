@@ -154,16 +154,16 @@ struct LiquidGlassHubButton: View {
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .frame(width: 42, height: 42)
+                            .frame(width: 52, height: 52)
                             .clipShape(Circle())
                     case .failure, .empty:
                         Text(fallbackText)
                             .font(.caption2)
                             .fontWeight(.bold)
-                            .frame(width: 42, height: 42)
+                            .frame(width: 52, height: 52)
                     @unknown default:
                         ProgressView()
-                            .frame(width: 42, height: 42)
+                            .frame(width: 52, height: 52)
                     }
                 }
                 .frame(width: 64, height: 64)
@@ -1191,7 +1191,7 @@ struct NetworkHubCard: View {
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
-                                .frame(width: 42, height: 42)
+                                .frame(width: 52, height: 52)
                                 .clipShape(Circle())
                         case .failure, .empty:
                             Text(hub.name)
@@ -1199,7 +1199,7 @@ struct NetworkHubCard: View {
                                 .fontWeight(.semibold)
                                 .multilineTextAlignment(.center)
                                 .lineLimit(2)
-                                .frame(width: 40)
+                                .frame(width: 48)
                         @unknown default:
                             ProgressView()
                         }
@@ -1210,7 +1210,7 @@ struct NetworkHubCard: View {
                         .fontWeight(.semibold)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
-                        .frame(width: 40)
+                        .frame(width: 48)
                 }
             }
             .frame(width: 64, height: 64)
