@@ -137,6 +137,58 @@ struct BrowseView: View {
     }
 }
 
+// MARK: - Liquid Glass Hub Button (Shared Component)
+struct LiquidGlassHubButton: View {
+    let imageURL: String
+    let label: String
+    let fallbackText: String
+    let action: () -> Void
+    @State private var isPressed = false
+    
+    var body: some View {
+        VStack(spacing: 10) {
+            Button(action: action) {
+                AsyncImage(url: URL(string: imageURL)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 54, height: 54)
+                            .clipShape(Circle())
+                    case .failure, .empty:
+                        Text(fallbackText)
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .frame(width: 54, height: 54)
+                    @unknown default:
+                        ProgressView()
+                            .frame(width: 54, height: 54)
+                    }
+                }
+                .frame(width: 70, height: 70)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(
+                    Circle()
+                        .stroke(.white.opacity(0.15), lineWidth: 0.5)
+                )
+                .scaleEffect(isPressed ? 0.92 : 1.0)
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
+            }
+            .buttonStyle(.plain)
+            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+                isPressed = pressing
+            }, perform: {})
+            
+            Text(label)
+                .font(.caption2)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+}
+
 // MARK: - Studios Hub Row
 struct StudiosHubRow: View {
     let onTwentiethCenturyTap: () -> Void
@@ -153,288 +205,43 @@ struct StudiosHubRow: View {
                 .padding(.horizontal)
             
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 20) {
-                    TwentiethCenturyStudiosButton(action: onTwentiethCenturyTap)
-                    WarnerBrosButton(action: onWarnerBrosTap)
-                    DreamWorksButton(action: onDreamWorksTap)
-                    DCStudiosButton(action: onDCStudiosTap)
-                    UniversalPicturesButton(action: onUniversalPicturesTap)
+                HStack(spacing: 18) {
+                    LiquidGlassHubButton(
+                        imageURL: "https://cdn.brandfetch.io/id80eyhRc1/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1667562091449",
+                        label: "20th Century",
+                        fallbackText: "20th",
+                        action: onTwentiethCenturyTap
+                    )
+                    LiquidGlassHubButton(
+                        imageURL: "https://cdn.brandfetch.io/idTzC5o569/w/480/h/480/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1758179815308",
+                        label: "Warner Bros",
+                        fallbackText: "WB",
+                        action: onWarnerBrosTap
+                    )
+                    LiquidGlassHubButton(
+                        imageURL: "https://cdn.brandfetch.io/idj7QnEvUG/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1764869429889",
+                        label: "DreamWorks",
+                        fallbackText: "DW",
+                        action: onDreamWorksTap
+                    )
+                    LiquidGlassHubButton(
+                        imageURL: "https://cdn.brandfetch.io/idnLU4lJS1/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1722965171975",
+                        label: "DC Studios",
+                        fallbackText: "DC",
+                        action: onDCStudiosTap
+                    )
+                    LiquidGlassHubButton(
+                        imageURL: "https://cdn.brandfetch.io/id4AnmmNSk/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1767628904945",
+                        label: "Universal",
+                        fallbackText: "UNI",
+                        action: onUniversalPicturesTap
+                    )
                 }
                 .padding(.horizontal)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
-    }
-}
-
-// MARK: - 20th Century Studios Button
-struct TwentiethCenturyStudiosButton: View {
-    let action: () -> Void
-    @State private var isPressed = false
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            Button(action: action) {
-                ZStack {
-                    Circle()
-                        .fill(Color(.systemGray6))
-                        .frame(width: 80, height: 80)
-                    
-                    AsyncImage(url: URL(string: "https://cdn.brandfetch.io/id80eyhRc1/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1667562091449")) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 80, height: 80)
-                                .clipShape(Circle())
-                        case .failure, .empty:
-                            Text("20th")
-                                .font(.caption)
-                                .fontWeight(.bold)
-                        @unknown default:
-                            ProgressView()
-                        }
-                    }
-                }
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color(.systemGray3), lineWidth: 1.5)
-                )
-                .shadow(color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.12), radius: 8, x: 0, y: 2)
-                .shadow(color: colorScheme == .dark ? .white.opacity(0.04) : .black.opacity(0.06), radius: 16, x: 0, y: 6)
-                .scaleEffect(isPressed ? 1.05 : 1.0)
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
-            }
-            .buttonStyle(.plain)
-            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
-                isPressed = pressing
-            }, perform: {})
-            
-            Text("20th Century")
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundColor(.secondary)
-        }
-    }
-}
-
-// MARK: - Warner Bros Button
-struct WarnerBrosButton: View {
-    let action: () -> Void
-    @State private var isPressed = false
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            Button(action: action) {
-                ZStack {
-                    Circle()
-                        .fill(Color(.systemGray6))
-                        .frame(width: 80, height: 80)
-                    
-                    AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idTzC5o569/w/480/h/480/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1758179815308")) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 80, height: 80)
-                                .clipShape(Circle())
-                        case .failure, .empty:
-                            Text("WB")
-                                .font(.caption)
-                                .fontWeight(.bold)
-                        @unknown default:
-                            ProgressView()
-                        }
-                    }
-                }
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color(.systemGray3), lineWidth: 1.5)
-                )
-                .shadow(color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.12), radius: 8, x: 0, y: 2)
-                .shadow(color: colorScheme == .dark ? .white.opacity(0.04) : .black.opacity(0.06), radius: 16, x: 0, y: 6)
-                .scaleEffect(isPressed ? 1.05 : 1.0)
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
-            }
-            .buttonStyle(.plain)
-            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
-                isPressed = pressing
-            }, perform: {})
-            
-            Text("Warner Bros")
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundColor(.secondary)
-        }
-    }
-}
-
-// MARK: - DreamWorks Button
-struct DreamWorksButton: View {
-    let action: () -> Void
-    @State private var isPressed = false
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            Button(action: action) {
-                ZStack {
-                    Circle()
-                        .fill(Color(.systemGray6))
-                        .frame(width: 80, height: 80)
-                    
-                    AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idj7QnEvUG/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1764869429889")) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 80, height: 80)
-                                .clipShape(Circle())
-                        case .failure, .empty:
-                            Text("DW")
-                                .font(.caption)
-                                .fontWeight(.bold)
-                        @unknown default:
-                            ProgressView()
-                        }
-                    }
-                }
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color(.systemGray3), lineWidth: 1.5)
-                )
-                .shadow(color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.12), radius: 8, x: 0, y: 2)
-                .shadow(color: colorScheme == .dark ? .white.opacity(0.04) : .black.opacity(0.06), radius: 16, x: 0, y: 6)
-                .scaleEffect(isPressed ? 1.05 : 1.0)
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
-            }
-            .buttonStyle(.plain)
-            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
-                isPressed = pressing
-            }, perform: {})
-            
-            Text("DreamWorks")
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundColor(.secondary)
-        }
-    }
-}
-
-// MARK: - DC Studios Button
-struct DCStudiosButton: View {
-    let action: () -> Void
-    @State private var isPressed = false
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            Button(action: action) {
-                ZStack {
-                    Circle()
-                        .fill(Color(.systemGray6))
-                        .frame(width: 80, height: 80)
-                    
-                    AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idnLU4lJS1/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1722965171975")) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 80, height: 80)
-                                .clipShape(Circle())
-                        case .failure, .empty:
-                            Text("DC")
-                                .font(.caption)
-                                .fontWeight(.bold)
-                        @unknown default:
-                            ProgressView()
-                        }
-                    }
-                }
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color(.systemGray3), lineWidth: 1.5)
-                )
-                .shadow(color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.12), radius: 8, x: 0, y: 2)
-                .shadow(color: colorScheme == .dark ? .white.opacity(0.04) : .black.opacity(0.06), radius: 16, x: 0, y: 6)
-                .scaleEffect(isPressed ? 1.05 : 1.0)
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
-            }
-            .buttonStyle(.plain)
-            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
-                isPressed = pressing
-            }, perform: {})
-            
-            Text("DC Studios")
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundColor(.secondary)
-        }
-    }
-}
-
-// MARK: - Universal Pictures Button
-struct UniversalPicturesButton: View {
-    let action: () -> Void
-    @State private var isPressed = false
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            Button(action: action) {
-                ZStack {
-                    Circle()
-                        .fill(Color(.systemGray6))
-                        .frame(width: 80, height: 80)
-                    
-                    AsyncImage(url: URL(string: "https://cdn.brandfetch.io/id4AnmmNSk/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1767628904945")) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 80, height: 80)
-                                .clipShape(Circle())
-                        case .failure, .empty:
-                            Text("UNI")
-                                .font(.caption)
-                                .fontWeight(.bold)
-                        @unknown default:
-                            ProgressView()
-                        }
-                    }
-                }
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color(.systemGray3), lineWidth: 1.5)
-                )
-                .shadow(color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.12), radius: 8, x: 0, y: 2)
-                .shadow(color: colorScheme == .dark ? .white.opacity(0.04) : .black.opacity(0.06), radius: 16, x: 0, y: 6)
-                .scaleEffect(isPressed ? 1.05 : 1.0)
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
-            }
-            .buttonStyle(.plain)
-            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
-                isPressed = pressing
-            }, perform: {})
-            
-            Text("Universal")
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundColor(.secondary)
-        }
     }
 }
 
@@ -1334,7 +1141,7 @@ struct NetworkHubsRow: View {
                 .padding(.horizontal)
             
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
+                HStack(spacing: 18) {
                     ForEach(hubs) { hub in
                         NetworkHubCard(hub: hub)
                             .onTapGesture {
@@ -1350,8 +1157,7 @@ struct NetworkHubsRow: View {
 
 struct NetworkHubCard: View {
     let hub: NetworkHub
-    @State private var isHovered = false
-    @Environment(\.colorScheme) private var colorScheme
+    @State private var isPressed = false
     
     // Button logo URLs (circular icons with original colors)
     private var buttonLogoURL: String {
@@ -1376,12 +1182,8 @@ struct NetworkHubCard: View {
     }
     
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             ZStack {
-                Circle()
-                    .fill(Color(.systemGray6))
-                    .frame(width: 80, height: 80)
-                
                 if let url = URL(string: buttonLogoURL), !buttonLogoURL.isEmpty {
                     AsyncImage(url: url) { phase in
                         switch phase {
@@ -1389,7 +1191,7 @@ struct NetworkHubCard: View {
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
-                                .frame(width: 80, height: 80)
+                                .frame(width: 54, height: 54)
                                 .clipShape(Circle())
                         case .failure, .empty:
                             Text(hub.name)
@@ -1397,7 +1199,7 @@ struct NetworkHubCard: View {
                                 .fontWeight(.semibold)
                                 .multilineTextAlignment(.center)
                                 .lineLimit(2)
-                                .frame(width: 70)
+                                .frame(width: 50)
                         @unknown default:
                             ProgressView()
                         }
@@ -1408,26 +1210,26 @@ struct NetworkHubCard: View {
                         .fontWeight(.semibold)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
-                        .frame(width: 70)
+                        .frame(width: 50)
                 }
             }
-            .clipShape(Circle())
+            .frame(width: 70, height: 70)
+            .background(.ultraThinMaterial, in: Circle())
             .overlay(
                 Circle()
-                    .stroke(Color(.systemGray3), lineWidth: 1.5)
+                    .stroke(.white.opacity(0.15), lineWidth: 0.5)
             )
-            .shadow(color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.12), radius: 8, x: 0, y: 2)
-            .shadow(color: colorScheme == .dark ? .white.opacity(0.04) : .black.opacity(0.06), radius: 16, x: 0, y: 6)
-            .scaleEffect(isHovered ? 1.05 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+            .scaleEffect(isPressed ? 0.92 : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
+            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+                isPressed = pressing
+            }, perform: {})
             
             Text(hub.name)
-                .font(.caption)
+                .font(.caption2)
                 .fontWeight(.medium)
-                .foregroundColor(.secondary)
-        }
-        .onHover { hovering in
-            isHovered = hovering
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
     }
 }
