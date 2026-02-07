@@ -293,10 +293,20 @@ struct PopularTMDBCollection: Identifiable, Hashable {
     let title: String
     let posterPath: String?
     let backdropPath: String?
+    /// If true, `id` is a TMDB *list* ID fetched via /list/{id} instead of /collection/{id}
+    let isList: Bool
     
-    // Well-known TMDB collection IDs
+    init(id: Int, title: String, posterPath: String?, backdropPath: String?, isList: Bool = false) {
+        self.id = id
+        self.title = title
+        self.posterPath = posterPath
+        self.backdropPath = backdropPath
+        self.isList = isList
+    }
+    
+    // Well-known TMDB collection / list IDs
     static let popular: [PopularTMDBCollection] = [
-        PopularTMDBCollection(id: 529892, title: "Marvel Cinematic Universe", posterPath: "/coiGBvhSMO1ELWbOBnOtvlBSEbH.jpg", backdropPath: "/zuW6fOiusv4X9nnW3paHGfXcSll.jpg"),
+        PopularTMDBCollection(id: 84979, title: "Marvel Cinematic Universe", posterPath: "/coiGBvhSMO1ELWbOBnOtvlBSEbH.jpg", backdropPath: "/zuW6fOiusv4X9nnW3paHGfXcSll.jpg", isList: true),
         PopularTMDBCollection(id: 1241, title: "Harry Potter", posterPath: "/x8N3yjWAoQQGbAPiZi6AjDqzqJo.jpg", backdropPath: "/bLJTjfbR1syo2VIalJtnCuE0rWp.jpg"),
         PopularTMDBCollection(id: 10, title: "Star Wars", posterPath: "/r8Ph5MYXL04Qzu4QBbq2KjqwtkQ.jpg", backdropPath: "/d8duYyyC9J5T825Hg7grmaabfxQ.jpg"),
         PopularTMDBCollection(id: 328, title: "Jurassic Park", posterPath: "/jcUXVtJ6s0NG0EaxllQCAUtXAaT.jpg", backdropPath: "/yg3TSwGh7VKfYmsMYAmNLENwLSS.jpg"),
@@ -409,7 +419,7 @@ struct SearchSuggestionsView: View {
             .padding()
         }
         .sheet(item: $selectedCollection) { collection in
-            TMDBCollectionSheet(collectionId: collection.id)
+            TMDBCollectionSheet(collection: collection)
         }
     }
 }
@@ -468,13 +478,19 @@ struct TMDBCollectionTile: View {
 
 // MARK: - TMDB Collection Sheet
 struct TMDBCollectionSheet: View {
-    let collectionId: Int
+    let collection: PopularTMDBCollection
     
     @Environment(\.dismiss) private var dismiss
-    @State private var collectionDetails: CollectionDetails?
+    @State private var title: String = "Collection"
+    @State private var overview: String?
+    @State private var backdropPath: String?
+    @State private var items: [MediaItem] = []
     @State private var isLoading = true
     @State private var error: String?
     @State private var selectedItem: MediaItem?
+    @State private var currentPage = 1
+    @State private var hasMorePages = false
+    @State private var isLoadingMore = false
     
     private let columns = [
         GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
@@ -483,14 +499,14 @@ struct TMDBCollectionSheet: View {
     var body: some View {
         NavigationStack {
             Group {
-                if isLoading {
+                if isLoading && items.isEmpty {
                     VStack {
                         Spacer()
                         ProgressView()
                             .scaleEffect(1.2)
                         Spacer()
                     }
-                } else if let error = error {
+                } else if let error = error, items.isEmpty {
                     VStack(spacing: 16) {
                         Spacer()
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -505,12 +521,12 @@ struct TMDBCollectionSheet: View {
                         Spacer()
                     }
                     .padding()
-                } else if let details = collectionDetails {
+                } else {
                     ScrollView {
                         VStack(spacing: 16) {
                             // Collection backdrop header
-                            if details.backdropPath != nil {
-                                AsyncImage(url: TMDBService.shared.imageURL(path: details.backdropPath, size: .backdrop)) { phase in
+                            if let bp = backdropPath {
+                                AsyncImage(url: TMDBService.shared.imageURL(path: bp, size: .backdrop)) { phase in
                                     switch phase {
                                     case .success(let image):
                                         image
@@ -525,7 +541,7 @@ struct TMDBCollectionSheet: View {
                             }
                             
                             // Overview
-                            if let overview = details.overview, !overview.isEmpty {
+                            if let overview = overview, !overview.isEmpty {
                                 Text(overview)
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
@@ -534,7 +550,7 @@ struct TMDBCollectionSheet: View {
                             
                             // Movies grid
                             LazyVGrid(columns: columns, spacing: 20) {
-                                ForEach(details.parts.sorted { ($0.releaseDate ?? "") < ($1.releaseDate ?? "") }) { item in
+                                ForEach(items) { item in
                                     MediaPosterCard(item: item)
                                         .onTapGesture {
                                             selectedItem = item
@@ -542,11 +558,27 @@ struct TMDBCollectionSheet: View {
                                 }
                             }
                             .padding(.horizontal)
+                            
+                            // Load more for list-based collections
+                            if hasMorePages {
+                                Button {
+                                    Task { await loadMorePages() }
+                                } label: {
+                                    if isLoadingMore {
+                                        ProgressView()
+                                    } else {
+                                        Text("Load More")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                    }
+                                }
+                                .padding()
+                            }
                         }
                     }
                 }
             }
-            .navigationTitle(collectionDetails?.name ?? "Collection")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -568,15 +600,58 @@ struct TMDBCollectionSheet: View {
         isLoading = true
         error = nil
         
-        do {
-            let details = try await TMDBService.shared.getCollectionDetails(id: collectionId)
-            self.collectionDetails = details
-        } catch let loadError {
-            self.error = loadError.localizedDescription
-            print("Collection load error for id \(collectionId): \(loadError)")
+        if collection.isList {
+            await loadFromList(page: 1)
+        } else {
+            await loadFromCollection()
         }
         
         isLoading = false
+    }
+    
+    private func loadFromCollection() async {
+        do {
+            let details = try await TMDBService.shared.getCollectionDetails(id: collection.id)
+            title = details.name
+            overview = details.overview
+            backdropPath = details.backdropPath
+            items = details.parts.sorted { ($0.releaseDate ?? "") < ($1.releaseDate ?? "") }
+        } catch let loadError {
+            self.error = loadError.localizedDescription
+            print("Collection load error for id \(collection.id): \(loadError)")
+        }
+    }
+    
+    private func loadFromList(page: Int) async {
+        do {
+            let listResponse = try await TMDBService.shared.getListDetails(listId: collection.id, page: page)
+            title = listResponse.name ?? collection.title
+            overview = listResponse.description
+            backdropPath = collection.backdropPath
+            
+            if page == 1 {
+                items = listResponse.items.sorted { ($0.releaseDate ?? "") < ($1.releaseDate ?? "") }
+            } else {
+                let newItems = listResponse.items.sorted { ($0.releaseDate ?? "") < ($1.releaseDate ?? "") }
+                items.append(contentsOf: newItems)
+            }
+            
+            // TMDB lists can have many pages; if we got a full page of 20 items, assume more
+            hasMorePages = listResponse.items.count >= 20
+            currentPage = page
+        } catch let loadError {
+            if page == 1 {
+                self.error = loadError.localizedDescription
+            }
+            print("List load error for id \(collection.id): \(loadError)")
+        }
+    }
+    
+    private func loadMorePages() async {
+        guard !isLoadingMore else { return }
+        isLoadingMore = true
+        await loadFromList(page: currentPage + 1)
+        isLoadingMore = false
     }
 }
 

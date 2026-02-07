@@ -638,3 +638,19 @@ struct CollectionDetails: Identifiable, Codable {
         case backdropPath = "backdrop_path"
     }
 }
+
+// MARK: - TMDB List Response
+struct TMDBListResponse: Codable {
+    let id: String?
+    let name: String?
+    let description: String?
+    let posterPath: String?
+    let backdropPath: String?
+    let items: [MediaItem]
+    
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, items
+        case posterPath = "poster_path"
+        case backdropPath = "backdrop_path"
+    }
+}

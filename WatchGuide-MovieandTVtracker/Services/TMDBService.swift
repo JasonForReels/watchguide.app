@@ -358,6 +358,11 @@ actor TMDBService {
         try await request("/collection/\(id)")
     }
     
+    // MARK: - TMDB Lists (v4-style via v3 wrapper)
+    func getListDetails(listId: Int, page: Int = 1) async throws -> TMDBListResponse {
+        try await request("/list/\(listId)", queryItems: [URLQueryItem(name: "page", value: "\(page)")])
+    }
+    
     // MARK: - Genres
     func getMovieGenres() async throws -> GenresResponse {
         try await request("/genre/movie/list")
