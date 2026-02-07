@@ -12,6 +12,8 @@ struct SettingsView: View {
     @State private var settings: UserSettings
     @State private var showClearDataAlert = false
     @State private var showAuthSheet = false
+    @State private var isManualUpload = false
+    @State private var isManualDownload = false
     
     init() {
         _settings = State(initialValue: StorageService.shared.settings)
@@ -122,6 +124,77 @@ struct SettingsView: View {
                     }
                     .foregroundColor(.primary)
                 }
+            }
+            
+            // Cloud Sync
+            Section("Cloud Sync") {
+                Toggle("Enable Cloud Sync", isOn: Binding(
+                    get: { storage.cloudSyncEnabled },
+                    set: { storage.setCloudSyncEnabled($0) }
+                ))
+                
+                if !storage.isCloudConfigured {
+                    NavigationLink(destination: SupabaseSetupGuideView()) {
+                        Label("Setup Guide", systemImage: "cloud.fill")
+                    }
+                    Text("Supabase is not configured. Cloud sync will remain off until setup is complete.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                HStack {
+                    Text("Last Sync")
+                    Spacer()
+                    if let lastSync = storage.lastSyncTime {
+                        Text(lastSync.formatted(.relative(presentation: .named)))
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("Never")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                if let error = storage.lastSyncError, !error.isEmpty {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                
+                Button {
+                    guard !isManualUpload && !isManualDownload else { return }
+                    isManualUpload = true
+                    Task {
+                        await storage.uploadToCloud()
+                        await MainActor.run {
+                            isManualUpload = false
+                        }
+                    }
+                } label: {
+                    if isManualUpload {
+                        Label("Uploading...", systemImage: "arrow.up.circle")
+                    } else {
+                        Label("Upload to Cloud", systemImage: "arrow.up.circle")
+                    }
+                }
+                .disabled(isManualDownload || isManualUpload)
+                
+                Button {
+                    guard !isManualUpload && !isManualDownload else { return }
+                    isManualDownload = true
+                    Task {
+                        await storage.downloadFromCloud()
+                        await MainActor.run {
+                            isManualDownload = false
+                        }
+                    }
+                } label: {
+                    if isManualDownload {
+                        Label("Downloading...", systemImage: "arrow.down.circle")
+                    } else {
+                        Label("Download from Cloud", systemImage: "arrow.down.circle")
+                    }
+                }
+                .disabled(isManualDownload || isManualUpload)
             }
             
 
@@ -1422,4 +1495,3 @@ struct MDBListDetailView: View {
 #Preview {
     SettingsView()
 }
-

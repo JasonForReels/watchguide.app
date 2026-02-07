@@ -80,7 +80,6 @@ struct BrowseView: View {
                                     showUniversalPicturesSheet = true
                                 }
                             )
-                            .padding(.horizontal)
                         }
                     }
                 }
@@ -147,17 +146,24 @@ struct StudiosHubRow: View {
     let onUniversalPicturesTap: () -> Void
     
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 20) {
-                TwentiethCenturyStudiosButton(action: onTwentiethCenturyTap)
-                WarnerBrosButton(action: onWarnerBrosTap)
-                DreamWorksButton(action: onDreamWorksTap)
-                DCStudiosButton(action: onDCStudiosTap)
-                UniversalPicturesButton(action: onUniversalPicturesTap)
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Studios")
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 20) {
+                    TwentiethCenturyStudiosButton(action: onTwentiethCenturyTap)
+                    WarnerBrosButton(action: onWarnerBrosTap)
+                    DreamWorksButton(action: onDreamWorksTap)
+                    DCStudiosButton(action: onDCStudiosTap)
+                    UniversalPicturesButton(action: onUniversalPicturesTap)
+                }
+                .padding(.horizontal)
             }
-            .padding(.horizontal)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
     }
 }
@@ -166,6 +172,7 @@ struct StudiosHubRow: View {
 struct TwentiethCenturyStudiosButton: View {
     let action: () -> Void
     @State private var isPressed = false
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         VStack(spacing: 8) {
@@ -174,7 +181,6 @@ struct TwentiethCenturyStudiosButton: View {
                     Circle()
                         .fill(Color(.systemGray6))
                         .frame(width: 80, height: 80)
-                        .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
                     
                     AsyncImage(url: URL(string: "https://cdn.brandfetch.io/id80eyhRc1/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1667562091449")) { phase in
                         switch phase {
@@ -194,6 +200,12 @@ struct TwentiethCenturyStudiosButton: View {
                     }
                 }
                 .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color(.systemGray3), lineWidth: 1.5)
+                )
+                .shadow(color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.12), radius: 8, x: 0, y: 2)
+                .shadow(color: colorScheme == .dark ? .white.opacity(0.04) : .black.opacity(0.06), radius: 16, x: 0, y: 6)
                 .scaleEffect(isPressed ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
             }
@@ -214,6 +226,7 @@ struct TwentiethCenturyStudiosButton: View {
 struct WarnerBrosButton: View {
     let action: () -> Void
     @State private var isPressed = false
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         VStack(spacing: 8) {
@@ -222,7 +235,6 @@ struct WarnerBrosButton: View {
                     Circle()
                         .fill(Color(.systemGray6))
                         .frame(width: 80, height: 80)
-                        .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
                     
                     AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idTzC5o569/w/480/h/480/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1758179815308")) { phase in
                         switch phase {
@@ -242,6 +254,12 @@ struct WarnerBrosButton: View {
                     }
                 }
                 .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color(.systemGray3), lineWidth: 1.5)
+                )
+                .shadow(color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.12), radius: 8, x: 0, y: 2)
+                .shadow(color: colorScheme == .dark ? .white.opacity(0.04) : .black.opacity(0.06), radius: 16, x: 0, y: 6)
                 .scaleEffect(isPressed ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
             }
@@ -262,6 +280,7 @@ struct WarnerBrosButton: View {
 struct DreamWorksButton: View {
     let action: () -> Void
     @State private var isPressed = false
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         VStack(spacing: 8) {
@@ -270,9 +289,7 @@ struct DreamWorksButton: View {
                     Circle()
                         .fill(Color(.systemGray6))
                         .frame(width: 80, height: 80)
-                        .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
                     
-                    // Using PNG icon instead of SVG (SVG not supported by AsyncImage)
                     AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idj7QnEvUG/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1764869429889")) { phase in
                         switch phase {
                         case .success(let image):
@@ -291,6 +308,12 @@ struct DreamWorksButton: View {
                     }
                 }
                 .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color(.systemGray3), lineWidth: 1.5)
+                )
+                .shadow(color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.12), radius: 8, x: 0, y: 2)
+                .shadow(color: colorScheme == .dark ? .white.opacity(0.04) : .black.opacity(0.06), radius: 16, x: 0, y: 6)
                 .scaleEffect(isPressed ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
             }
@@ -311,6 +334,7 @@ struct DreamWorksButton: View {
 struct DCStudiosButton: View {
     let action: () -> Void
     @State private var isPressed = false
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         VStack(spacing: 8) {
@@ -319,7 +343,6 @@ struct DCStudiosButton: View {
                     Circle()
                         .fill(Color(.systemGray6))
                         .frame(width: 80, height: 80)
-                        .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
                     
                     AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idnLU4lJS1/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1722965171975")) { phase in
                         switch phase {
@@ -339,6 +362,12 @@ struct DCStudiosButton: View {
                     }
                 }
                 .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color(.systemGray3), lineWidth: 1.5)
+                )
+                .shadow(color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.12), radius: 8, x: 0, y: 2)
+                .shadow(color: colorScheme == .dark ? .white.opacity(0.04) : .black.opacity(0.06), radius: 16, x: 0, y: 6)
                 .scaleEffect(isPressed ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
             }
@@ -359,6 +388,7 @@ struct DCStudiosButton: View {
 struct UniversalPicturesButton: View {
     let action: () -> Void
     @State private var isPressed = false
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         VStack(spacing: 8) {
@@ -367,7 +397,6 @@ struct UniversalPicturesButton: View {
                     Circle()
                         .fill(Color(.systemGray6))
                         .frame(width: 80, height: 80)
-                        .shadow(color: .black.opacity(0.15), radius: isPressed ? 8 : 4, y: isPressed ? 4 : 2)
                     
                     AsyncImage(url: URL(string: "https://cdn.brandfetch.io/id4AnmmNSk/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1767628904945")) { phase in
                         switch phase {
@@ -387,6 +416,12 @@ struct UniversalPicturesButton: View {
                     }
                 }
                 .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color(.systemGray3), lineWidth: 1.5)
+                )
+                .shadow(color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.12), radius: 8, x: 0, y: 2)
+                .shadow(color: colorScheme == .dark ? .white.opacity(0.04) : .black.opacity(0.06), radius: 16, x: 0, y: 6)
                 .scaleEffect(isPressed ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
             }
@@ -1346,7 +1381,6 @@ struct NetworkHubCard: View {
                 Circle()
                     .fill(Color(.systemGray6))
                     .frame(width: 80, height: 80)
-                    .shadow(color: .black.opacity(0.15), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
                 
                 if let url = URL(string: buttonLogoURL), !buttonLogoURL.isEmpty {
                     AsyncImage(url: url) { phase in
@@ -1378,6 +1412,12 @@ struct NetworkHubCard: View {
                 }
             }
             .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(Color(.systemGray3), lineWidth: 1.5)
+            )
+            .shadow(color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.12), radius: 8, x: 0, y: 2)
+            .shadow(color: colorScheme == .dark ? .white.opacity(0.04) : .black.opacity(0.06), radius: 16, x: 0, y: 6)
             .scaleEffect(isHovered ? 1.05 : 1.0)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
             

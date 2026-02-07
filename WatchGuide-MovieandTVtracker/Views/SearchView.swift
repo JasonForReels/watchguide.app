@@ -7,8 +7,13 @@ import SwiftUI
 
 struct SearchView: View {
     @StateObject private var viewModel = SearchViewModel()
+    @ObservedObject private var storage = StorageService.shared
     @Binding var selectedItem: MediaItem?
     @FocusState private var isSearchFocused: Bool
+    
+    @State private var isSyncingUpload = false
+    @State private var isSyncingDownload = false
+    @State private var syncAlert: (title: String, message: String)?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -180,9 +185,76 @@ struct SearchView: View {
                 }
             }
         }
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                // Download from cloud
+                Button {
+                    Task {
+                        await handleDownloadFromCloud()
+                    }
+                } label: {
+                    if isSyncingDownload {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "arrow.down.circle")
+                    }
+                }
+                .help("Download from Cloud")
+                .disabled(isSyncingDownload || isSyncingUpload)
+
+                // Upload to cloud
+                Button {
+                    Task {
+                        await handleUploadToCloud()
+                    }
+                } label: {
+                    if isSyncingUpload {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "arrow.up.circle")
+                    }
+                }
+                .help("Upload to Cloud")
+                .disabled(isSyncingDownload || isSyncingUpload)
+            }
+        }
+        .alert(syncAlert?.title ?? "", isPresented: Binding(get: { syncAlert != nil }, set: { if !$0 { syncAlert = nil } })) {
+            Button("OK", role: .cancel) { syncAlert = nil }
+        } message: {
+            Text(syncAlert?.message ?? "")
+        }
         .task {
             await viewModel.loadGenres()
         }
+    }
+    
+    // MARK: - Manual Sync Actions
+    private func handleUploadToCloud() async {
+        if isSyncingUpload || isSyncingDownload { return }
+        await MainActor.run { isSyncingUpload = true }
+        await storage.uploadToCloud()
+        await MainActor.run {
+            if let error = storage.lastSyncError, !error.isEmpty {
+                syncAlert = ("Upload Failed", error)
+            } else {
+                syncAlert = ("Upload Complete", "Your lists have been uploaded to the cloud.")
+            }
+        }
+        await MainActor.run { isSyncingUpload = false }
+    }
+
+    private func handleDownloadFromCloud() async {
+        if isSyncingUpload || isSyncingDownload { return }
+        await MainActor.run { isSyncingDownload = true }
+        await storage.downloadFromCloud()
+        await MainActor.run {
+            if let error = storage.lastSyncError, !error.isEmpty {
+                syncAlert = ("Download Failed", error)
+            } else {
+                syncAlert = ("Download Complete", "Your lists have been downloaded from the cloud.")
+            }
+        }
+        await MainActor.run { isSyncingDownload = false }
     }
 }
 
@@ -217,8 +289,51 @@ struct FilterChip: View {
 
 // MARK: - Search Suggestions View
 struct SearchSuggestionsView: View {
+    // MARK: - SearchCollection nested struct
+    struct SearchCollection: Identifiable {
+        let id: String
+        let title: String
+        let listId: String
+        let thumbnailURL: String
+        
+        init(title: String, listId: String, thumbnailURL: String) {
+            self.title = title
+            self.listId = listId
+            self.thumbnailURL = thumbnailURL
+            self.id = listId
+        }
+    }
+    
     @ObservedObject var viewModel: SearchViewModel
     let onSelect: (String) -> Void
+    
+    @State private var showCollectionSheet = false
+    @State private var selectedCollection: SearchCollection?
+    
+    var collections: [SearchCollection] {
+        [
+            SearchCollection(
+                title: "Marvel Cinematic Universe",
+                listId: "kraftynic/marvel-cinematic-universe",
+                thumbnailURL: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/CCC3F8712F781DC1ECDDC406924EF0569A30DB0F0BF628CA9EAF60B97C9ABC4B/compose?aspectRatio=1.78&format=webp&width=1600"
+            ),
+            SearchCollection(
+                title: "Wizarding World",
+                listId: "ahasson/wizarding-world",
+                thumbnailURL: "https://i.ibb.co/rRjJyvSh/wp12750397.jpg"
+            ),
+            SearchCollection(
+                title: "Jurassic",
+                listId: "andyhawks/universe-jurassic-park",
+                thumbnailURL: "https://i.ibb.co/d0t640Qd/717-Pj-P13-Ax-L-AC-UF1000-1000-QL80.jpg"
+            ),
+            SearchCollection(
+                title: "Mission: Impossible",
+                listId: "nammel/mission-impossible-saga",
+                thumbnailURL: "https://i.ibb.co/35hTnqNv/dg2wdje-d4656d1e-b019-44f2-81ba-849bf6171c71.jpg"
+            )
+        ]
+    }
     
     var body: some View {
         ScrollView {
@@ -285,8 +400,69 @@ struct SearchSuggestionsView: View {
                         }
                     }
                 }
+                
+                // Collections
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Collections")
+                        .font(.headline)
+                    
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 16) {
+                            ForEach(collections) { collection in
+                                Button {
+                                    selectedCollection = collection
+                                    showCollectionSheet = true
+                                } label: {
+                                    ZStack(alignment: .bottom) {
+                                        AsyncImage(url: URL(string: collection.thumbnailURL)) { phase in
+                                            switch phase {
+                                            case .empty:
+                                                Color(.systemGray5)
+                                            case .success(let image):
+                                                image
+                                                    .resizable()
+                                                    .aspectRatio(contentMode: .fill)
+                                            case .failure:
+                                                Color(.systemGray5)
+                                            @unknown default:
+                                                Color(.systemGray5)
+                                            }
+                                        }
+                                        .frame(width: 280, height: 140)
+                                        .clipped()
+                                        .cornerRadius(12)
+                                        .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
+                                        
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [Color.black.opacity(0.6), Color.clear]),
+                                            startPoint: .bottom,
+                                            endPoint: .top
+                                        )
+                                        .frame(height: 50)
+                                        .cornerRadius(12)
+                                        
+                                        Text(collection.title)
+                                            .font(.headline)
+                                            .fontWeight(.bold)
+                                            .foregroundColor(.white)
+                                            .padding(.bottom, 8)
+                                            .padding(.horizontal, 12)
+                                            .frame(maxWidth: 280, alignment: .leading)
+                                    }
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
             }
             .padding()
+        }
+        .sheet(isPresented: $showCollectionSheet) {
+            if let selectedCollection = selectedCollection {
+                CollectionListSheet(collection: selectedCollection)
+            }
         }
     }
 }
@@ -458,4 +634,145 @@ class SearchViewModel: ObservableObject {
 
 #Preview {
     SearchView(selectedItem: .constant(nil))
+}
+// MARK: - CollectionListSheet
+struct CollectionListSheet: View {
+    let collection: SearchSuggestionsView.SearchCollection
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var allItems: [SavedMediaItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var selectedItem: MediaItem?
+    
+    private let columns = [
+        GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+    ]
+    
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    VStack {
+                        Spacer()
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Spacer()
+                    }
+                } else if let error = error {
+                    VStack(spacing: 16) {
+                        Spacer()
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.red)
+                        Text("Failed to load collection")
+                            .font(.headline)
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                        Spacer()
+                    }
+                    .padding()
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: 20) {
+                            ForEach(allItems) { savedItem in
+                                SavedMediaPosterCard(item: savedItem)
+                                    .onTapGesture {
+                                        selectedItem = savedItem.toMediaItem()
+                                    }
+                            }
+                        }
+                        .padding()
+                    }
+                }
+            }
+            .navigationTitle(collection.title)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+            .sheet(item: $selectedItem) { item in
+                MediaDetailView(item: item)
+            }
+            .task {
+                do {
+                    isLoading = true
+                    error = nil
+                    allItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: collection.listId)
+                } catch {
+                    self.error = error.localizedDescription
+                    allItems = []
+                }
+                isLoading = false
+            }
+        }
+    }
+}
+
+// MARK: - SavedMediaItem -> MediaItem conversion
+extension SavedMediaItem {
+    func toMediaItem() -> MediaItem {
+        // Safely coerce id to Int if the SavedMediaItem.id is not already Int-compatible
+        // If your SavedMediaItem.id is a String, try to parse it; otherwise, use 0 as a fallback.
+        let coercedId: Int
+        if let intId = self.id as? Int {
+            coercedId = intId
+        } else if let stringId = self.id as? String, let parsed = Int(stringId) {
+            coercedId = parsed
+        } else {
+            // If id is some other type, provide a stable fallback
+            coercedId = 0
+        }
+
+        // Determine media type string if available; otherwise default to "movie"
+        // Adjust `mediaType` property name if your SavedMediaItem uses a different one.
+        let mediaTypeString: String = {
+            if let mt = (self as AnyObject).value(forKey: "mediaType") as? String {
+                return mt
+            }
+            return "movie"
+        }()
+
+        // Map a single stored date to releaseDate/firstAirDate depending on media type if possible.
+        // Tries common property names via KVC without hard dependency on model shape.
+        let storedDate: String? = {
+            // Try common keys
+            let keys = ["releaseDate", "firstAirDate", "date"]
+            for key in keys {
+                if let value = (self as AnyObject).value(forKey: key) as? String, !value.isEmpty {
+                    return value
+                }
+            }
+            return nil
+        }()
+
+        // Decide where to place the date depending on media type
+        let releaseDate: String? = mediaTypeString == "tv" ? nil : storedDate
+        let firstAirDate: String? = mediaTypeString == "tv" ? storedDate : nil
+
+        return MediaItem(
+            id: coercedId,
+            title: self.title ?? "",
+            name: nil,
+            originalTitle: nil,
+            originalName: nil,
+            overview: self.overview ?? "",
+            posterPath: self.posterPath,
+            backdropPath: self.backdropPath,
+            releaseDate: releaseDate,
+            firstAirDate: firstAirDate,
+            voteAverage: self.voteAverage,
+            voteCount: nil,
+            popularity: nil,
+            genreIds: nil,
+            mediaType: mediaTypeString,
+            adult: false,
+            originalLanguage: nil
+        )
+    }
 }
