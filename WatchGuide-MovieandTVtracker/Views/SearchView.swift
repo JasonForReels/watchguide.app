@@ -288,7 +288,7 @@ struct FilterChip: View {
 }
 
 // MARK: - Popular TMDB Collection
-struct PopularTMDBCollection: Identifiable {
+struct PopularTMDBCollection: Identifiable, Hashable {
     let id: Int
     let title: String
     let posterPath: String?
@@ -316,8 +316,7 @@ struct SearchSuggestionsView: View {
     @ObservedObject var viewModel: SearchViewModel
     let onSelect: (String) -> Void
     
-    @State private var selectedCollectionId: Int?
-    @State private var showCollectionSheet = false
+    @State private var selectedCollection: PopularTMDBCollection?
     
     var body: some View {
         ScrollView {
@@ -398,8 +397,7 @@ struct SearchSuggestionsView: View {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(PopularTMDBCollection.popular) { collection in
                             Button {
-                                selectedCollectionId = collection.id
-                                showCollectionSheet = true
+                                selectedCollection = collection
                             } label: {
                                 TMDBCollectionTile(collection: collection)
                             }
@@ -410,10 +408,8 @@ struct SearchSuggestionsView: View {
             }
             .padding()
         }
-        .sheet(isPresented: $showCollectionSheet) {
-            if let collectionId = selectedCollectionId {
-                TMDBCollectionSheet(collectionId: collectionId)
-            }
+        .sheet(item: $selectedCollection) { collection in
+            TMDBCollectionSheet(collectionId: collection.id)
         }
     }
 }
@@ -573,9 +569,11 @@ struct TMDBCollectionSheet: View {
         error = nil
         
         do {
-            collectionDetails = try await TMDBService.shared.getCollectionDetails(id: collectionId)
-        } catch {
-            self.error = error.localizedDescription
+            let details = try await TMDBService.shared.getCollectionDetails(id: collectionId)
+            self.collectionDetails = details
+        } catch let loadError {
+            self.error = loadError.localizedDescription
+            print("Collection load error for id \(collectionId): \(loadError)")
         }
         
         isLoading = false
