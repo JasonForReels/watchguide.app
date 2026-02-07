@@ -114,6 +114,15 @@ struct MediaDetailView: View {
                             }
                         }
                         
+                        // Collection
+                        if let collectionInfo = viewModel.collectionInfo, !viewModel.collectionItems.isEmpty {
+                            CollectionRowView(
+                                collectionName: collectionInfo.name,
+                                items: viewModel.collectionItems,
+                                onItemTap: { _ in }
+                            )
+                        }
+                        
                         // TV Show Seasons
                         if let seasons = viewModel.seasons, !seasons.isEmpty {
                             seasonsSection(seasons: seasons)
@@ -619,6 +628,8 @@ class MediaDetailViewModel: ObservableObject {
     @Published var seasons: [Season]?
     @Published var savedItem: SavedMediaItem?
     @Published var logoPath: String?
+    @Published var collectionInfo: CollectionInfo?
+    @Published var collectionItems: [MediaItem] = []
     
     private let currencyFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -660,9 +671,23 @@ class MediaDetailViewModel: ObservableObject {
             }
             
             savedItem = SavedMediaItem(from: details)
+            collectionInfo = details.belongsToCollection
         } catch {
             print("Error loading movie details: \(error)")
             overview = item.overview
+        }
+        
+        // Load collection items
+        if let collection = collectionInfo {
+            do {
+                let details = try await TMDBService.shared.getCollectionDetails(id: collection.id)
+                // Filter out current movie and sort by release date
+                collectionItems = details.parts
+                    .filter { $0.id != item.id }
+                    .sorted { ($0.releaseDate ?? "") < ($1.releaseDate ?? "") }
+            } catch {
+                print("Error loading collection: \(error)")
+            }
         }
         
         // Load title logo

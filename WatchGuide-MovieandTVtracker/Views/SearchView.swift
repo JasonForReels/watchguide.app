@@ -287,53 +287,37 @@ struct FilterChip: View {
     }
 }
 
+// MARK: - Popular TMDB Collection
+struct PopularTMDBCollection: Identifiable {
+    let id: Int
+    let title: String
+    let posterPath: String?
+    let backdropPath: String?
+    
+    // Well-known TMDB collection IDs
+    static let popular: [PopularTMDBCollection] = [
+        PopularTMDBCollection(id: 529892, title: "Marvel Cinematic Universe", posterPath: "/coiGBvhSMO1ELWbOBnOtvlBSEbH.jpg", backdropPath: "/zuW6fOiusv4X9nnW3paHGfXcSll.jpg"),
+        PopularTMDBCollection(id: 1241, title: "Harry Potter", posterPath: "/x8N3yjWAoQQGbAPiZi6AjDqzqJo.jpg", backdropPath: "/bLJTjfbR1syo2VIalJtnCuE0rWp.jpg"),
+        PopularTMDBCollection(id: 10, title: "Star Wars", posterPath: "/r8Ph5MYXL04Qzu4QBbq2KjqwtkQ.jpg", backdropPath: "/d8duYyyC9J5T825Hg7grmaabfxQ.jpg"),
+        PopularTMDBCollection(id: 328, title: "Jurassic Park", posterPath: "/jcUXVtJ6s0NG0EaxllQCAUtXAaT.jpg", backdropPath: "/yg3TSwGh7VKfYmsMYAmNLENwLSS.jpg"),
+        PopularTMDBCollection(id: 86311, title: "The Avengers", posterPath: "/yFSIUVTCvgYrpalUktulvk3Gi5Y.jpg", backdropPath: "/zuW6fOiusv4X9nnW3paHGfXcSll.jpg"),
+        PopularTMDBCollection(id: 748, title: "X-Men", posterPath: "/bSMLMxEHCnOrbxPYjeMPSHTChmu.jpg", backdropPath: "/8bcoRX3hQRHufLPSDREdvr3YMXx.jpg"),
+        PopularTMDBCollection(id: 9485, title: "The Fast and the Furious", posterPath: "/z4ROnCrL77ZMzT0MsNXY5j25wS2.jpg", backdropPath: "/zIYROHKhGAYaYnEPRRpKaFGME3y.jpg"),
+        PopularTMDBCollection(id: 87359, title: "Mission: Impossible", posterPath: "/geHHOyFnEVBqfJhPZbOBDjNJJfS.jpg", backdropPath: "/hML8WPREd4KjwLSsT9gfYZBBJlm.jpg"),
+        PopularTMDBCollection(id: 2150, title: "Shrek", posterPath: "/gBkbSDJMJMXEGbEsOka3CiEfbzL.jpg", backdropPath: "/gEN2pYR4kUCHSNT7dMgY0UsLjjU.jpg"),
+        PopularTMDBCollection(id: 84, title: "Indiana Jones", posterPath: "/2gkTn4MxaEiQnFXbXXIMBG8oEBp.jpg", backdropPath: "/6TnS7sCi2GjOVXJ4HdR3aD5GpV6.jpg"),
+        PopularTMDBCollection(id: 119, title: "Lord of the Rings", posterPath: "/oENY593nKRVL2PnxXsMtlh8izb4.jpg", backdropPath: "/bccR2CGKNN4EjnXMOmGQJpwi89V.jpg"),
+        PopularTMDBCollection(id: 263, title: "The Dark Knight", posterPath: "/qfevOTIJfiyBe3BNnX6WdOJFwWF.jpg", backdropPath: "/bvYjhsbxOBwpm8xLE5BhdA3a8CZ.jpg"),
+    ]
+}
+
 // MARK: - Search Suggestions View
 struct SearchSuggestionsView: View {
-    // MARK: - SearchCollection nested struct
-    struct SearchCollection: Identifiable {
-        let id: String
-        let title: String
-        let listId: String
-        let thumbnailURL: String
-        
-        init(title: String, listId: String, thumbnailURL: String) {
-            self.title = title
-            self.listId = listId
-            self.thumbnailURL = thumbnailURL
-            self.id = listId
-        }
-    }
-    
     @ObservedObject var viewModel: SearchViewModel
     let onSelect: (String) -> Void
     
+    @State private var selectedCollectionId: Int?
     @State private var showCollectionSheet = false
-    @State private var selectedCollection: SearchCollection?
-    
-    var collections: [SearchCollection] {
-        [
-            SearchCollection(
-                title: "Marvel Cinematic Universe",
-                listId: "kraftynic/marvel-cinematic-universe",
-                thumbnailURL: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/CCC3F8712F781DC1ECDDC406924EF0569A30DB0F0BF628CA9EAF60B97C9ABC4B/compose?aspectRatio=1.78&format=webp&width=1600"
-            ),
-            SearchCollection(
-                title: "Wizarding World",
-                listId: "ahasson/wizarding-world",
-                thumbnailURL: "https://i.ibb.co/rRjJyvSh/wp12750397.jpg"
-            ),
-            SearchCollection(
-                title: "Jurassic",
-                listId: "andyhawks/universe-jurassic-park",
-                thumbnailURL: "https://i.ibb.co/d0t640Qd/717-Pj-P13-Ax-L-AC-UF1000-1000-QL80.jpg"
-            ),
-            SearchCollection(
-                title: "Mission: Impossible",
-                listId: "nammel/mission-impossible-saga",
-                thumbnailURL: "https://i.ibb.co/35hTnqNv/dg2wdje-d4656d1e-b019-44f2-81ba-849bf6171c71.jpg"
-            )
-        ]
-    }
     
     var body: some View {
         ScrollView {
@@ -401,69 +385,200 @@ struct SearchSuggestionsView: View {
                     }
                 }
                 
-                // Collections
+                // Popular Collections (TMDB)
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Collections")
+                    Text("Popular Collections")
                         .font(.headline)
                     
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 16) {
-                            ForEach(collections) { collection in
-                                Button {
-                                    selectedCollection = collection
-                                    showCollectionSheet = true
-                                } label: {
-                                    ZStack(alignment: .bottom) {
-                                        AsyncImage(url: URL(string: collection.thumbnailURL)) { phase in
-                                            switch phase {
-                                            case .empty:
-                                                Color(.systemGray5)
-                                            case .success(let image):
-                                                image
-                                                    .resizable()
-                                                    .aspectRatio(contentMode: .fill)
-                                            case .failure:
-                                                Color(.systemGray5)
-                                            @unknown default:
-                                                Color(.systemGray5)
-                                            }
-                                        }
-                                        .frame(width: 280, height: 140)
-                                        .clipped()
-                                        .cornerRadius(12)
-                                        .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
-                                        
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [Color.black.opacity(0.6), Color.clear]),
-                                            startPoint: .bottom,
-                                            endPoint: .top
-                                        )
-                                        .frame(height: 50)
-                                        .cornerRadius(12)
-                                        
-                                        Text(collection.title)
-                                            .font(.headline)
-                                            .fontWeight(.bold)
-                                            .foregroundColor(.white)
-                                            .padding(.bottom, 8)
-                                            .padding(.horizontal, 12)
-                                            .frame(maxWidth: 280, alignment: .leading)
-                                    }
-                                }
-                                .buttonStyle(PlainButtonStyle())
+                    let columns = [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12)
+                    ]
+                    
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(PopularTMDBCollection.popular) { collection in
+                            Button {
+                                selectedCollectionId = collection.id
+                                showCollectionSheet = true
+                            } label: {
+                                TMDBCollectionTile(collection: collection)
                             }
+                            .buttonStyle(.plain)
                         }
-                        .padding(.vertical, 4)
                     }
                 }
             }
             .padding()
         }
         .sheet(isPresented: $showCollectionSheet) {
-            if let selectedCollection = selectedCollection {
-                CollectionListSheet(collection: selectedCollection)
+            if let collectionId = selectedCollectionId {
+                TMDBCollectionSheet(collectionId: collectionId)
             }
         }
+    }
+}
+
+// MARK: - TMDB Collection Tile
+struct TMDBCollectionTile: View {
+    let collection: PopularTMDBCollection
+    @State private var isPressed = false
+    
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            // Backdrop image
+            AsyncImage(url: TMDBService.shared.imageURL(path: collection.backdropPath, size: .backdropSmall)) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                case .empty:
+                    Color(.systemGray5)
+                        .overlay(ProgressView())
+                case .failure:
+                    Color(.systemGray5)
+                @unknown default:
+                    Color(.systemGray5)
+                }
+            }
+            .frame(height: 100)
+            .clipped()
+            
+            // Gradient overlay
+            LinearGradient(
+                colors: [.black.opacity(0.75), .black.opacity(0.1)],
+                startPoint: .bottom,
+                endPoint: .top
+            )
+            
+            // Title
+            Text(collection.title)
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+                .lineLimit(2)
+                .padding(10)
+        }
+        .frame(height: 100)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+        .scaleEffect(isPressed ? 0.96 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
+        .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+            isPressed = pressing
+        }, perform: {})
+    }
+}
+
+// MARK: - TMDB Collection Sheet
+struct TMDBCollectionSheet: View {
+    let collectionId: Int
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var collectionDetails: CollectionDetails?
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var selectedItem: MediaItem?
+    
+    private let columns = [
+        GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+    ]
+    
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    VStack {
+                        Spacer()
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Spacer()
+                    }
+                } else if let error = error {
+                    VStack(spacing: 16) {
+                        Spacer()
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.red)
+                        Text("Failed to load collection")
+                            .font(.headline)
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                        Spacer()
+                    }
+                    .padding()
+                } else if let details = collectionDetails {
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            // Collection backdrop header
+                            if details.backdropPath != nil {
+                                AsyncImage(url: TMDBService.shared.imageURL(path: details.backdropPath, size: .backdrop)) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                            .frame(height: 180)
+                                            .clipped()
+                                    default:
+                                        EmptyView()
+                                    }
+                                }
+                            }
+                            
+                            // Overview
+                            if let overview = details.overview, !overview.isEmpty {
+                                Text(overview)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                    .padding(.horizontal)
+                            }
+                            
+                            // Movies grid
+                            LazyVGrid(columns: columns, spacing: 20) {
+                                ForEach(details.parts.sorted { ($0.releaseDate ?? "") < ($1.releaseDate ?? "") }) { item in
+                                    MediaPosterCard(item: item)
+                                        .onTapGesture {
+                                            selectedItem = item
+                                        }
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+                    }
+                }
+            }
+            .navigationTitle(collectionDetails?.name ?? "Collection")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+            .sheet(item: $selectedItem) { item in
+                MediaDetailView(item: item)
+            }
+            .task {
+                await loadCollection()
+            }
+        }
+    }
+    
+    private func loadCollection() async {
+        isLoading = true
+        error = nil
+        
+        do {
+            collectionDetails = try await TMDBService.shared.getCollectionDetails(id: collectionId)
+        } catch {
+            self.error = error.localizedDescription
+        }
+        
+        isLoading = false
     }
 }
 
@@ -635,137 +750,23 @@ class SearchViewModel: ObservableObject {
 #Preview {
     SearchView(selectedItem: .constant(nil))
 }
-// MARK: - CollectionListSheet
-struct CollectionListSheet: View {
-    let collection: SearchSuggestionsView.SearchCollection
-    
-    @Environment(\.dismiss) private var dismiss
-    @State private var allItems: [SavedMediaItem] = []
-    @State private var isLoading = true
-    @State private var error: String?
-    @State private var selectedItem: MediaItem?
-    
-    private let columns = [
-        GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
-    ]
-    
-    var body: some View {
-        NavigationStack {
-            Group {
-                if isLoading {
-                    VStack {
-                        Spacer()
-                        ProgressView()
-                            .scaleEffect(1.2)
-                        Spacer()
-                    }
-                } else if let error = error {
-                    VStack(spacing: 16) {
-                        Spacer()
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 48))
-                            .foregroundColor(.red)
-                        Text("Failed to load collection")
-                            .font(.headline)
-                        Text(error)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                        Spacer()
-                    }
-                    .padding()
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: columns, spacing: 20) {
-                            ForEach(allItems) { savedItem in
-                                SavedMediaPosterCard(item: savedItem)
-                                    .onTapGesture {
-                                        selectedItem = savedItem.toMediaItem()
-                                    }
-                            }
-                        }
-                        .padding()
-                    }
-                }
-            }
-            .navigationTitle(collection.title)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Close") {
-                        dismiss()
-                    }
-                }
-            }
-            .sheet(item: $selectedItem) { item in
-                MediaDetailView(item: item)
-            }
-            .task {
-                do {
-                    isLoading = true
-                    error = nil
-                    allItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: collection.listId)
-                } catch {
-                    self.error = error.localizedDescription
-                    allItems = []
-                }
-                isLoading = false
-            }
-        }
-    }
-}
 
 // MARK: - SavedMediaItem -> MediaItem conversion
 extension SavedMediaItem {
     func toMediaItem() -> MediaItem {
-        // Safely coerce id to Int if the SavedMediaItem.id is not already Int-compatible
-        // If your SavedMediaItem.id is a String, try to parse it; otherwise, use 0 as a fallback.
-        let coercedId: Int
-        if let intId = self.id as? Int {
-            coercedId = intId
-        } else if let stringId = self.id as? String, let parsed = Int(stringId) {
-            coercedId = parsed
-        } else {
-            // If id is some other type, provide a stable fallback
-            coercedId = 0
-        }
-
-        // Determine media type string if available; otherwise default to "movie"
-        // Adjust `mediaType` property name if your SavedMediaItem uses a different one.
-        let mediaTypeString: String = {
-            if let mt = (self as AnyObject).value(forKey: "mediaType") as? String {
-                return mt
-            }
-            return "movie"
-        }()
-
-        // Map a single stored date to releaseDate/firstAirDate depending on media type if possible.
-        // Tries common property names via KVC without hard dependency on model shape.
-        let storedDate: String? = {
-            // Try common keys
-            let keys = ["releaseDate", "firstAirDate", "date"]
-            for key in keys {
-                if let value = (self as AnyObject).value(forKey: key) as? String, !value.isEmpty {
-                    return value
-                }
-            }
-            return nil
-        }()
-
-        // Decide where to place the date depending on media type
-        let releaseDate: String? = mediaTypeString == "tv" ? nil : storedDate
-        let firstAirDate: String? = mediaTypeString == "tv" ? storedDate : nil
+        let mediaTypeString = self.mediaType.rawValue
 
         return MediaItem(
-            id: coercedId,
-            title: self.title ?? "",
-            name: nil,
+            id: self.mediaId,
+            title: mediaTypeString == "movie" ? self.title : nil,
+            name: mediaTypeString == "tv" ? self.title : nil,
             originalTitle: nil,
             originalName: nil,
-            overview: self.overview ?? "",
+            overview: self.overview,
             posterPath: self.posterPath,
             backdropPath: self.backdropPath,
-            releaseDate: releaseDate,
-            firstAirDate: firstAirDate,
+            releaseDate: mediaTypeString == "movie" ? self.year : nil,
+            firstAirDate: mediaTypeString == "tv" ? self.year : nil,
             voteAverage: self.voteAverage,
             voteCount: nil,
             popularity: nil,

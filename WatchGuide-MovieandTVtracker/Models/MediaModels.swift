@@ -620,3 +620,21 @@ struct OMDbRating: Codable {
         case value = "Value"
     }
 }
+
+
+
+// MARK: - Collection Details
+struct CollectionDetails: Identifiable, Codable {
+    let id: Int
+    let name: String
+    let overview: String?
+    let posterPath: String?
+    let backdropPath: String?
+    let parts: [MediaItem]
+    
+    enum CodingKeys: String, CodingKey {
+        case id, name, overview, parts
+        case posterPath = "poster_path"
+        case backdropPath = "backdrop_path"
+    }
+}

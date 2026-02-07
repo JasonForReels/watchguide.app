@@ -353,6 +353,11 @@ actor TMDBService {
         return try await request("/discover/tv", queryItems: queryItems)
     }
     
+    // MARK: - Collections
+    func getCollectionDetails(id: Int) async throws -> CollectionDetails {
+        try await request("/collection/\(id)")
+    }
+    
     // MARK: - Genres
     func getMovieGenres() async throws -> GenresResponse {
         try await request("/genre/movie/list")
