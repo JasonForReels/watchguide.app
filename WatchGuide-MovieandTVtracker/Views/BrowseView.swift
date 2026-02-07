@@ -154,13 +154,13 @@ struct LiquidGlassHubButton: View {
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .frame(width: 52, height: 52)
+                            .frame(width: 56, height: 56)
                             .clipShape(Circle())
                     case .failure, .empty:
                         Text(fallbackText)
                             .font(.caption2)
                             .fontWeight(.bold)
-                            .frame(width: 52, height: 52)
+                            .frame(width: 56, height: 56)
                     @unknown default:
                         ProgressView()
                             .frame(width: 52, height: 52)
@@ -1191,7 +1191,7 @@ struct NetworkHubCard: View {
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
-                                .frame(width: 52, height: 52)
+                                .frame(width: 56, height: 56)
                                 .clipShape(Circle())
                         case .failure, .empty:
                             Text(hub.name)
