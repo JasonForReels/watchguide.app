@@ -295,29 +295,43 @@ struct PopularTMDBCollection: Identifiable, Hashable {
     let backdropPath: String?
     /// If true, `id` is a TMDB *list* ID fetched via /list/{id} instead of /collection/{id}
     let isList: Bool
+    /// Full URL for the tile backdrop (overrides backdropPath when set)
+    let customBackdropURL: String?
+    /// MDBList list ID; when set the collection is fetched from MDBList instead of TMDB
+    let mdblistId: String?
     
-    init(id: Int, title: String, posterPath: String?, backdropPath: String?, isList: Bool = false) {
+    init(id: Int, title: String, posterPath: String?, backdropPath: String?, isList: Bool = false, customBackdropURL: String? = nil, mdblistId: String? = nil) {
         self.id = id
         self.title = title
         self.posterPath = posterPath
         self.backdropPath = backdropPath
         self.isList = isList
+        self.customBackdropURL = customBackdropURL
+        self.mdblistId = mdblistId
+    }
+    
+    /// Resolved URL for the tile backdrop image
+    var tileBackdropURL: URL? {
+        if let custom = customBackdropURL, let url = URL(string: custom) {
+            return url
+        }
+        return TMDBService.shared.imageURL(path: backdropPath, size: .backdropSmall)
     }
     
     // Well-known TMDB collection / list IDs
     static let popular: [PopularTMDBCollection] = [
-        PopularTMDBCollection(id: 84979, title: "Marvel Cinematic Universe", posterPath: "/coiGBvhSMO1ELWbOBnOtvlBSEbH.jpg", backdropPath: "/zuW6fOiusv4X9nnW3paHGfXcSll.jpg", isList: true),
+        PopularTMDBCollection(id: 0, title: "Marvel", posterPath: nil, backdropPath: nil, isList: false, customBackdropURL: "https://i.postimg.cc/2SvGNf7s/uwp4669808.webp", mdblistId: "dualipafan01/marvel"),
         PopularTMDBCollection(id: 1241, title: "Harry Potter", posterPath: "/x8N3yjWAoQQGbAPiZi6AjDqzqJo.jpg", backdropPath: "/bLJTjfbR1syo2VIalJtnCuE0rWp.jpg"),
         PopularTMDBCollection(id: 10, title: "Star Wars", posterPath: "/r8Ph5MYXL04Qzu4QBbq2KjqwtkQ.jpg", backdropPath: "/d8duYyyC9J5T825Hg7grmaabfxQ.jpg"),
         PopularTMDBCollection(id: 328, title: "Jurassic Park", posterPath: "/jcUXVtJ6s0NG0EaxllQCAUtXAaT.jpg", backdropPath: "/yg3TSwGh7VKfYmsMYAmNLENwLSS.jpg"),
         PopularTMDBCollection(id: 86311, title: "The Avengers", posterPath: "/yFSIUVTCvgYrpalUktulvk3Gi5Y.jpg", backdropPath: "/zuW6fOiusv4X9nnW3paHGfXcSll.jpg"),
-        PopularTMDBCollection(id: 748, title: "X-Men", posterPath: "/bSMLMxEHCnOrbxPYjeMPSHTChmu.jpg", backdropPath: "/8bcoRX3hQRHufLPSDREdvr3YMXx.jpg"),
+        PopularTMDBCollection(id: 748, title: "X-Men", posterPath: "/bSMLMxEHCnOrbxPYjeMPSHTChmu.jpg", backdropPath: nil, customBackdropURL: "https://image.tmdb.org/t/p/original/roZFGw3Rg6VOYty9y4r5WvgvXoC.jpg"),
         PopularTMDBCollection(id: 9485, title: "The Fast and the Furious", posterPath: "/z4ROnCrL77ZMzT0MsNXY5j25wS2.jpg", backdropPath: "/zIYROHKhGAYaYnEPRRpKaFGME3y.jpg"),
         PopularTMDBCollection(id: 87359, title: "Mission: Impossible", posterPath: "/geHHOyFnEVBqfJhPZbOBDjNJJfS.jpg", backdropPath: "/hML8WPREd4KjwLSsT9gfYZBBJlm.jpg"),
         PopularTMDBCollection(id: 2150, title: "Shrek", posterPath: "/gBkbSDJMJMXEGbEsOka3CiEfbzL.jpg", backdropPath: "/gEN2pYR4kUCHSNT7dMgY0UsLjjU.jpg"),
         PopularTMDBCollection(id: 84, title: "Indiana Jones", posterPath: "/2gkTn4MxaEiQnFXbXXIMBG8oEBp.jpg", backdropPath: "/6TnS7sCi2GjOVXJ4HdR3aD5GpV6.jpg"),
         PopularTMDBCollection(id: 119, title: "Lord of the Rings", posterPath: "/oENY593nKRVL2PnxXsMtlh8izb4.jpg", backdropPath: "/bccR2CGKNN4EjnXMOmGQJpwi89V.jpg"),
-        PopularTMDBCollection(id: 263, title: "The Dark Knight", posterPath: "/qfevOTIJfiyBe3BNnX6WdOJFwWF.jpg", backdropPath: "/bvYjhsbxOBwpm8xLE5BhdA3a8CZ.jpg"),
+        PopularTMDBCollection(id: 263, title: "The Dark Knight", posterPath: "/qfevOTIJfiyBe3BNnX6WdOJFwWF.jpg", backdropPath: nil, customBackdropURL: "https://image.tmdb.org/t/p/original/xyhrCEdB4XRkelfVsqXeUZ6rLHi.jpg"),
     ]
 }
 
@@ -432,7 +446,7 @@ struct TMDBCollectionTile: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             // Backdrop image
-            AsyncImage(url: TMDBService.shared.imageURL(path: collection.backdropPath, size: .backdropSmall)) { phase in
+            AsyncImage(url: collection.tileBackdropURL) { phase in
                 switch phase {
                 case .success(let image):
                     image
@@ -600,13 +614,28 @@ struct TMDBCollectionSheet: View {
         isLoading = true
         error = nil
         
-        if collection.isList {
+        if let mdblistId = collection.mdblistId {
+            await loadFromMDBList(listId: mdblistId)
+        } else if collection.isList {
             await loadFromList(page: 1)
         } else {
             await loadFromCollection()
         }
         
         isLoading = false
+    }
+    
+    private func loadFromMDBList(listId: String) async {
+        do {
+            let savedItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
+            title = collection.title
+            backdropPath = nil // MDBList collections use customBackdropURL on the tile, no header backdrop needed
+            items = savedItems.map { $0.toMediaItem() }
+            hasMorePages = false
+        } catch let loadError {
+            self.error = loadError.localizedDescription
+            print("MDBList load error for \(listId): \(loadError)")
+        }
     }
     
     private func loadFromCollection() async {
