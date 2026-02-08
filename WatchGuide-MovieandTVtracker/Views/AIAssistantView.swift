@@ -330,10 +330,11 @@ struct TrailerPlayerSheet: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottomTrailing) {
+                // Always starts muted; user taps button to unmute
                 YouTubePlayerView(videoKey: videoKey, autoPlay: true, isMuted: isMuted)
                     .ignoresSafeArea()
                 
-                // Mute/unmute toggle — user gesture to unmute after autoplay starts muted
+                // Mute/unmute toggle — user gesture triggers player.unMute()
                 Button {
                     isMuted.toggle()
                 } label: {
