@@ -15,6 +15,7 @@ struct BrowseView: View {
     @State private var showDreamWorksSheet = false
     @State private var showDCStudiosSheet = false
     @State private var showUniversalPicturesSheet = false
+    @State private var showSonyPicturesSheet = false
     @State private var showCustomizeSheet = false
     @State private var selectedPerson: Person?
     
@@ -78,6 +79,9 @@ struct BrowseView: View {
                                 },
                                 onUniversalPicturesTap: {
                                     showUniversalPicturesSheet = true
+                                },
+                                onSonyPicturesTap: {
+                                    showSonyPicturesSheet = true
                                 }
                             )
                         }
@@ -120,6 +124,9 @@ struct BrowseView: View {
             .sheet(isPresented: $showUniversalPicturesSheet) {
                 UniversalPicturesSheet(selectedItem: $selectedItem)
             }
+            .sheet(isPresented: $showSonyPicturesSheet) {
+                SonyPicturesSheet(selectedItem: $selectedItem)
+            }
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
             }
@@ -144,35 +151,119 @@ struct LiquidGlassHubButton: View {
     let fallbackText: String
     let action: () -> Void
     @State private var isPressed = false
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         VStack(spacing: 10) {
             Button(action: action) {
-                AsyncImage(url: URL(string: imageURL)) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 56, height: 56)
-                            .clipShape(Circle())
-                    case .failure, .empty:
-                        Text(fallbackText)
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .frame(width: 56, height: 56)
-                    @unknown default:
-                        ProgressView()
-                            .frame(width: 52, height: 52)
+                ZStack {
+                    // Outer glow ring
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [
+                                    .white.opacity(colorScheme == .dark ? 0.06 : 0.12),
+                                    .clear
+                                ],
+                                center: .center,
+                                startRadius: 28,
+                                endRadius: 42
+                            )
+                        )
+                        .frame(width: 72, height: 72)
+                    
+                    // Main button body with 3D layering
+                    ZStack {
+                        // Shadow/depth base layer
+                        Circle()
+                            .fill(Color.black.opacity(0.3))
+                            .frame(width: 62, height: 62)
+                            .offset(y: 2)
+                            .blur(radius: 3)
+                        
+                        // Main background
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                            .frame(width: 62, height: 62)
+                        
+                        // Inner gradient for 3D curvature
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        .white.opacity(colorScheme == .dark ? 0.12 : 0.25),
+                                        .clear,
+                                        .black.opacity(colorScheme == .dark ? 0.15 : 0.05)
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .frame(width: 62, height: 62)
+                        
+                        // Content
+                        AsyncImage(url: URL(string: imageURL)) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 54, height: 54)
+                                    .clipShape(Circle())
+                            case .failure, .empty:
+                                Text(fallbackText)
+                                    .font(.caption2)
+                                    .fontWeight(.bold)
+                                    .frame(width: 54, height: 54)
+                            @unknown default:
+                                ProgressView()
+                                    .frame(width: 54, height: 54)
+                            }
+                        }
+                        
+                        // Top specular highlight
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        .white.opacity(colorScheme == .dark ? 0.18 : 0.3),
+                                        .white.opacity(0.0)
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .center
+                                )
+                            )
+                            .frame(width: 62, height: 62)
+                            .mask(
+                                VStack {
+                                    Ellipse()
+                                        .frame(width: 44, height: 20)
+                                        .offset(y: 4)
+                                    Spacer()
+                                }
+                                .frame(width: 62, height: 62)
+                            )
+                        
+                        // Border ring
+                        Circle()
+                            .stroke(
+                                LinearGradient(
+                                    colors: [
+                                        .white.opacity(colorScheme == .dark ? 0.25 : 0.4),
+                                        .white.opacity(colorScheme == .dark ? 0.05 : 0.1),
+                                        .white.opacity(0.0)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 0.8
+                            )
+                            .frame(width: 62, height: 62)
                     }
                 }
-                .frame(width: 64, height: 64)
-                .background(.ultraThinMaterial, in: Circle())
-                .overlay(
-                    Circle()
-                        .stroke(.white.opacity(0.15), lineWidth: 0.5)
-                )
-                .scaleEffect(isPressed ? 0.92 : 1.0)
+                .frame(width: 72, height: 72)
+                .shadow(color: .black.opacity(colorScheme == .dark ? 0.4 : 0.15), radius: isPressed ? 2 : 6, y: isPressed ? 1 : 3)
+                .scaleEffect(isPressed ? 0.90 : 1.0)
                 .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
             }
             .buttonStyle(.plain)
@@ -196,6 +287,7 @@ struct StudiosHubRow: View {
     let onDreamWorksTap: () -> Void
     let onDCStudiosTap: () -> Void
     let onUniversalPicturesTap: () -> Void
+    let onSonyPicturesTap: () -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -235,6 +327,12 @@ struct StudiosHubRow: View {
                         label: "Universal",
                         fallbackText: "UNI",
                         action: onUniversalPicturesTap
+                    )
+                    LiquidGlassHubButton(
+                        imageURL: "https://cdn.brandfetch.io/idIBgcvFOi/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1766845823662",
+                        label: "Sony Pictures",
+                        fallbackText: "Sony",
+                        action: onSonyPicturesTap
                     )
                 }
                 .padding(.horizontal)
@@ -986,6 +1084,151 @@ struct UniversalPicturesSheet: View {
     }
 }
 
+// MARK: - Sony Pictures Sheet
+struct SonyPicturesSheet: View {
+    @Binding var selectedItem: MediaItem?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var allItems: [SavedMediaItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var selectedTab = 0
+    
+    private var movies: [SavedMediaItem] {
+        allItems.filter { $0.mediaType == .movie }
+    }
+    
+    private var tvShows: [SavedMediaItem] {
+        allItems.filter { $0.mediaType == .tv }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Header with logo
+                AsyncImage(url: URL(string: "https://cdn.brandfetch.io/idIBgcvFOi/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1766845823662")) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(height: 60)
+                    default:
+                        EmptyView()
+                    }
+                }
+                .padding(.vertical, 16)
+                
+                // Tab picker
+                Picker("Content Type", selection: $selectedTab) {
+                    Text("Movies").tag(0)
+                    Text("TV").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.bottom, 16)
+                
+                if isLoading {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Spacer()
+                } else if let error = error {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundColor(.orange)
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                    Spacer()
+                } else {
+                    let items = selectedTab == 0 ? movies : tvShows
+                    
+                    if items.isEmpty {
+                        Spacer()
+                        VStack(spacing: 12) {
+                            Image(systemName: selectedTab == 0 ? "film" : "tv")
+                                .font(.largeTitle)
+                                .foregroundColor(.secondary)
+                            Text("No \(selectedTab == 0 ? "movies" : "TV shows") found")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    } else {
+                        ScrollView {
+                            LazyVGrid(columns: [
+                                GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                            ], spacing: 20) {
+                                ForEach(items) { item in
+                                    SavedMediaPosterCard(item: item)
+                                        .onTapGesture {
+                                            let mediaItem = MediaItem(
+                                                id: item.mediaId,
+                                                title: item.mediaType == .movie ? item.title : nil,
+                                                name: item.mediaType == .tv ? item.title : nil,
+                                                originalTitle: nil,
+                                                originalName: nil,
+                                                overview: item.overview,
+                                                posterPath: item.posterPath,
+                                                backdropPath: item.backdropPath,
+                                                releaseDate: item.year,
+                                                firstAirDate: item.year,
+                                                voteAverage: item.voteAverage,
+                                                voteCount: nil,
+                                                popularity: nil,
+                                                genreIds: nil,
+                                                mediaType: item.mediaType.rawValue,
+                                                adult: nil,
+                                                originalLanguage: nil
+                                            )
+                                            selectedItem = mediaItem
+                                            dismiss()
+                                        }
+                                }
+                            }
+                            .padding()
+                        }
+                    }
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .task {
+            await loadContent()
+        }
+    }
+    
+    private func loadContent() async {
+        isLoading = true
+        error = nil
+        
+        do {
+            allItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: "dualipafan01/columbia-pictures")
+            if allItems.isEmpty {
+                error = "No content found in this list."
+            }
+        } catch {
+            self.error = "Failed to load content. Please try again."
+            print("Sony Pictures error: \(error)")
+        }
+        
+        isLoading = false
+    }
+}
+
 // MARK: - Browse View Model
 @MainActor
 class BrowseViewModel: ObservableObject {
@@ -1158,6 +1401,7 @@ struct NetworkHubsRow: View {
 struct NetworkHubCard: View {
     let hub: NetworkHub
     @State private var isPressed = false
+    @Environment(\.colorScheme) private var colorScheme
     
     // Button logo URLs (circular icons with original colors)
     private var buttonLogoURL: String {
@@ -1184,42 +1428,123 @@ struct NetworkHubCard: View {
     var body: some View {
         VStack(spacing: 10) {
             ZStack {
-                if let url = URL(string: buttonLogoURL), !buttonLogoURL.isEmpty {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 56, height: 56)
-                                .clipShape(Circle())
-                        case .failure, .empty:
-                            Text(hub.name)
-                                .font(.caption2)
-                                .fontWeight(.semibold)
-                                .multilineTextAlignment(.center)
-                                .lineLimit(2)
-                                .frame(width: 48)
-                        @unknown default:
-                            ProgressView()
+                // Outer glow ring
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                .white.opacity(colorScheme == .dark ? 0.06 : 0.12),
+                                .clear
+                            ],
+                            center: .center,
+                            startRadius: 28,
+                            endRadius: 42
+                        )
+                    )
+                    .frame(width: 72, height: 72)
+                
+                // Main button body with 3D layering
+                ZStack {
+                    // Shadow/depth base layer
+                    Circle()
+                        .fill(Color.black.opacity(0.3))
+                        .frame(width: 62, height: 62)
+                        .offset(y: 2)
+                        .blur(radius: 3)
+                    
+                    // Main background
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .frame(width: 62, height: 62)
+                    
+                    // Inner gradient for 3D curvature
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(colorScheme == .dark ? 0.12 : 0.25),
+                                    .clear,
+                                    .black.opacity(colorScheme == .dark ? 0.15 : 0.05)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .frame(width: 62, height: 62)
+                    
+                    // Content
+                    if let url = URL(string: buttonLogoURL), !buttonLogoURL.isEmpty {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 54, height: 54)
+                                    .clipShape(Circle())
+                            case .failure, .empty:
+                                Text(hub.name)
+                                    .font(.caption2)
+                                    .fontWeight(.semibold)
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(2)
+                                    .frame(width: 48)
+                            @unknown default:
+                                ProgressView()
+                            }
                         }
+                    } else {
+                        Text(hub.name)
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .frame(width: 48)
                     }
-                } else {
-                    Text(hub.name)
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .frame(width: 48)
+                    
+                    // Top specular highlight
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(colorScheme == .dark ? 0.18 : 0.3),
+                                    .white.opacity(0.0)
+                                ],
+                                startPoint: .top,
+                                endPoint: .center
+                            )
+                        )
+                        .frame(width: 62, height: 62)
+                        .mask(
+                            VStack {
+                                Ellipse()
+                                    .frame(width: 44, height: 20)
+                                    .offset(y: 4)
+                                Spacer()
+                            }
+                            .frame(width: 62, height: 62)
+                        )
+                    
+                    // Border ring
+                    Circle()
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(colorScheme == .dark ? 0.25 : 0.4),
+                                    .white.opacity(colorScheme == .dark ? 0.05 : 0.1),
+                                    .white.opacity(0.0)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 0.8
+                        )
+                        .frame(width: 62, height: 62)
                 }
             }
-            .frame(width: 64, height: 64)
-            .background(.ultraThinMaterial, in: Circle())
-            .overlay(
-                Circle()
-                    .stroke(.white.opacity(0.15), lineWidth: 0.5)
-            )
-            .scaleEffect(isPressed ? 0.92 : 1.0)
+            .frame(width: 72, height: 72)
+            .shadow(color: .black.opacity(colorScheme == .dark ? 0.4 : 0.15), radius: isPressed ? 2 : 6, y: isPressed ? 1 : 3)
+            .scaleEffect(isPressed ? 0.90 : 1.0)
             .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
             .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
                 isPressed = pressing
