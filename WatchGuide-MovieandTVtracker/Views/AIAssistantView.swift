@@ -325,20 +325,36 @@ struct TrailerPlayerSheet: View {
     let videoKey: String
     let title: String
     @Environment(\.dismiss) private var dismiss
+    @State private var isMuted = true
     
     var body: some View {
         NavigationStack {
-            YouTubePlayerView(videoKey: videoKey, autoPlay: true, isMuted: false)
-                .ignoresSafeArea()
-                .navigationTitle(title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Close") {
-                            dismiss()
-                        }
+            ZStack(alignment: .bottomTrailing) {
+                YouTubePlayerView(videoKey: videoKey, autoPlay: true, isMuted: isMuted)
+                    .ignoresSafeArea()
+                
+                // Mute/unmute toggle — user gesture to unmute after autoplay starts muted
+                Button {
+                    isMuted.toggle()
+                } label: {
+                    Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.3.fill")
+                        .font(.body)
+                        .foregroundColor(.white)
+                        .padding(10)
+                        .background(.black.opacity(0.5))
+                        .clipShape(Circle())
+                }
+                .padding(16)
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
                     }
                 }
+            }
         }
     }
 }

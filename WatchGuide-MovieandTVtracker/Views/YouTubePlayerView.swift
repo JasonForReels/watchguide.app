@@ -57,8 +57,10 @@ struct YouTubePlayerView: UIViewRepresentable {
     }
 
     static func loadEmbed(into webView: WKWebView, videoKey: String, autoPlay: Bool, isMuted: Bool, coordinator: Coordinator) {
+        // KEY FIX: Always embed with mute=1 so WebKit permits autoplay without
+        // triggering error 152-4. After the video starts playing (canplay),
+        // unmute via postMessage if the caller requested sound.
         let autoplayParam = autoPlay ? "1" : "0"
-        let muteParam = isMuted ? "1" : "0"
 
         let html = """
         <!DOCTYPE html>
@@ -73,15 +75,34 @@ struct YouTubePlayerView: UIViewRepresentable {
         </head>
         <body>
         <iframe
-          src="https://www.youtube.com/embed/\(videoKey)?playsinline=1&autoplay=\(autoplayParam)&mute=\(muteParam)&rel=0&modestbranding=1&controls=1&iv_load_policy=3&enablejsapi=1&origin=https://www.youtube.com"
+          src="https://www.youtube.com/embed/\(videoKey)?playsinline=1&autoplay=\(autoplayParam)&mute=1&rel=0&modestbranding=1&controls=1&iv_load_policy=3&enablejsapi=1&origin=https://www.youtube.com"
           allow="autoplay; encrypted-media; picture-in-picture"
-          allowfullscreen>
+          allowfullscreen
+          playsinline
+          muted
+          autoplay>
         </iframe>
         </body>
         </html>
         """
         webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
         coordinator.retryCount = 0
+
+        // If the caller wants sound, unmute after a short delay to let the video start
+        if !isMuted && autoPlay {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak webView] in
+                guard let wv = webView else { return }
+                let js = """
+                try {
+                    var iframe = document.querySelector('iframe');
+                    if (iframe) {
+                        iframe.contentWindow.postMessage('{"event":"command","func":"unMute","args":""}', '*');
+                    }
+                } catch(e) {}
+                """
+                wv.evaluateJavaScript(js, completionHandler: nil)
+            }
+        }
     }
 
     private final class YouTubePlayerProcessPool {

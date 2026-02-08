@@ -19,7 +19,7 @@ struct WebTrailerPlayerView: UIViewRepresentable {
         prefs.allowsContentJavaScript = true
         config.defaultWebpagePreferences = prefs
 
-        // Reduce WebKit process pressure by sharing process pool
+        // Share process pool to reduce GPU/WebContent process spawning
         config.processPool = WebTrailerProcessPool.shared
 
         let webView = WKWebView(frame: .zero, configuration: config)
@@ -35,18 +35,10 @@ struct WebTrailerPlayerView: UIViewRepresentable {
         context.coordinator.currentAutoplay = autoplay
         context.coordinator.webView = webView
 
-        // Defer the actual load until the webview is in the window hierarchy.
-        // Loading immediately from makeUIView can trigger sandbox extension failures
-        // because the WKWebView process hasn't fully attached yet.
-        context.coordinator.pendingLoad = { [weak webView] in
-            guard let wv = webView else { return }
-            Self.loadEmbed(into: wv, videoKey: videoKey, autoplay: autoplay, muted: muted, coordinator: context.coordinator)
-        }
-
-        // Schedule the deferred load — gives UIKit one layout pass to attach the view
+        // Defer loading until the webview is attached to the window hierarchy.
+        // This avoids sandbox extension failures on real devices.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            context.coordinator.pendingLoad?()
-            context.coordinator.pendingLoad = nil
+            Self.loadEmbed(into: webView, videoKey: videoKey, coordinator: context.coordinator)
         }
 
         return webView
@@ -60,10 +52,11 @@ struct WebTrailerPlayerView: UIViewRepresentable {
             coord.currentMuted = muted
             coord.currentAutoplay = autoplay
             coord.retryCount = 0
-            Self.loadEmbed(into: uiView, videoKey: videoKey, autoplay: autoplay, muted: muted, coordinator: coord)
+            Self.loadEmbed(into: uiView, videoKey: videoKey, coordinator: coord)
             return
         }
 
+        // Handle mute/unmute toggle via postMessage (user gesture driven from SwiftUI)
         if coord.currentMuted != muted {
             coord.currentMuted = muted
             let muteCmd = muted ? "mute" : "unmute"
@@ -80,15 +73,11 @@ struct WebTrailerPlayerView: UIViewRepresentable {
     }
 
     /// Loads the YouTube embed HTML into the webview.
-    /// Static so it can be called from coordinator callbacks without capturing `self`.
-    static func loadEmbed(into webView: WKWebView, videoKey: String, autoplay: Bool, muted: Bool, coordinator: Coordinator) {
-        let autoplayParam = autoplay ? "1" : "0"
-        let muteParam = muted ? "1" : "0"
-
-        // Build a minimal HTML page with only an iframe — no JS API, no extra scripts.
-        // The WKWebView configuration (mediaTypesRequiringUserActionForPlayback = [])
-        // handles autoplay permission. This avoids the extra WebKit subprocess overhead
-        // that the IFrame JS API requires.
+    /// KEY FIX: Always start muted (mute=1) so WebKit allows autoplay without
+    /// the error 152-4 / GPU process crash. The `muted` and `playsinline`
+    /// attributes on the iframe plus `autoplay` satisfy WebKit's autoplay policy.
+    /// Users can unmute via the SwiftUI button which triggers a postMessage command.
+    static func loadEmbed(into webView: WKWebView, videoKey: String, coordinator: Coordinator) {
         let html = """
         <!DOCTYPE html>
         <html>
@@ -103,9 +92,12 @@ struct WebTrailerPlayerView: UIViewRepresentable {
         <body>
         <iframe
           id="yt"
-          src="https://www.youtube.com/embed/\(videoKey)?playsinline=1&autoplay=\(autoplayParam)&mute=\(muteParam)&controls=0&modestbranding=1&rel=0&loop=1&playlist=\(videoKey)&enablejsapi=1&iv_load_policy=3&fs=0&disablekb=1&origin=https://www.youtube.com"
+          src="https://www.youtube.com/embed/\(videoKey)?playsinline=1&autoplay=1&mute=1&controls=0&modestbranding=1&rel=0&loop=1&playlist=\(videoKey)&enablejsapi=1&iv_load_policy=3&fs=0&disablekb=1&origin=https://www.youtube.com"
           allow="autoplay; encrypted-media"
-          allowfullscreen>
+          allowfullscreen
+          playsinline
+          muted
+          autoplay>
         </iframe>
         </body>
         </html>
@@ -114,7 +106,7 @@ struct WebTrailerPlayerView: UIViewRepresentable {
         coordinator.retryCount = 0
     }
 
-    // MARK: - Shared process pool (reduces GPU/WebContent process spawning)
+    // MARK: - Shared process pool
 
     private final class WebTrailerProcessPool {
         static let shared = WKProcessPool()
@@ -128,38 +120,47 @@ struct WebTrailerPlayerView: UIViewRepresentable {
         var currentAutoplay: Bool = false
         weak var webView: WKWebView?
         var retryCount = 0
-        var pendingLoad: (() -> Void)?
         private let maxRetries = 3
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // After the HTML loads, give YouTube a moment, then verify the iframe rendered.
-            // If the web content process was killed before the iframe could load, reload.
+            // After load, verify the iframe rendered. If the web content process
+            // was killed before the iframe could load, retry.
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
                 guard let self = self else { return }
                 webView.evaluateJavaScript("document.querySelector('iframe') !== null") { result, error in
                     if let exists = result as? Bool, !exists, self.retryCount < self.maxRetries {
                         self.retryCount += 1
-                        print("WebTrailerPlayer: iframe missing after load, reloading (attempt \(self.retryCount))")
                         WebTrailerPlayerView.loadEmbed(
                             into: webView,
                             videoKey: self.currentVideoKey,
-                            autoplay: self.currentAutoplay,
-                            muted: self.currentMuted,
                             coordinator: self
                         )
                     } else if error != nil, self.retryCount < self.maxRetries {
-                        // JS eval itself failed — process likely crashed
                         self.retryCount += 1
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                             WebTrailerPlayerView.loadEmbed(
                                 into: webView,
                                 videoKey: self.currentVideoKey,
-                                autoplay: self.currentAutoplay,
-                                muted: self.currentMuted,
                                 coordinator: self
                             )
                         }
                     }
+                }
+            }
+
+            // If the caller wanted unmuted, send unmute after the video is likely playing
+            if !currentMuted {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                    guard let self = self, !self.currentMuted else { return }
+                    let js = """
+                    try {
+                        var iframe = document.querySelector('iframe');
+                        if (iframe) {
+                            iframe.contentWindow.postMessage('{"event":"command","func":"unMute","args":""}', '*');
+                        }
+                    } catch(e) {}
+                    """
+                    webView.evaluateJavaScript(js, completionHandler: nil)
                 }
             }
         }
@@ -167,7 +168,6 @@ struct WebTrailerPlayerView: UIViewRepresentable {
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             if let url = navigationAction.request.url {
                 let host = url.host?.lowercased() ?? ""
-                // Allow: initial about:blank, youtube embeds, google (for consent)
                 if navigationAction.targetFrame?.isMainFrame == true &&
                    !host.isEmpty &&
                    !host.contains("youtube.com") &&
@@ -182,53 +182,25 @@ struct WebTrailerPlayerView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            guard retryCount < maxRetries else { return }
-            retryCount += 1
-            let delay = Double(retryCount) * 0.8 // progressive backoff
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self = self else { return }
-                WebTrailerPlayerView.loadEmbed(
-                    into: webView,
-                    videoKey: self.currentVideoKey,
-                    autoplay: self.currentAutoplay,
-                    muted: self.currentMuted,
-                    coordinator: self
-                )
-            }
+            retryIfNeeded(webView: webView, delay: Double(retryCount + 1) * 0.8)
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            // Provisional navigation failure (e.g. sandbox extension error before page even loads)
-            guard retryCount < maxRetries else { return }
-            retryCount += 1
-            let delay = Double(retryCount) * 1.0
-            print("WebTrailerPlayer: provisional navigation failed, retrying in \(delay)s — \(error.localizedDescription)")
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self = self else { return }
-                WebTrailerPlayerView.loadEmbed(
-                    into: webView,
-                    videoKey: self.currentVideoKey,
-                    autoplay: self.currentAutoplay,
-                    muted: self.currentMuted,
-                    coordinator: self
-                )
-            }
+            retryIfNeeded(webView: webView, delay: Double(retryCount + 1) * 1.0)
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-            // The web content process was killed (GPU exit / RBS assertion failure).
-            // Wait a beat for the system to stabilise, then reload.
+            retryIfNeeded(webView: webView, delay: Double(retryCount + 1) * 1.2)
+        }
+
+        private func retryIfNeeded(webView: WKWebView, delay: Double) {
             guard retryCount < maxRetries else { return }
             retryCount += 1
-            let delay = Double(retryCount) * 1.2
-            print("WebTrailerPlayer: web content process terminated, reloading in \(delay)s (attempt \(retryCount))")
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self = self else { return }
                 WebTrailerPlayerView.loadEmbed(
                     into: webView,
                     videoKey: self.currentVideoKey,
-                    autoplay: self.currentAutoplay,
-                    muted: self.currentMuted,
                     coordinator: self
                 )
             }

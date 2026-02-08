@@ -19,6 +19,7 @@ struct MediaDetailView: View {
     @StateObject private var viewModel: MediaDetailViewModel
     @State private var selectedSeason: Season?
     @State private var selectedPerson: SelectedPerson?
+    // Trailers always autoplay muted; user taps to unmute
     @State private var isHeroUnmuted: Bool = false
 
     // Precomputed first YouTube trailer to reduce type-checking load
