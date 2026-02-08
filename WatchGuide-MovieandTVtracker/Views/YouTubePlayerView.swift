@@ -23,9 +23,11 @@ struct YouTubePlayerView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        // On real devices, autoplay requires mute=1. Force mute when autoplay is on.
+        let effectiveMute = autoPlay ? true : isMuted
         let autoplayParam = autoPlay ? "1" : "0"
-        let muteParam = isMuted ? "1" : "0"
-        let urlString = "https://www.youtube-nocookie.com/embed/\(videoKey)?playsinline=1&autoplay=\(autoplayParam)&mute=\(muteParam)"
+        let muteParam = effectiveMute ? "1" : "0"
+        let urlString = "https://www.youtube-nocookie.com/embed/\(videoKey)?playsinline=1&autoplay=\(autoplayParam)&mute=\(muteParam)&enablejsapi=1&origin=https://www.youtube.com"
         guard let url = URL(string: urlString) else { return }
         let request = URLRequest(url: url)
         if webView.url != url {
