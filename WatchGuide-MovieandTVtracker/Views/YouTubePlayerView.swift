@@ -11,6 +11,9 @@ struct YouTubePlayerView: UIViewRepresentable {
     var autoPlay: Bool = false
     var isMuted: Bool = false
 
+    // Use youtube-nocookie.com to avoid embed restriction errors (150/152)
+    private static let embedHost = "https://www.youtube-nocookie.com"
+
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
@@ -23,14 +26,14 @@ struct YouTubePlayerView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        // On real devices, autoplay requires mute=1. Force mute when autoplay is on.
         let effectiveMute = autoPlay ? true : isMuted
         let autoplayParam = autoPlay ? "1" : "0"
         let muteParam = effectiveMute ? "1" : "0"
-        let urlString = "https://www.youtube-nocookie.com/embed/\(videoKey)?playsinline=1&autoplay=\(autoplayParam)&mute=\(muteParam)&enablejsapi=1&origin=https://www.youtube.com"
+        // CRITICAL: origin must match the embed host domain exactly
+        let urlString = "\(Self.embedHost)/embed/\(videoKey)?playsinline=1&autoplay=\(autoplayParam)&mute=\(muteParam)&enablejsapi=1&origin=\(Self.embedHost)&rel=0&modestbranding=1"
         guard let url = URL(string: urlString) else { return }
         let request = URLRequest(url: url)
-        if webView.url != url {
+        if webView.url?.absoluteString != url.absoluteString {
             webView.load(request)
         }
     }
