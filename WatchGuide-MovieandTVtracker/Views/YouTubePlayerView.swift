@@ -24,6 +24,9 @@ struct YouTubePlayerView: UIViewRepresentable {
         prefs.allowsContentJavaScript = true
         config.defaultWebpagePreferences = prefs
 
+        // Share process pool to reduce GPU/WebContent process spawning
+        config.processPool = YouTubePlayerProcessPool.shared
+
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.bounces = false
@@ -32,8 +35,14 @@ struct YouTubePlayerView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
 
         context.coordinator.loadedVideoKey = videoKey
+        context.coordinator.autoPlay = autoPlay
+        context.coordinator.isMuted = isMuted
         context.coordinator.webView = webView
-        loadEmbed(into: webView, coordinator: context.coordinator)
+
+        // Defer load to allow view hierarchy attachment (avoids sandbox extension errors)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            Self.loadEmbed(into: webView, videoKey: videoKey, autoPlay: autoPlay, isMuted: isMuted, coordinator: context.coordinator)
+        }
 
         return webView
     }
@@ -41,10 +50,13 @@ struct YouTubePlayerView: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {
         guard context.coordinator.loadedVideoKey != videoKey else { return }
         context.coordinator.loadedVideoKey = videoKey
-        loadEmbed(into: webView, coordinator: context.coordinator)
+        context.coordinator.autoPlay = autoPlay
+        context.coordinator.isMuted = isMuted
+        context.coordinator.retryCount = 0
+        Self.loadEmbed(into: webView, videoKey: videoKey, autoPlay: autoPlay, isMuted: isMuted, coordinator: context.coordinator)
     }
 
-    private func loadEmbed(into webView: WKWebView, coordinator: Coordinator) {
+    static func loadEmbed(into webView: WKWebView, videoKey: String, autoPlay: Bool, isMuted: Bool, coordinator: Coordinator) {
         let autoplayParam = autoPlay ? "1" : "0"
         let muteParam = isMuted ? "1" : "0"
 
@@ -72,17 +84,25 @@ struct YouTubePlayerView: UIViewRepresentable {
         coordinator.retryCount = 0
     }
 
+    private final class YouTubePlayerProcessPool {
+        static let shared = WKProcessPool()
+    }
+
     class Coordinator: NSObject, WKNavigationDelegate {
         var loadedVideoKey: String = ""
+        var autoPlay: Bool = false
+        var isMuted: Bool = false
         weak var webView: WKWebView?
         var retryCount = 0
-        private let maxRetries = 2
+        private let maxRetries = 3
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             if let url = navigationAction.request.url {
                 let host = url.host?.lowercased() ?? ""
                 if navigationAction.targetFrame?.isMainFrame == true &&
+                   !host.isEmpty &&
                    !host.contains("youtube.com") && !host.contains("youtube-nocookie.com") &&
+                   !host.contains("google.com") &&
                    url.scheme != "about" {
                     decisionHandler(.cancel)
                     return
@@ -92,20 +112,29 @@ struct YouTubePlayerView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            if retryCount < maxRetries {
-                retryCount += 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    webView.reload()
-                }
-            }
+            retryLoad(into: webView, delay: Double(retryCount + 1) * 0.8)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            retryLoad(into: webView, delay: Double(retryCount + 1) * 1.0)
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-            if retryCount < maxRetries {
-                retryCount += 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    webView.reload()
-                }
+            retryLoad(into: webView, delay: Double(retryCount + 1) * 1.2)
+        }
+
+        private func retryLoad(into webView: WKWebView, delay: Double) {
+            guard retryCount < maxRetries else { return }
+            retryCount += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self = self else { return }
+                YouTubePlayerView.loadEmbed(
+                    into: webView,
+                    videoKey: self.loadedVideoKey,
+                    autoPlay: self.autoPlay,
+                    isMuted: self.isMuted,
+                    coordinator: self
+                )
             }
         }
     }
