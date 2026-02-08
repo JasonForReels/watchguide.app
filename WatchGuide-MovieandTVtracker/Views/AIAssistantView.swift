@@ -325,27 +325,80 @@ struct TrailerPlayerSheet: View {
     let videoKey: String
     let title: String
     @Environment(\.dismiss) private var dismiss
-    @State private var isMuted = true
+    
+    private var thumbnailURL: URL? {
+        URL(string: "https://img.youtube.com/vi/\(videoKey)/maxresdefault.jpg")
+    }
+    
+    private var youtubeURL: URL? {
+        URL(string: "https://www.youtube.com/watch?v=\(videoKey)")
+    }
     
     var body: some View {
         NavigationStack {
-            ZStack(alignment: .bottomTrailing) {
-                // Always starts muted; user taps button to unmute
-                YouTubePlayerView(videoKey: videoKey, autoPlay: true, isMuted: isMuted)
-                    .ignoresSafeArea()
+            VStack(spacing: 24) {
+                Spacer()
                 
-                // Mute/unmute toggle — user gesture triggers player.unMute()
-                Button {
-                    isMuted.toggle()
-                } label: {
-                    Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.3.fill")
-                        .font(.body)
-                        .foregroundColor(.white)
-                        .padding(10)
-                        .background(.black.opacity(0.5))
-                        .clipShape(Circle())
+                // Thumbnail with play overlay
+                ZStack {
+                    AsyncImage(url: thumbnailURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(16.0/9.0, contentMode: .fit)
+                        case .failure, .empty:
+                            Rectangle()
+                                .fill(Color(.systemGray5))
+                                .aspectRatio(16.0/9.0, contentMode: .fit)
+                                .overlay {
+                                    Image(systemName: "play.rectangle")
+                                        .font(.largeTitle)
+                                        .foregroundColor(.secondary)
+                                }
+                        @unknown default:
+                            Rectangle()
+                                .fill(Color(.systemGray5))
+                                .aspectRatio(16.0/9.0, contentMode: .fit)
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    
+                    // Play overlay
+                    ZStack {
+                        Circle()
+                            .fill(.black.opacity(0.5))
+                            .frame(width: 64, height: 64)
+                        Image(systemName: "play.fill")
+                            .font(.title)
+                            .foregroundColor(.white)
+                            .offset(x: 2)
+                    }
                 }
-                .padding(16)
+                .onTapGesture {
+                    if let url = youtubeURL {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                .padding(.horizontal)
+                
+                // Watch button
+                Button {
+                    if let url = youtubeURL {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Label("Watch on YouTube", systemImage: "play.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(14)
+                }
+                .padding(.horizontal)
+                
+                Spacer()
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)

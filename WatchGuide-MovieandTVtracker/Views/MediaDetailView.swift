@@ -4,7 +4,6 @@
 //
 
 import SwiftUI
-import WebKit // For WebTrailerPlayerView usage
 
 // MARK: - Person Selection Model
 struct SelectedPerson: Identifiable {
@@ -19,36 +18,14 @@ struct MediaDetailView: View {
     @StateObject private var viewModel: MediaDetailViewModel
     @State private var selectedSeason: Season?
     @State private var selectedPerson: SelectedPerson?
-    // Trailers always autoplay muted; user taps to unmute
-    @State private var isHeroUnmuted: Bool = false
 
-    // Precomputed first YouTube trailer to reduce type-checking load
-    private var firstYouTubeTrailer: Video? {
-        viewModel.videos.first { video in
-            let site = video.site.lowercased()
-            let type = video.type.lowercased()
-            return site == "youtube" && (type == "trailer" || type == "teaser")
-        }
-    }
-    
+    // Filtered trailer videos for the dedicated trailer section
     private var trailerVideos: [Video] {
         let trailers = viewModel.videos.filter { v in
             v.site.lowercased() == "youtube" &&
-            v.type.lowercased() == "trailer" &&
-            (v.name.lowercased().contains("official") || (v.official ?? false))
+            (v.type.lowercased() == "trailer" || v.type.lowercased() == "teaser")
         }
-        if !trailers.isEmpty {
-            return trailers
-        } else {
-            let teasers = viewModel.videos.filter { v in
-                v.site.lowercased() == "youtube" && v.type.lowercased() == "teaser"
-            }
-            return teasers
-        }
-    }
-    
-    private func youTubeEmbedURL(for key: String) -> URL? {
-        URL(string: "https://www.youtube.com/embed/\(key)?playsinline=1")
+        return trailers
     }
     
     init(item: MediaItem) {
@@ -60,8 +37,8 @@ struct MediaDetailView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 0) {
-                    // Hero Header
-                    headerSection
+                    // Hero Header (always static backdrop — no embedded video)
+                    staticHeaderSection
                     
                     // Content
                     VStack(spacing: 24) {
@@ -99,6 +76,11 @@ struct MediaDetailView: View {
                             .padding(.horizontal)
                         }
                         
+                        // Trailers Section (tap to play on YouTube)
+                        if !trailerVideos.isEmpty {
+                            trailersSection
+                        }
+                        
                         // Where to Watch
                         if viewModel.watchProviders != nil {
                             VStack(alignment: .leading, spacing: 8) {
@@ -129,9 +111,13 @@ struct MediaDetailView: View {
                             seasonsSection(seasons: seasons)
                         }
                         
-                        // Existing videos row
-                        if !viewModel.videos.isEmpty {
-                            VideoRowView(videos: viewModel.videos)
+                        // Other videos (clips, featurettes, etc.)
+                        let nonTrailerVideos = viewModel.videos.filter { v in
+                            let type = v.type.lowercased()
+                            return type != "trailer" && type != "teaser"
+                        }
+                        if !nonTrailerVideos.isEmpty {
+                            VideoRowView(videos: nonTrailerVideos, title: "More Videos")
                         }
                         
                         // Cast
@@ -205,85 +191,37 @@ struct MediaDetailView: View {
         }
     }
     
-    // MARK: - Header Section
-    
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    
-    private var headerSection: some View {
-        if !trailerVideos.isEmpty {
-            AnyView(
-                GeometryReader { geometry in
-                    let width = geometry.size.width
-                    let height = width * 9.0 / 16.0
-                    
-                    TabView {
-                        ForEach(trailerVideos) { video in
-                            ZStack(alignment: .bottomLeading) {
-                                // Container that clips the video to bounds
-                                Color.black
-                                    .overlay(
-                                        WebTrailerPlayerView(videoKey: video.key, autoplay: true, muted: !isHeroUnmuted)
-                                    )
-                                    .clipped()
-                                
-                                LinearGradient(
-                                    colors: [.clear, .black.opacity(0.6), .black.opacity(0.9)],
-                                    startPoint: .center,
-                                    endPoint: .bottom
-                                )
-                                .frame(height: height * 0.4)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                                .allowsHitTesting(false)
-                                
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(video.name)
-                                        .font(.subheadline)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.white)
-                                        .lineLimit(1)
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 40)
-                            }
-                            .frame(width: width, height: height)
-                            .clipped()
+    // MARK: - Trailers Section (Tap to Play)
+    private var trailersSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Trailers")
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+            
+            if trailerVideos.count == 1, let video = trailerVideos.first {
+                // Single trailer — show full-width card
+                TrailerThumbnailCard(video: video)
+                    .aspectRatio(16.0/9.0, contentMode: .fit)
+                    .padding(.horizontal)
+            } else {
+                // Multiple trailers — horizontal scroll
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(trailerVideos.prefix(6)) { video in
+                            TrailerThumbnailCard(video: video, compact: true)
+                                .frame(width: 280, height: 158)
                         }
                     }
-                    .frame(width: width, height: height)
-                    .clipped()
-                    .tabViewStyle(.page(indexDisplayMode: .automatic))
-                    .onTapGesture {
-                        withAnimation {
-                            isHeroUnmuted = true
-                        }
-                    }
-                    .overlay(
-                        Button {
-                            withAnimation {
-                                isHeroUnmuted.toggle()
-                            }
-                        } label: {
-                            Image(systemName: isHeroUnmuted ? "speaker.wave.3.fill" : "speaker.slash.fill")
-                                .font(.body)
-                                .foregroundColor(.white)
-                                .padding(8)
-                                .background(.black.opacity(0.5))
-                                .clipShape(Circle())
-                        }
-                        .padding(12)
-                        , alignment: .bottomTrailing
-                    )
-                    .overlay(alignment: .leading) {
-                        logoOverlay(width: width, height: height)
-                    }
+                    .padding(.horizontal)
                 }
-                .aspectRatio(16.0/9.0, contentMode: .fit)
-                .clipped()
-            )
-        } else {
-            AnyView(staticHeaderSection)
+            }
         }
     }
+    
+    // MARK: - Header Section (Always Static)
+    
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     
     private var staticHeaderSection: some View {
         GeometryReader { geometry in
