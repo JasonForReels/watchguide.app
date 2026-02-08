@@ -18,10 +18,11 @@ struct YouTubePlayerView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
-        // This is the key: telling WKWebView that NO media types require a user
-        // gesture to begin playback. This allows the embedded YouTube iframe to
-        // autoplay WITH sound on real devices.
         config.mediaTypesRequiringUserActionForPlayback = []
+
+        let prefs = WKWebpagePreferences()
+        prefs.allowsContentJavaScript = true
+        config.defaultWebpagePreferences = prefs
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.scrollView.isScrollEnabled = false
@@ -31,25 +32,22 @@ struct YouTubePlayerView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
 
         context.coordinator.loadedVideoKey = videoKey
-        loadEmbed(into: webView)
+        context.coordinator.webView = webView
+        loadEmbed(into: webView, coordinator: context.coordinator)
 
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        // Only reload if the video key actually changed
         guard context.coordinator.loadedVideoKey != videoKey else { return }
         context.coordinator.loadedVideoKey = videoKey
-        loadEmbed(into: webView)
+        loadEmbed(into: webView, coordinator: context.coordinator)
     }
 
-    private func loadEmbed(into webView: WKWebView) {
+    private func loadEmbed(into webView: WKWebView, coordinator: Coordinator) {
         let autoplayParam = autoPlay ? "1" : "0"
         let muteParam = isMuted ? "1" : "0"
 
-        // Simple iframe embed – WKWebView's configuration handles autoplay permission.
-        // No YouTube IFrame JS API needed. This avoids error 150/152 in most cases
-        // and lets the webview's mediaTypesRequiringUserActionForPlayback do its job.
         let html = """
         <!DOCTYPE html>
         <html>
@@ -63,18 +61,53 @@ struct YouTubePlayerView: UIViewRepresentable {
         </head>
         <body>
         <iframe
-          src="https://www.youtube-nocookie.com/embed/\(videoKey)?playsinline=1&autoplay=\(autoplayParam)&mute=\(muteParam)&rel=0&modestbranding=1&controls=1&iv_load_policy=3"
+          src="https://www.youtube.com/embed/\(videoKey)?playsinline=1&autoplay=\(autoplayParam)&mute=\(muteParam)&rel=0&modestbranding=1&controls=1&iv_load_policy=3&enablejsapi=1&origin=https://www.youtube.com"
           allow="autoplay; encrypted-media; picture-in-picture"
           allowfullscreen>
         </iframe>
         </body>
         </html>
         """
-        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube-nocookie.com"))
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
+        coordinator.retryCount = 0
     }
 
     class Coordinator: NSObject, WKNavigationDelegate {
         var loadedVideoKey: String = ""
+        weak var webView: WKWebView?
+        var retryCount = 0
+        private let maxRetries = 2
+
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if let url = navigationAction.request.url {
+                let host = url.host?.lowercased() ?? ""
+                if navigationAction.targetFrame?.isMainFrame == true &&
+                   !host.contains("youtube.com") && !host.contains("youtube-nocookie.com") &&
+                   url.scheme != "about" {
+                    decisionHandler(.cancel)
+                    return
+                }
+            }
+            decisionHandler(.allow)
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            if retryCount < maxRetries {
+                retryCount += 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    webView.reload()
+                }
+            }
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            if retryCount < maxRetries {
+                retryCount += 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    webView.reload()
+                }
+            }
+        }
     }
 }
 
