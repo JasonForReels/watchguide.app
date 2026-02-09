@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import SafariServices
 
 // MARK: - Person Selection Model
 struct SelectedPerson: Identifiable {
@@ -19,15 +20,9 @@ struct MediaDetailView: View {
     @State private var selectedSeason: Season?
     @State private var selectedPerson: SelectedPerson?
 
-    // Filtered trailer videos for the dedicated trailer section
-    private var trailerVideos: [Video] {
-        let trailers = viewModel.videos.filter { v in
-            v.site.lowercased() == "youtube" &&
-            (v.type.lowercased() == "trailer" || v.type.lowercased() == "teaser")
-        }
-        return trailers
-    }
-    
+    @State private var selectedTrailer: Video?
+    @State private var safariItem: SafariItem?
+
     init(item: MediaItem) {
         self.item = item
         _viewModel = StateObject(wrappedValue: MediaDetailViewModel(item: item))
@@ -37,8 +32,8 @@ struct MediaDetailView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 0) {
-                    // Hero Header (always static backdrop — no embedded video)
-                    staticHeaderSection
+                    // Hero Header (inline player or static backdrop)
+                    headerSection
                     
                     // Content
                     VStack(spacing: 24) {
@@ -50,6 +45,14 @@ struct MediaDetailView: View {
                                 savedItem: savedItem
                             )
                             .padding(.horizontal)
+                            
+                            if let trailer = viewModel.preferredTrailer,
+                               let url = trailer.youtubeUrl {
+                                PlayTrailerButton {
+                                    safariItem = SafariItem(url: url)
+                                }
+                                .padding(.horizontal)
+                            }
                         }
                         
                         // Ratings
@@ -74,11 +77,6 @@ struct MediaDetailView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal)
-                        }
-                        
-                        // Trailers Section (tap to play on YouTube)
-                        if !trailerVideos.isEmpty {
-                            trailersSection
                         }
                         
                         // Where to Watch
@@ -189,40 +187,20 @@ struct MediaDetailView: View {
                 profilePath: person.profilePath
             )
         }
-    }
-    
-    // MARK: - Trailers Section (Tap to Play)
-    private var trailersSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Trailers")
-                .font(.title3)
-                .fontWeight(.bold)
-                .padding(.horizontal)
-            
-            if trailerVideos.count == 1, let video = trailerVideos.first {
-                // Single trailer — show full-width card
-                TrailerThumbnailCard(video: video)
-                    .aspectRatio(16.0/9.0, contentMode: .fit)
-                    .padding(.horizontal)
-            } else {
-                // Multiple trailers — horizontal scroll
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(trailerVideos.prefix(6)) { video in
-                            TrailerThumbnailCard(video: video, compact: true)
-                                .frame(width: 280, height: 158)
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-            }
+        .sheet(item: $safariItem) { item in
+            SafariView(url: item.url)
+                .ignoresSafeArea()
         }
     }
     
-    // MARK: - Header Section (Always Static)
-    
+    // MARK: - Header Section (Static)
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     
+    private var headerSection: some View {
+        staticHeaderSection
+    }
+    
+    // MARK: - Header Section (Always Static)
     private var staticHeaderSection: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
@@ -390,6 +368,52 @@ struct MediaDetailView: View {
         }
         .padding(.horizontal)
     }
+
+}
+
+// MARK: - Play Trailer Button
+struct PlayTrailerButton: View {
+    var action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "play.fill")
+                    .font(.headline)
+                Text("Play Trailer")
+                    .font(.headline)
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(.ultraThinMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.secondary.opacity(0.2))
+            )
+            .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Play Trailer")
+    }
+}
+
+// MARK: - SafariView
+struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let controller = SFSafariViewController(url: url)
+        controller.dismissButtonStyle = .close
+        controller.preferredControlTintColor = .white
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
+}
+
+struct SafariItem: Identifiable {
+    let id = UUID()
+    let url: URL
 }
 
 // MARK: - Season Card
@@ -560,6 +584,7 @@ class MediaDetailViewModel: ObservableObject {
     @Published var cast: [CastMember] = []
     @Published var crew: [CrewMember] = []
     @Published var videos: [Video] = []
+    @Published var preferredTrailer: Video?
     @Published var similar: [MediaItem] = []
     @Published var recommendations: [MediaItem] = []
     @Published var watchProviders: WatchProviderRegion?
@@ -650,6 +675,7 @@ class MediaDetailViewModel: ObservableObject {
         do {
             let videosResponse = try await TMDBService.shared.getMovieVideos(id: item.id)
             videos = videosResponse.results
+            preferredTrailer = computePreferredTrailer(from: videos)
         } catch {
             print("Error loading videos: \(error)")
         }
@@ -721,6 +747,7 @@ class MediaDetailViewModel: ObservableObject {
         do {
             let videosResponse = try await TMDBService.shared.getTVShowVideos(id: item.id)
             videos = videosResponse.results
+            preferredTrailer = computePreferredTrailer(from: videos)
         } catch {
             print("Error loading videos: \(error)")
         }
@@ -755,6 +782,25 @@ class MediaDetailViewModel: ObservableObject {
         }
         return logos.first?.filePath
     }
+
+    private func computePreferredTrailer(from videos: [Video]) -> Video? {
+        let yt = videos.filter { $0.site.lowercased() == "youtube" }
+        let filtered = yt.filter { video in
+            let name = video.name.lowercased()
+            let type = video.type.lowercased()
+            let isTrailer = type == "trailer" || type == "teaser"
+            let isFinal = name.contains("final trailer") || name.contains("final teaser") || name.contains("final")
+            return isTrailer && !isFinal
+        }
+        let officialTrailer = filtered.first { $0.type.lowercased() == "trailer" && ($0.official == true) }
+        if let t = officialTrailer { return t }
+        let officialTeaser = filtered.first { $0.type.lowercased() == "teaser" && ($0.official == true) }
+        if let t = officialTeaser { return t }
+        let anyTrailer = filtered.first { $0.type.lowercased() == "trailer" }
+        if let t = anyTrailer { return t }
+        let anyTeaser = filtered.first { $0.type.lowercased() == "teaser" }
+        return anyTeaser
+    }
 }
 
 #Preview {
@@ -778,4 +824,3 @@ class MediaDetailViewModel: ObservableObject {
         originalLanguage: nil
     ))
 }
-

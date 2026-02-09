@@ -18,7 +18,6 @@ class ApiKeyManager {
     
     private init() {
         // Initialize keys from encrypted file on first launch
-        UserDefaults.standard.removeObject(forKey: initializationKey)
         initializeKeysFromEncryptedFile()
     }
     
@@ -31,6 +30,10 @@ class ApiKeyManager {
     
     // UserDefaults key to track initialization
     private let initializationKey = "ApiKeyManager_Initialized"
+    private let userProvidedKeys: Set<String> = [
+        "TMDB_API_KEY",
+        "MDBLIST_API_KEY"
+    ]
     
     // Get project name from bundle (should match what Swifty used for encryption)
     private var projectName: String {
@@ -49,7 +52,6 @@ class ApiKeyManager {
     /// - Parameter key: The key name (e.g., "OPENAI_API_KEY")
     /// - Returns: The API key value, or nil if not found
     func get(key: String) -> String? {
-        print("calling get")
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -75,6 +77,19 @@ class ApiKeyManager {
     /// - Returns: True if the key exists, false otherwise
     func has(key: String) -> Bool {
         return get(key: key) != nil
+    }
+    
+    /// Store or update an API key in Keychain
+    /// - Parameters:
+    ///   - key: The key name
+    ///   - value: The API key value
+    /// - Returns: True if successful, false otherwise
+    func set(key: String, value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return delete(key: key)
+        }
+        return save(key: key, value: trimmed)
     }
     
     // MARK: - Private Methods
@@ -130,6 +145,10 @@ class ApiKeyManager {
         // Decrypt each value and store in Keychain
         var successCount = 0
         for (key, encryptedValue) in plist {
+            if userProvidedKeys.contains(key) {
+                print("ApiKeyManager: Skipping user-provided key '\(key)'")
+                continue
+            }
             print("ApiKeyManager: Processing key '\(key)'")
             print("ApiKeyManager: Encrypted value type: \(type(of: encryptedValue))")
             

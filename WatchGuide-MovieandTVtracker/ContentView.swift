@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct ContentView: View {
+    @AppStorage("onboardingComplete") private var onboardingComplete = false
     @State private var selectedTab: Tab = .browse
     @State private var selectedMediaItem: MediaItem?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -43,12 +44,23 @@ struct ContentView: View {
     }
     
     var body: some View {
-        Group {
-            iPhoneLayout
+        if requiresOnboarding {
+            OnboardingFlowView()
+        } else {
+            Group {
+                iPhoneLayout
+            }
+            .sheet(item: $selectedMediaItem) { item in
+                MediaDetailView(item: item)
+            }
         }
-        .sheet(item: $selectedMediaItem) { item in
-            MediaDetailView(item: item)
-        }
+    }
+    
+    private var requiresOnboarding: Bool {
+        if !onboardingComplete { return true }
+        if !ApiKeyManager.shared.has(key: "TMDB_API_KEY") { return true }
+        if !ApiKeyManager.shared.has(key: "MDBLIST_API_KEY") { return true }
+        return false
     }
     
     // MARK: - iPhone Layout (TabView)

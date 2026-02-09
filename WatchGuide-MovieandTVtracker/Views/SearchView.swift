@@ -340,8 +340,6 @@ struct SearchSuggestionsView: View {
     @ObservedObject var viewModel: SearchViewModel
     let onSelect: (String) -> Void
     
-    @State private var selectedCollection: PopularTMDBCollection?
-    
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -407,33 +405,8 @@ struct SearchSuggestionsView: View {
                         }
                     }
                 }
-                
-                // Popular Collections (TMDB)
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Popular Collections")
-                        .font(.headline)
-                    
-                    let columns = [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12)
-                    ]
-                    
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(PopularTMDBCollection.popular) { collection in
-                            Button {
-                                selectedCollection = collection
-                            } label: {
-                                TMDBCollectionTile(collection: collection)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
             }
             .padding()
-        }
-        .sheet(item: $selectedCollection) { collection in
-            TMDBCollectionSheet(collection: collection)
         }
     }
 }

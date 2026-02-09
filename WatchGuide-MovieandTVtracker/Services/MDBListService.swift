@@ -13,8 +13,9 @@ actor MDBListService {
     
     private let baseURL = "https://mdblist.com"
     
-    // API Key - hardcoded since it's provided directly
-    private let apiKey = "mi46uequ1wi40i8fxp4789jxz"
+    private var apiKey: String {
+        ApiKeyManager.shared.get(key: "MDBLIST_API_KEY") ?? ""
+    }
     
     private init() {}
     
@@ -26,6 +27,9 @@ actor MDBListService {
     
     /// Get list items by list ID using the JSON export endpoint
     func getListItems(listId: String) async throws -> [MDBListItem] {
+        guard !apiKey.isEmpty else {
+            throw MDBListError.notConfigured
+        }
         // Use the JSON export endpoint which is more reliable
         let urlString = "\(baseURL)/lists/\(listId)/json?apikey=\(apiKey)"
         

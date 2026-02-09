@@ -21,94 +21,87 @@ struct TrailerThumbnailCard: View {
     }
     
     var body: some View {
-        Button {
-            if let url = youtubeURL {
-                UIApplication.shared.open(url)
-            }
-        } label: {
-            ZStack {
-                // Thumbnail image
-                AsyncImage(url: thumbnailURL) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(16.0/9.0, contentMode: .fill)
-                    case .failure:
-                        fallbackThumbnail
-                    case .empty:
-                        ZStack {
-                            Color.black
-                            ProgressView()
-                                .tint(.white)
-                        }
+        ZStack {
+            // Thumbnail image
+            AsyncImage(url: thumbnailURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
                         .aspectRatio(16.0/9.0, contentMode: .fill)
-                    @unknown default:
-                        fallbackThumbnail
+                case .failure:
+                    fallbackThumbnail
+                case .empty:
+                    ZStack {
+                        Color.black
+                        ProgressView()
+                            .tint(.white)
                     }
+                    .aspectRatio(16.0/9.0, contentMode: .fill)
+                @unknown default:
+                    fallbackThumbnail
                 }
-                .clipped()
-                
-                // Dark overlay for contrast
-                Color.black.opacity(0.25)
-                
-                // Play button
-                playButton
-                
-                // Video title & type badge
-                VStack {
-                    // Type badge (top-right)
-                    HStack {
-                        Spacer()
-                        Text(video.type)
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.ultraThinMaterial)
-                            .cornerRadius(6)
-                    }
-                    
-                    Spacer()
-                    
-                    // Title (bottom)
-                    if !compact {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(video.name)
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.white)
-                                    .lineLimit(2)
-                                
-                                HStack(spacing: 4) {
-                                    Image(systemName: "play.rectangle.fill")
-                                        .font(.system(size: 9))
-                                    Text("YouTube")
-                                        .font(.system(size: 10))
-                                }
-                                .foregroundColor(.white.opacity(0.7))
-                            }
-                            Spacer()
-                        }
-                        .padding(10)
-                        .background(
-                            LinearGradient(
-                                colors: [.clear, .black.opacity(0.7)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                    }
-                }
-                .padding(8)
             }
-            .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 14))
-            .shadow(color: .black.opacity(0.25), radius: isPressed ? 2 : 8, y: isPressed ? 1 : 4)
-            .scaleEffect(isPressed ? 0.97 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
+            .clipped()
+            
+            // Dark overlay for contrast
+            Color.black.opacity(0.25)
+            
+            // Play button
+            playButton
+            
+            // Video title & type badge
+            VStack {
+                // Type badge (top-right)
+                HStack {
+                    Spacer()
+                    Text(video.type)
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(6)
+                }
+                
+                Spacer()
+                
+                // Title (bottom)
+                if !compact {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(video.name)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white)
+                                .lineLimit(2)
+                            
+                            HStack(spacing: 4) {
+                                Image(systemName: "play.rectangle.fill")
+                                    .font(.system(size: 9))
+                                Text("YouTube")
+                                    .font(.system(size: 10))
+                            }
+                            .foregroundColor(.white.opacity(0.7))
+                        }
+                        Spacer()
+                    }
+                    .padding(10)
+                    .background(
+                        LinearGradient(
+                            colors: [.clear, .black.opacity(0.7)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                }
+            }
+            .padding(8)
         }
-        .buttonStyle(.plain)
+        .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 14))
+        .shadow(color: .black.opacity(0.25), radius: isPressed ? 2 : 8, y: isPressed ? 1 : 4)
+        .scaleEffect(isPressed ? 0.97 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true }

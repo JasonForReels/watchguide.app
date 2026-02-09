@@ -290,56 +290,75 @@ struct StudiosHubRow: View {
     let onSonyPicturesTap: () -> Void
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Studios")
-                .font(.title3)
-                .fontWeight(.bold)
-                .padding(.horizontal)
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 18) {
-                    LiquidGlassHubButton(
-                        imageURL: "https://cdn.brandfetch.io/id80eyhRc1/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1667562091449",
-                        label: "20th Century",
-                        fallbackText: "20th",
-                        action: onTwentiethCenturyTap
-                    )
-                    LiquidGlassHubButton(
-                        imageURL: "https://cdn.brandfetch.io/idTzC5o569/w/480/h/480/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1758179815308",
-                        label: "Warner Bros",
-                        fallbackText: "WB",
-                        action: onWarnerBrosTap
-                    )
-                    LiquidGlassHubButton(
-                        imageURL: "https://cdn.brandfetch.io/idj7QnEvUG/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1764869429889",
-                        label: "DreamWorks",
-                        fallbackText: "DW",
-                        action: onDreamWorksTap
-                    )
-                    LiquidGlassHubButton(
-                        imageURL: "https://cdn.brandfetch.io/idnLU4lJS1/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1722965171975",
-                        label: "DC Studios",
-                        fallbackText: "DC",
-                        action: onDCStudiosTap
-                    )
-                    LiquidGlassHubButton(
-                        imageURL: "https://cdn.brandfetch.io/id4AnmmNSk/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1767628904945",
-                        label: "Universal",
-                        fallbackText: "UNI",
-                        action: onUniversalPicturesTap
-                    )
-                    LiquidGlassHubButton(
-                        imageURL: "https://cdn.brandfetch.io/idIBgcvFOi/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1766845823662",
-                        label: "Sony Pictures",
-                        fallbackText: "Sony",
-                        action: onSonyPicturesTap
-                    )
-                }
-                .padding(.horizontal)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                StudioHubButton(
+                    label: "20th Century",
+                    brandColor: Color(red: 0x66/255, green: 0x66/255, blue: 0x66/255),
+                    action: onTwentiethCenturyTap
+                )
+                StudioHubButton(
+                    label: "Warner Bros",
+                    brandColor: Color(red: 0x05/255, green: 0x00/255, blue: 0x8C/255),
+                    action: onWarnerBrosTap
+                )
+                StudioHubButton(
+                    label: "DreamWorks",
+                    brandColor: Color(red: 0x22/255, green: 0x22/255, blue: 0x22/255),
+                    action: onDreamWorksTap
+                )
+                StudioHubButton(
+                    label: "DC Studios",
+                    brandColor: Color(red: 0x00/255, green: 0x74/255, blue: 0xE8/255),
+                    action: onDCStudiosTap
+                )
+                StudioHubButton(
+                    label: "Universal",
+                    brandColor: Color(red: 0x37/255, green: 0x5F/255, blue: 0x78/255),
+                    action: onUniversalPicturesTap
+                )
+                StudioHubButton(
+                    label: "Sony Pictures",
+                    brandColor: Color(red: 0xB5/255, green: 0xB6/255, blue: 0xB7/255),
+                    action: onSonyPicturesTap
+                )
             }
+            .padding(.horizontal)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Studio Hub Button
+struct StudioHubButton: View {
+    let label: String
+    let brandColor: Color
+    let action: () -> Void
+    @State private var isPressed = false
+    
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(minWidth: 80)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(brandColor)
+                )
+        }
+        .buttonStyle(.plain)
+        .shadow(color: brandColor.opacity(0.35), radius: isPressed ? 2 : 5, y: isPressed ? 1 : 3)
+        .scaleEffect(isPressed ? 0.94 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
+        .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+            isPressed = pressing
+        }, perform: {})
     }
 }
 
@@ -1377,23 +1396,16 @@ struct NetworkHubsRow: View {
     let onHubTap: (NetworkHub) -> Void
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Networks")
-                .font(.title3)
-                .fontWeight(.bold)
-                .padding(.horizontal)
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 18) {
-                    ForEach(hubs) { hub in
-                        NetworkHubCard(hub: hub)
-                            .onTapGesture {
-                                onHubTap(hub)
-                            }
-                    }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(hubs) { hub in
+                    NetworkHubCard(hub: hub)
+                        .onTapGesture {
+                            onHubTap(hub)
+                        }
                 }
-                .padding(.horizontal)
             }
+            .padding(.horizontal)
         }
     }
 }
@@ -1401,161 +1413,39 @@ struct NetworkHubsRow: View {
 struct NetworkHubCard: View {
     let hub: NetworkHub
     @State private var isPressed = false
-    @Environment(\.colorScheme) private var colorScheme
     
-    // Button logo URLs (circular icons with original colors)
-    private var buttonLogoURL: String {
+    private var brandColor: Color {
         switch hub.name {
-        case "Disney+":
-            return "https://cdn.brandfetch.io/idhQlYRiX2/w/160/h/160/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1760938091674"
-        case "Netflix":
-            return "https://cdn.brandfetch.io/ideQwN5lBE/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1741362553726"
-        case "Showmax":
-            return "https://cdn.brandfetch.io/id_ej-GSqX/w/400/h/400/theme/dark/icon.png?c=1bxid64Mup7aczewSAYMX&t=1712822087456"
-        case "Max":
-            return "https://cdn.brandfetch.io/idKKo6p4ks/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1754355557626"
-        case "Peacock":
-            return "https://cdn.brandfetch.io/idIaTUzyS6/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1764405218519"
-        case "Paramount+":
-            return "https://cdn.brandfetch.io/idU9biO3N_/w/400/h/400/theme/dark/icon.jpeg?c=1bxid64Mup7aczewSAYMX&t=1722978255332"
-        case "Disney Channel":
-            return "https://64.media.tumblr.com/cdece8050f87cea787abc3008ec9ff5b/04293b9d5dd1dd70-70/s500x750/afeff4503924fbc47e2a8c196937d86b070a71d6.png"
-        default:
-            return hub.logoURL ?? ""
+        case "Disney+": return Color(red: 0x13/255, green: 0x68/255, blue: 0x78/255)
+        case "Netflix": return Color(red: 0xE5/255, green: 0x09/255, blue: 0x14/255)
+        case "Showmax": return Color(red: 0xDD/255, green: 0x00/255, blue: 0x4F/255)
+        case "Max": return Color(red: 0x03/255, green: 0x03/255, blue: 0x28/255)
+        case "Peacock": return Color(red: 0x06/255, green: 0x9D/255, blue: 0xE0/255)
+        case "Paramount+": return Color(red: 0x00/255, green: 0x59/255, blue: 0xF1/255)
+        case "Disney Channel": return Color(red: 0x00/255, green: 0x89/255, blue: 0xE2/255)
+        default: return Color(.systemGray3)
         }
     }
     
     var body: some View {
-        VStack(spacing: 10) {
-            ZStack {
-                // Outer glow ring
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                .white.opacity(colorScheme == .dark ? 0.06 : 0.12),
-                                .clear
-                            ],
-                            center: .center,
-                            startRadius: 28,
-                            endRadius: 42
-                        )
-                    )
-                    .frame(width: 72, height: 72)
-                
-                // Main button body with 3D layering
-                ZStack {
-                    // Shadow/depth base layer
-                    Circle()
-                        .fill(Color.black.opacity(0.3))
-                        .frame(width: 62, height: 62)
-                        .offset(y: 2)
-                        .blur(radius: 3)
-                    
-                    // Main background
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .frame(width: 62, height: 62)
-                    
-                    // Inner gradient for 3D curvature
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    .white.opacity(colorScheme == .dark ? 0.12 : 0.25),
-                                    .clear,
-                                    .black.opacity(colorScheme == .dark ? 0.15 : 0.05)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .frame(width: 62, height: 62)
-                    
-                    // Content
-                    if let url = URL(string: buttonLogoURL), !buttonLogoURL.isEmpty {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(width: 54, height: 54)
-                                    .clipShape(Circle())
-                            case .failure, .empty:
-                                Text(hub.name)
-                                    .font(.caption2)
-                                    .fontWeight(.semibold)
-                                    .multilineTextAlignment(.center)
-                                    .lineLimit(2)
-                                    .frame(width: 48)
-                            @unknown default:
-                                ProgressView()
-                            }
-                        }
-                    } else {
-                        Text(hub.name)
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                            .frame(width: 48)
-                    }
-                    
-                    // Top specular highlight
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    .white.opacity(colorScheme == .dark ? 0.18 : 0.3),
-                                    .white.opacity(0.0)
-                                ],
-                                startPoint: .top,
-                                endPoint: .center
-                            )
-                        )
-                        .frame(width: 62, height: 62)
-                        .mask(
-                            VStack {
-                                Ellipse()
-                                    .frame(width: 44, height: 20)
-                                    .offset(y: 4)
-                                Spacer()
-                            }
-                            .frame(width: 62, height: 62)
-                        )
-                    
-                    // Border ring
-                    Circle()
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    .white.opacity(colorScheme == .dark ? 0.25 : 0.4),
-                                    .white.opacity(colorScheme == .dark ? 0.05 : 0.1),
-                                    .white.opacity(0.0)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 0.8
-                        )
-                        .frame(width: 62, height: 62)
-                }
-            }
-            .frame(width: 72, height: 72)
-            .shadow(color: .black.opacity(colorScheme == .dark ? 0.4 : 0.15), radius: isPressed ? 2 : 6, y: isPressed ? 1 : 3)
-            .scaleEffect(isPressed ? 0.90 : 1.0)
+        Text(hub.name)
+            .font(.caption)
+            .fontWeight(.bold)
+            .foregroundColor(.white)
+            .lineLimit(1)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(minWidth: 80)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(brandColor)
+            )
+            .shadow(color: brandColor.opacity(0.35), radius: isPressed ? 2 : 5, y: isPressed ? 1 : 3)
+            .scaleEffect(isPressed ? 0.94 : 1.0)
             .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
             .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
                 isPressed = pressing
             }, perform: {})
-            
-            Text(hub.name)
-                .font(.caption2)
-                .fontWeight(.medium)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
     }
 }
 
