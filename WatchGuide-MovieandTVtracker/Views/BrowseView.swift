@@ -1284,7 +1284,6 @@ class BrowseViewModel: ObservableObject {
             let items: [MediaItem]
             switch source {
             case .trendingMovies, .mdblistTrending:
-                // Fallback mdblistTrending to trendingMovies
                 items = try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results
             case .trendingTV:
                 items = try await TMDBService.shared.getTrending(mediaType: .tv, timeWindow: "day").results
@@ -1300,6 +1299,9 @@ class BrowseViewModel: ObservableObject {
                 items = try await TMDBService.shared.getUpcomingMovies().results
             }
             heroItems = Array(items.prefix(10))
+            
+            // Prefetch hero backdrop images
+            ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
         } catch {
             print("Error loading hero: \(error)")
         }
@@ -1352,41 +1354,49 @@ class BrowseViewModel: ObservableObject {
     }
     
     private func fetchRow(_ config: BrowseRowConfig) async throws -> MediaRow {
+        let row: MediaRow
         switch config.endpoint {
         case .trendingMovies:
             let items = try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results
-            return MediaRow(title: config.title, items: items, people: [])
+            row = MediaRow(title: config.title, items: items, people: [])
         case .trendingTV:
             let items = try await TMDBService.shared.getTrending(mediaType: .tv, timeWindow: "day").results
-            return MediaRow(title: config.title, items: items, people: [])
+            row = MediaRow(title: config.title, items: items, people: [])
         case .trendingPeople:
             let people = try await TMDBService.shared.getTrendingPeople(timeWindow: "week").results
-            return MediaRow(title: config.title, items: [], people: people)
+            row = MediaRow(title: config.title, items: [], people: people)
         case .popularMovies:
             let items = try await TMDBService.shared.getPopularMovies().results
-            return MediaRow(title: config.title, items: items, people: [])
+            row = MediaRow(title: config.title, items: items, people: [])
         case .popularTV:
             let items = try await TMDBService.shared.getPopularTV().results
-            return MediaRow(title: config.title, items: items, people: [])
+            row = MediaRow(title: config.title, items: items, people: [])
         case .topRatedMovies:
             let items = try await TMDBService.shared.getTopRatedMovies().results
-            return MediaRow(title: config.title, items: items, people: [])
+            row = MediaRow(title: config.title, items: items, people: [])
         case .topRatedTV:
             let items = try await TMDBService.shared.getTopRatedTV().results
-            return MediaRow(title: config.title, items: items, people: [])
+            row = MediaRow(title: config.title, items: items, people: [])
         case .nowPlayingMovies:
             let items = try await TMDBService.shared.getNowPlayingMovies().results
-            return MediaRow(title: config.title, items: items, people: [])
+            row = MediaRow(title: config.title, items: items, people: [])
         case .airingTodayTV:
             let items = try await TMDBService.shared.getAiringTodayTV().results
-            return MediaRow(title: config.title, items: items, people: [])
+            row = MediaRow(title: config.title, items: items, people: [])
         case .upcomingMovies:
             let items = try await TMDBService.shared.getUpcomingMovies().results
-            return MediaRow(title: config.title, items: items, people: [])
+            row = MediaRow(title: config.title, items: items, people: [])
         case .onTheAirTV:
             let items = try await TMDBService.shared.getOnTheAirTV().results
-            return MediaRow(title: config.title, items: items, people: [])
+            row = MediaRow(title: config.title, items: items, people: [])
         }
+        
+        // Prefetch poster images for the row
+        if !row.items.isEmpty {
+            ImagePrefetchService.shared.prefetchPosters(for: row.items)
+        }
+        
+        return row
     }
 }
 

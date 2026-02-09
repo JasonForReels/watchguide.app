@@ -222,80 +222,79 @@ class PersonDetailViewModel: ObservableObject {
     
     func loadDetails() async {
         isLoading = true
+        let pid = personId
         
-        // Load person details
-        do {
-            let person = try await TMDBService.shared.getPersonDetails(id: personId)
-            biography = person.biography
-            knownForDepartment = person.knownForDepartment
-            placeOfBirth = person.placeOfBirth
-            
-            if let bday = person.birthday {
-                if let date = dateFormatter.date(from: bday) {
-                    birthday = displayFormatter.string(from: date)
-                } else {
-                    birthday = bday
+        // Load all three concurrently
+        await withTaskGroup(of: Void.self) { group in
+            // Person details
+            group.addTask { @MainActor in
+                do {
+                    let person = try await TMDBService.shared.getPersonDetails(id: pid)
+                    self.biography = person.biography
+                    self.knownForDepartment = person.knownForDepartment
+                    self.placeOfBirth = person.placeOfBirth
+                    
+                    if let bday = person.birthday {
+                        if let date = self.dateFormatter.date(from: bday) {
+                            self.birthday = self.displayFormatter.string(from: date)
+                        } else {
+                            self.birthday = bday
+                        }
+                    }
+                    
+                    if let dday = person.deathday {
+                        if let date = self.dateFormatter.date(from: dday) {
+                            self.deathday = self.displayFormatter.string(from: date)
+                        } else {
+                            self.deathday = dday
+                        }
+                    }
+                } catch {
+                    print("Error loading person details: \(error)")
                 }
             }
             
-            if let dday = person.deathday {
-                if let date = dateFormatter.date(from: dday) {
-                    deathday = displayFormatter.string(from: date)
-                } else {
-                    deathday = dday
+            // Movie credits
+            group.addTask { @MainActor in
+                do {
+                    let credits = try await TMDBService.shared.getPersonMovieCredits(id: pid)
+                    var allMovies: [MediaItem] = []
+                    if let cast = credits.cast { allMovies.append(contentsOf: cast) }
+                    if let crew = credits.crew { allMovies.append(contentsOf: crew) }
+                    
+                    var seen = Set<Int>()
+                    self.movieCredits = allMovies
+                        .filter { item in
+                            if seen.contains(item.id) { return false }
+                            seen.insert(item.id)
+                            return true
+                        }
+                        .sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+                } catch {
+                    print("Error loading movie credits: \(error)")
                 }
-            }
-        } catch {
-            print("Error loading person details: \(error)")
-        }
-        
-        // Load movie credits
-        do {
-            let credits = try await TMDBService.shared.getPersonMovieCredits(id: personId)
-            // Combine cast and crew, sort by popularity, remove duplicates
-            var allMovies: [MediaItem] = []
-            if let cast = credits.cast {
-                allMovies.append(contentsOf: cast)
-            }
-            if let crew = credits.crew {
-                allMovies.append(contentsOf: crew)
             }
             
-            // Remove duplicates and sort by popularity
-            var seen = Set<Int>()
-            movieCredits = allMovies
-                .filter { item in
-                    if seen.contains(item.id) { return false }
-                    seen.insert(item.id)
-                    return true
+            // TV credits
+            group.addTask { @MainActor in
+                do {
+                    let credits = try await TMDBService.shared.getPersonTVCredits(id: pid)
+                    var allShows: [MediaItem] = []
+                    if let cast = credits.cast { allShows.append(contentsOf: cast) }
+                    if let crew = credits.crew { allShows.append(contentsOf: crew) }
+                    
+                    var seen = Set<Int>()
+                    self.tvCredits = allShows
+                        .filter { item in
+                            if seen.contains(item.id) { return false }
+                            seen.insert(item.id)
+                            return true
+                        }
+                        .sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+                } catch {
+                    print("Error loading TV credits: \(error)")
                 }
-                .sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
-        } catch {
-            print("Error loading movie credits: \(error)")
-        }
-        
-        // Load TV credits
-        do {
-            let credits = try await TMDBService.shared.getPersonTVCredits(id: personId)
-            var allShows: [MediaItem] = []
-            if let cast = credits.cast {
-                allShows.append(contentsOf: cast)
             }
-            if let crew = credits.crew {
-                allShows.append(contentsOf: crew)
-            }
-            
-            // Remove duplicates and sort by popularity
-            var seen = Set<Int>()
-            tvCredits = allShows
-                .filter { item in
-                    if seen.contains(item.id) { return false }
-                    seen.insert(item.id)
-                    return true
-                }
-                .sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
-        } catch {
-            print("Error loading TV credits: \(error)")
         }
         
         isLoading = false

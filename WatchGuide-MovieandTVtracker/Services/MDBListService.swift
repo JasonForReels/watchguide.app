@@ -17,6 +17,20 @@ actor MDBListService {
         ApiKeyManager.shared.get(key: "MDBLIST_API_KEY") ?? ""
     }
     
+    // Optimized session with caching
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.urlCache = URLCache(memoryCapacity: 10 * 1024 * 1024, diskCapacity: 50 * 1024 * 1024)
+        config.requestCachePolicy = .returnCacheDataElseLoad
+        config.timeoutIntervalForRequest = 15
+        config.httpMaximumConnectionsPerHost = 4
+        return URLSession(configuration: config)
+    }()
+    
+    // In-memory cache for list results
+    private var listCache: [String: (items: [MDBListItem], timestamp: Date)] = [:]
+    private let cacheTTL: TimeInterval = 600 // 10 minutes
+    
     private init() {}
     
     var isConfigured: Bool {
@@ -30,6 +44,13 @@ actor MDBListService {
         guard !apiKey.isEmpty else {
             throw MDBListError.notConfigured
         }
+        
+        // Check in-memory cache
+        if let cached = listCache[listId],
+           Date().timeIntervalSince(cached.timestamp) < cacheTTL {
+            return cached.items
+        }
+        
         // Use the JSON export endpoint which is more reliable
         let urlString = "\(baseURL)/lists/\(listId)/json?apikey=\(apiKey)"
         
@@ -39,17 +60,12 @@ actor MDBListService {
         
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.timeoutInterval = 30
+        request.timeoutInterval = 15
         
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
             throw MDBListError.networkError
-        }
-        
-        // Debug logging
-        if let responseString = String(data: data, encoding: .utf8) {
-            print("MDBList Response (\(httpResponse.statusCode)): \(responseString.prefix(500))")
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
@@ -58,7 +74,12 @@ actor MDBListService {
         
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        return try decoder.decode([MDBListItem].self, from: data)
+        let items = try decoder.decode([MDBListItem].self, from: data)
+        
+        // Cache the result
+        listCache[listId] = (items: items, timestamp: Date())
+        
+        return items
     }
     
     // MARK: - Convenience Methods

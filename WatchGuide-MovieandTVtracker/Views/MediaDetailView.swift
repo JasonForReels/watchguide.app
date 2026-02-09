@@ -616,9 +616,12 @@ class MediaDetailViewModel: ObservableObject {
     }
     
     private func loadMovieDetails() async {
-        // Load movie details
+        let movieId = item.id
+        let region = StorageService.shared.settings.region
+        
+        // Phase 1: Load core details first (needed for collection lookup & savedItem)
         do {
-            let details = try await TMDBService.shared.getMovieDetails(id: item.id)
+            let details = try await TMDBService.shared.getMovieDetails(id: movieId)
             
             overview = details.overview
             runtime = details.runtimeFormatted
@@ -641,73 +644,96 @@ class MediaDetailViewModel: ObservableObject {
             overview = item.overview
         }
         
-        // Load collection items
-        if let collection = collectionInfo {
-            do {
-                let details = try await TMDBService.shared.getCollectionDetails(id: collection.id)
-                // Filter out current movie and sort by release date
-                collectionItems = details.parts
-                    .filter { $0.id != item.id }
-                    .sorted { ($0.releaseDate ?? "") < ($1.releaseDate ?? "") }
-            } catch {
-                print("Error loading collection: \(error)")
+        // Phase 2: Load everything else concurrently
+        await withTaskGroup(of: Void.self) { group in
+            // Collection items
+            if let collection = collectionInfo {
+                group.addTask { @MainActor in
+                    do {
+                        let details = try await TMDBService.shared.getCollectionDetails(id: collection.id)
+                        self.collectionItems = details.parts
+                            .filter { $0.id != movieId }
+                            .sorted { ($0.releaseDate ?? "") < ($1.releaseDate ?? "") }
+                    } catch {
+                        print("Error loading collection: \(error)")
+                    }
+                }
             }
-        }
-        
-        // Load title logo
-        do {
-            let logos = try await TMDBService.shared.getMediaLogos(mediaType: .movie, id: item.id)
-            logoPath = selectPreferredLogo(from: logos)
-        } catch {
-            print("Error loading movie logos: \(error)")
-        }
-        
-        // Load credits
-        do {
-            let credits = try await TMDBService.shared.getMovieCredits(id: item.id)
-            cast = credits.cast ?? []
-            crew = credits.crew ?? []
-        } catch {
-            print("Error loading credits: \(error)")
-        }
-        
-        // Load videos
-        do {
-            let videosResponse = try await TMDBService.shared.getMovieVideos(id: item.id)
-            videos = videosResponse.results
-            preferredTrailer = computePreferredTrailer(from: videos)
-        } catch {
-            print("Error loading videos: \(error)")
-        }
-        
-        // Load watch providers
-        do {
-            let providers = try await TMDBService.shared.getMovieWatchProviders(id: item.id)
-            let region = StorageService.shared.settings.region
-            if let regionData = providers.results?[region] {
-                watchProviders = regionData
-                watchProvidersLink = regionData.link
-            }
-        } catch {
-            print("Error loading providers: \(error)")
-        }
-        
-        // Load similar and recommendations
-        do {
-            let similarResponse = try await TMDBService.shared.getSimilarMovies(id: item.id)
-            similar = similarResponse.results
             
-            let recsResponse = try await TMDBService.shared.getMovieRecommendations(id: item.id)
-            recommendations = recsResponse.results
-        } catch {
-            print("Error loading similar: \(error)")
+            // Title logo
+            group.addTask { @MainActor in
+                do {
+                    let logos = try await TMDBService.shared.getMediaLogos(mediaType: .movie, id: movieId)
+                    self.logoPath = self.selectPreferredLogo(from: logos)
+                } catch {
+                    print("Error loading movie logos: \(error)")
+                }
+            }
+            
+            // Credits
+            group.addTask { @MainActor in
+                do {
+                    let credits = try await TMDBService.shared.getMovieCredits(id: movieId)
+                    self.cast = credits.cast ?? []
+                    self.crew = credits.crew ?? []
+                } catch {
+                    print("Error loading credits: \(error)")
+                }
+            }
+            
+            // Videos
+            group.addTask { @MainActor in
+                do {
+                    let videosResponse = try await TMDBService.shared.getMovieVideos(id: movieId)
+                    self.videos = videosResponse.results
+                    self.preferredTrailer = self.computePreferredTrailer(from: self.videos)
+                } catch {
+                    print("Error loading videos: \(error)")
+                }
+            }
+            
+            // Watch providers
+            group.addTask { @MainActor in
+                do {
+                    let providers = try await TMDBService.shared.getMovieWatchProviders(id: movieId)
+                    if let regionData = providers.results?[region] {
+                        self.watchProviders = regionData
+                        self.watchProvidersLink = regionData.link
+                    }
+                } catch {
+                    print("Error loading providers: \(error)")
+                }
+            }
+            
+            // Similar
+            group.addTask { @MainActor in
+                do {
+                    let similarResponse = try await TMDBService.shared.getSimilarMovies(id: movieId)
+                    self.similar = similarResponse.results
+                } catch {
+                    print("Error loading similar: \(error)")
+                }
+            }
+            
+            // Recommendations
+            group.addTask { @MainActor in
+                do {
+                    let recsResponse = try await TMDBService.shared.getMovieRecommendations(id: movieId)
+                    self.recommendations = recsResponse.results
+                } catch {
+                    print("Error loading recommendations: \(error)")
+                }
+            }
         }
     }
     
     private func loadTVDetails() async {
-        // Load TV details
+        let tvId = item.id
+        let region = StorageService.shared.settings.region
+        
+        // Phase 1: Load core details first (needed for savedItem, seasons)
         do {
-            let details = try await TMDBService.shared.getTVShowDetails(id: item.id)
+            let details = try await TMDBService.shared.getTVShowDetails(id: tvId)
             
             overview = details.overview
             genres = details.genres?.map { $0.name }.joined(separator: ", ")
@@ -726,53 +752,72 @@ class MediaDetailViewModel: ObservableObject {
             overview = item.overview
         }
         
-        // Load title logo
-        do {
-            let logos = try await TMDBService.shared.getMediaLogos(mediaType: .tv, id: item.id)
-            logoPath = selectPreferredLogo(from: logos)
-        } catch {
-            print("Error loading TV logos: \(error)")
-        }
-        
-        // Load credits
-        do {
-            let credits = try await TMDBService.shared.getTVShowCredits(id: item.id)
-            cast = credits.cast ?? []
-            crew = credits.crew ?? []
-        } catch {
-            print("Error loading credits: \(error)")
-        }
-        
-        // Load videos
-        do {
-            let videosResponse = try await TMDBService.shared.getTVShowVideos(id: item.id)
-            videos = videosResponse.results
-            preferredTrailer = computePreferredTrailer(from: videos)
-        } catch {
-            print("Error loading videos: \(error)")
-        }
-        
-        // Load watch providers
-        do {
-            let providers = try await TMDBService.shared.getTVShowWatchProviders(id: item.id)
-            let region = StorageService.shared.settings.region
-            if let regionData = providers.results?[region] {
-                watchProviders = regionData
-                watchProvidersLink = regionData.link
+        // Phase 2: Load everything else concurrently
+        await withTaskGroup(of: Void.self) { group in
+            // Title logo
+            group.addTask { @MainActor in
+                do {
+                    let logos = try await TMDBService.shared.getMediaLogos(mediaType: .tv, id: tvId)
+                    self.logoPath = self.selectPreferredLogo(from: logos)
+                } catch {
+                    print("Error loading TV logos: \(error)")
+                }
             }
-        } catch {
-            print("Error loading providers: \(error)")
-        }
-        
-        // Load similar and recommendations
-        do {
-            let similarResponse = try await TMDBService.shared.getSimilarTVShows(id: item.id)
-            similar = similarResponse.results
             
-            let recsResponse = try await TMDBService.shared.getTVShowRecommendations(id: item.id)
-            recommendations = recsResponse.results
-        } catch {
-            print("Error loading similar: \(error)")
+            // Credits
+            group.addTask { @MainActor in
+                do {
+                    let credits = try await TMDBService.shared.getTVShowCredits(id: tvId)
+                    self.cast = credits.cast ?? []
+                    self.crew = credits.crew ?? []
+                } catch {
+                    print("Error loading credits: \(error)")
+                }
+            }
+            
+            // Videos
+            group.addTask { @MainActor in
+                do {
+                    let videosResponse = try await TMDBService.shared.getTVShowVideos(id: tvId)
+                    self.videos = videosResponse.results
+                    self.preferredTrailer = self.computePreferredTrailer(from: self.videos)
+                } catch {
+                    print("Error loading videos: \(error)")
+                }
+            }
+            
+            // Watch providers
+            group.addTask { @MainActor in
+                do {
+                    let providers = try await TMDBService.shared.getTVShowWatchProviders(id: tvId)
+                    if let regionData = providers.results?[region] {
+                        self.watchProviders = regionData
+                        self.watchProvidersLink = regionData.link
+                    }
+                } catch {
+                    print("Error loading providers: \(error)")
+                }
+            }
+            
+            // Similar
+            group.addTask { @MainActor in
+                do {
+                    let similarResponse = try await TMDBService.shared.getSimilarTVShows(id: tvId)
+                    self.similar = similarResponse.results
+                } catch {
+                    print("Error loading similar: \(error)")
+                }
+            }
+            
+            // Recommendations
+            group.addTask { @MainActor in
+                do {
+                    let recsResponse = try await TMDBService.shared.getTVShowRecommendations(id: tvId)
+                    self.recommendations = recsResponse.results
+                } catch {
+                    print("Error loading recommendations: \(error)")
+                }
+            }
         }
     }
     

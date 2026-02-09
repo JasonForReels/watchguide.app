@@ -15,6 +15,39 @@ actor TMDBService {
         ApiKeyManager.shared.get(key: "TMDB_API_KEY") ?? ""
     }
     
+    // MARK: - Optimized URLSession with caching
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        // 50 MB memory cache, 200 MB disk cache
+        config.urlCache = URLCache(memoryCapacity: 50 * 1024 * 1024, diskCapacity: 200 * 1024 * 1024)
+        config.requestCachePolicy = .returnCacheDataElseLoad
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 30
+        config.httpMaximumConnectionsPerHost = 8
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config)
+    }()
+    
+    // MARK: - In-memory response cache
+    private var responseCache: [String: (data: Any, timestamp: Date)] = [:]
+    private let cacheTTL: TimeInterval = 300 // 5 minutes
+    
+    private func getCached<T>(_ key: String) -> T? {
+        guard let entry = responseCache[key],
+              Date().timeIntervalSince(entry.timestamp) < cacheTTL,
+              let value = entry.data as? T else { return nil }
+        return value
+    }
+    
+    private func setCache<T>(_ key: String, value: T) {
+        // Evict old entries if cache grows too large
+        if responseCache.count > 500 {
+            let cutoff = Date().addingTimeInterval(-cacheTTL)
+            responseCache = responseCache.filter { $0.value.timestamp > cutoff }
+        }
+        responseCache[key] = (data: value, timestamp: Date())
+    }
+    
     private init() {}
     
     // MARK: - Image URL Builder
@@ -34,8 +67,8 @@ actor TMDBService {
         return URL(string: "\(imageBaseURL)/\(size.rawValue)\(path)")
     }
     
-    // MARK: - Generic Request
-    private func request<T: Decodable>(_ endpoint: String, queryItems: [URLQueryItem] = []) async throws -> T {
+    // MARK: - Generic Request (with in-memory caching)
+    private func request<T: Decodable>(_ endpoint: String, queryItems: [URLQueryItem] = [], useCache: Bool = true) async throws -> T {
         var components = URLComponents(string: "\(baseURL)\(endpoint)")!
         var items = queryItems
         items.append(URLQueryItem(name: "api_key", value: apiKey))
@@ -45,7 +78,14 @@ actor TMDBService {
             throw URLError(.badURL)
         }
         
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let cacheKey = url.absoluteString
+        
+        // Check in-memory cache first
+        if useCache, let cached: T = getCached(cacheKey) {
+            return cached
+        }
+        
+        let (data, response) = try await session.data(from: url)
         
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
@@ -53,7 +93,14 @@ actor TMDBService {
         }
         
         let decoder = JSONDecoder()
-        return try decoder.decode(T.self, from: data)
+        let result = try decoder.decode(T.self, from: data)
+        
+        // Store in in-memory cache
+        if useCache {
+            setCache(cacheKey, value: result)
+        }
+        
+        return result
     }
     
     // MARK: - Trending
