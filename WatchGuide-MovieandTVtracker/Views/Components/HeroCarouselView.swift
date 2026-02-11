@@ -147,19 +147,7 @@ struct HeroCarouselSlide: View {
     
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // Trailer layer (behind backdrop initially, then cross-fades in)
-            if showTrailer, let key = trailerKey {
-                InlineTrailerPlayerView(
-                    videoKey: key,
-                    isMuted: $isMuted,
-                    isPlaying: $localIsPlaying
-                )
-                .frame(width: slideWidth, height: slideHeight)
-                .opacity(localIsPlaying ? 1 : 0)
-                .animation(.easeInOut(duration: 0.8), value: localIsPlaying)
-            }
-            
-            // Static backdrop image (visible until trailer plays)
+            // Static backdrop image (always present as base layer)
             AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
                 switch phase {
                 case .empty:
@@ -184,8 +172,20 @@ struct HeroCarouselSlide: View {
             }
             .frame(width: slideWidth, height: slideHeight)
             .clipped()
-            .opacity(localIsPlaying ? 0 : 1)
-            .animation(.easeInOut(duration: 0.8), value: localIsPlaying)
+            
+            // Trailer layer (placed on top, fades in when playing)
+            if showTrailer, let key = trailerKey {
+                InlineTrailerPlayerView(
+                    videoKey: key,
+                    isMuted: $isMuted,
+                    isPlaying: $localIsPlaying
+                )
+                .frame(width: slideWidth, height: slideHeight)
+                .clipped()
+                .opacity(localIsPlaying ? 1 : 0)
+                .animation(.easeInOut(duration: 0.8), value: localIsPlaying)
+                .allowsHitTesting(false)
+            }
             
             // Gradient overlay
             LinearGradient(
@@ -262,7 +262,7 @@ struct HeroCarouselSlide: View {
         guard trailerKey != nil else { return }
         // Delay before showing the trailer to let the user see the backdrop first
         trailerAppearDelay = Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
+            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 showTrailer = true
