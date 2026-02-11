@@ -19,18 +19,23 @@ struct InlineTrailerPlayerView: UIViewRepresentable {
     }
     
     func makeUIView(context: Context) -> WKWebView {
+        let contentController = WKUserContentController()
+        // Register message handler BEFORE creating the web view
+        contentController.add(context.coordinator, name: "playerState")
+        
         let config = WKWebViewConfiguration()
+        config.userContentController = contentController
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
+        webView.backgroundColor = .black
+        webView.scrollView.backgroundColor = .black
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.bounces = false
         webView.navigationDelegate = context.coordinator
-        webView.isUserInteractionEnabled = false // Disable user interaction - we control via overlay
+        webView.isUserInteractionEnabled = false
         
         context.coordinator.webView = webView
         
@@ -41,12 +46,21 @@ struct InlineTrailerPlayerView: UIViewRepresentable {
     }
     
     func updateUIView(_ webView: WKWebView, context: Context) {
-        // Handle mute/unmute changes
-        if isMuted {
-            webView.evaluateJavaScript("muteVideo();", completionHandler: nil)
-        } else {
-            webView.evaluateJavaScript("unmuteVideo();", completionHandler: nil)
+        let currentMuted = isMuted
+        if currentMuted != context.coordinator.lastKnownMuteState {
+            context.coordinator.lastKnownMuteState = currentMuted
+            if currentMuted {
+                webView.evaluateJavaScript("muteVideo();", completionHandler: nil)
+            } else {
+                webView.evaluateJavaScript("unmuteVideo();", completionHandler: nil)
+            }
         }
+    }
+    
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        uiView.configuration.userContentController.removeScriptMessageHandler(forName: "playerState")
+        uiView.stopLoading()
+        uiView.loadHTMLString("", baseURL: nil)
     }
     
     private func generateHTML(videoKey: String) -> String {
@@ -81,6 +95,8 @@ struct InlineTrailerPlayerView: UIViewRepresentable {
             firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
             
             var player;
+            var playerReady = false;
+            
             function onYouTubeIframeAPIReady() {
                 player = new YT.Player('player', {
                     videoId: '\(videoKey)',
@@ -96,46 +112,57 @@ struct InlineTrailerPlayerView: UIViewRepresentable {
                         'disablekb': 1,
                         'fs': 0,
                         'cc_load_policy': 0,
-                        'origin': 'https://www.youtube.com',
                         'loop': 1,
                         'playlist': '\(videoKey)'
                     },
                     events: {
                         'onReady': onPlayerReady,
-                        'onStateChange': onPlayerStateChange
+                        'onStateChange': onPlayerStateChange,
+                        'onError': onPlayerError
                     }
                 });
             }
             
             function onPlayerReady(event) {
+                playerReady = true;
                 event.target.mute();
                 event.target.playVideo();
             }
             
             function onPlayerStateChange(event) {
-                if (event.data == YT.PlayerState.PLAYING) {
-                    window.webkit.messageHandlers.playerState.postMessage('playing');
-                } else if (event.data == YT.PlayerState.ENDED) {
-                    window.webkit.messageHandlers.playerState.postMessage('ended');
-                } else if (event.data == YT.PlayerState.PAUSED) {
-                    window.webkit.messageHandlers.playerState.postMessage('paused');
-                }
+                try {
+                    if (event.data == YT.PlayerState.PLAYING) {
+                        window.webkit.messageHandlers.playerState.postMessage('playing');
+                    } else if (event.data == YT.PlayerState.ENDED) {
+                        window.webkit.messageHandlers.playerState.postMessage('ended');
+                    } else if (event.data == YT.PlayerState.PAUSED) {
+                        window.webkit.messageHandlers.playerState.postMessage('paused');
+                    } else if (event.data == YT.PlayerState.BUFFERING) {
+                        window.webkit.messageHandlers.playerState.postMessage('buffering');
+                    }
+                } catch(e) {}
+            }
+            
+            function onPlayerError(event) {
+                try {
+                    window.webkit.messageHandlers.playerState.postMessage('error');
+                } catch(e) {}
             }
             
             function muteVideo() {
-                if (player && player.mute) { player.mute(); }
+                if (playerReady && player && player.mute) { player.mute(); }
             }
             
             function unmuteVideo() {
-                if (player && player.unMute) { player.unMute(); }
+                if (playerReady && player && player.unMute) { player.unMute(); }
             }
             
             function pauseVideo() {
-                if (player && player.pauseVideo) { player.pauseVideo(); }
+                if (playerReady && player && player.pauseVideo) { player.pauseVideo(); }
             }
             
             function playVideo() {
-                if (player && player.playVideo) { player.playVideo(); }
+                if (playerReady && player && player.playVideo) { player.playVideo(); }
             }
         </script>
         </body>
@@ -146,31 +173,37 @@ struct InlineTrailerPlayerView: UIViewRepresentable {
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: InlineTrailerPlayerView
         weak var webView: WKWebView?
+        var lastKnownMuteState: Bool = true
         
         init(_ parent: InlineTrailerPlayerView) {
             self.parent = parent
+            self.lastKnownMuteState = parent.isMuted
             super.init()
-        }
-        
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // Add message handler for player state
-            webView.configuration.userContentController.add(self, name: "playerState")
         }
         
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let state = message.body as? String else { return }
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
                 switch state {
                 case "playing":
                     self.parent.isPlaying = true
-                case "ended":
+                case "ended", "paused", "error":
                     self.parent.isPlaying = false
-                case "paused":
-                    self.parent.isPlaying = false
+                case "buffering":
+                    break // Keep current state while buffering
                 default:
                     break
                 }
             }
+        }
+        
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            print("InlineTrailerPlayer navigation failed: \(error.localizedDescription)")
+        }
+        
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            print("InlineTrailerPlayer provisional navigation failed: \(error.localizedDescription)")
         }
     }
 }

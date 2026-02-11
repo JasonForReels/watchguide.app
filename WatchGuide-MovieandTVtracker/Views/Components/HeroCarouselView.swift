@@ -148,7 +148,7 @@ struct HeroCarouselSlide: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             // Trailer layer (behind backdrop initially, then cross-fades in)
-            if isActive, let key = trailerKey, showTrailer {
+            if showTrailer, let key = trailerKey {
                 InlineTrailerPlayerView(
                     videoKey: key,
                     isMuted: $isMuted,
@@ -232,6 +232,12 @@ struct HeroCarouselSlide: View {
                 cancelTrailerDelay()
                 showTrailer = false
                 localIsPlaying = false
+            }
+        }
+        .onChange(of: trailerKey) { _, newKey in
+            // If the trailer key arrives after the slide became active, start the delay
+            if isActive && newKey != nil && !showTrailer {
+                startTrailerDelay()
             }
         }
         .onChange(of: localIsPlaying) { _, playing in
