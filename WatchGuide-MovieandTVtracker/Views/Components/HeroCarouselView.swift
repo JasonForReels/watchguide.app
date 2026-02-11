@@ -17,19 +17,11 @@ struct HeroCarouselView: View {
     @State private var showMuteButton = false
     
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .bottom) {
-                // Background blur of current slide
-                if let currentItem = items[safe: currentIndex] {
-                    BackdropImageView(backdropPath: currentItem.backdropPath)
-                        .frame(width: geometry.size.width, height: geometry.size.width * 9.0 / 16.0)
-                        .blur(radius: 30)
-                        .opacity(0.5)
-                }
-                
-                // Main carousel
-                TabView(selection: $currentIndex) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+        ZStack(alignment: .bottom) {
+            // Main carousel
+            TabView(selection: $currentIndex) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    GeometryReader { geometry in
                         HeroCarouselSlide(
                             item: item,
                             isActive: index == currentIndex,
@@ -39,63 +31,62 @@ struct HeroCarouselView: View {
                             onTap: { onItemTap(item) },
                             geometry: geometry
                         )
-                        .tag(index)
                     }
+                    .tag(index)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                
-                // Bottom overlay: page indicators + mute button
-                HStack {
-                    // Page indicators
-                    HStack(spacing: 8) {
-                        ForEach(0..<min(items.count, 10), id: \.self) { index in
-                            Capsule()
-                                .fill(index == currentIndex ? Color.white : Color.white.opacity(0.4))
-                                .frame(width: index == currentIndex ? 24 : 8, height: 8)
-                                .animation(.spring(response: 0.3), value: currentIndex)
-                        }
-                    }
-                    
-                    Spacer()
-                    
-                    // Mute/Unmute button - only visible when trailer is playing
-                    if showMuteButton {
-                        Button {
-                            isMuted.toggle()
-                        } label: {
-                            Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 34, height: 34)
-                                .background(.ultraThinMaterial.opacity(0.8))
-                                .clipShape(Circle())
-                        }
-                        .transition(.scale.combined(with: .opacity))
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
             }
-            .frame(width: geometry.size.width, height: geometry.size.width * 9.0 / 16.0)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.4),
-                                Color.white.opacity(0.3),
-                                Color.white.opacity(0.15),
-                                Color.white.opacity(0.0)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
-            )
-            .aspectRatio(16.0/9.0, contentMode: .fit)
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            
+            // Bottom overlay: page indicators + mute button
+            HStack {
+                // Page indicators
+                HStack(spacing: 8) {
+                    ForEach(0..<min(items.count, 10), id: \.self) { index in
+                        Capsule()
+                            .fill(index == currentIndex ? Color.white : Color.white.opacity(0.4))
+                            .frame(width: index == currentIndex ? 24 : 8, height: 8)
+                            .animation(.spring(response: 0.3), value: currentIndex)
+                    }
+                }
+                
+                Spacer()
+                
+                // Mute/Unmute button - only visible when trailer is playing
+                if showMuteButton {
+                    Button {
+                        isMuted.toggle()
+                    } label: {
+                        Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 34, height: 34)
+                            .background(.ultraThinMaterial.opacity(0.8))
+                            .clipShape(Circle())
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
         }
+        .aspectRatio(16.0/9.0, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.4),
+                            Color.white.opacity(0.3),
+                            Color.white.opacity(0.15),
+                            Color.white.opacity(0.0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
+        )
         .onReceive(autoScrollTimer) { _ in
             guard items.count > 1 else { return }
             // Only auto-scroll if trailer is NOT playing
@@ -151,6 +142,9 @@ struct HeroCarouselSlide: View {
     @State private var showTrailer = false
     @State private var trailerAppearDelay: Task<Void, Never>?
     
+    private var slideWidth: CGFloat { geometry.size.width }
+    private var slideHeight: CGFloat { geometry.size.height }
+    
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             // Trailer layer (behind backdrop initially, then cross-fades in)
@@ -160,7 +154,7 @@ struct HeroCarouselSlide: View {
                     isMuted: $isMuted,
                     isPlaying: $localIsPlaying
                 )
-                .frame(width: geometry.size.width, height: geometry.size.width * 9.0 / 16.0)
+                .frame(width: slideWidth, height: slideHeight)
                 .opacity(localIsPlaying ? 1 : 0)
                 .animation(.easeInOut(duration: 0.8), value: localIsPlaying)
             }
@@ -188,7 +182,7 @@ struct HeroCarouselSlide: View {
                     Rectangle().fill(Color(.systemGray5))
                 }
             }
-            .frame(width: geometry.size.width, height: geometry.size.width * 9.0 / 16.0)
+            .frame(width: slideWidth, height: slideHeight)
             .clipped()
             .opacity(localIsPlaying ? 0 : 1)
             .animation(.easeInOut(duration: 0.8), value: localIsPlaying)
@@ -228,6 +222,7 @@ struct HeroCarouselSlide: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(width: slideWidth, height: slideHeight)
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
         .onChange(of: isActive) { _, active in
