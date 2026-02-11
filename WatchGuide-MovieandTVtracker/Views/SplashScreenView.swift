@@ -16,17 +16,23 @@ struct SplashScreenView: View {
         if isActive {
             ContentView()
         } else {
-            ZStack {
-                Color.black
-                    .ignoresSafeArea()
+            GeometryReader { geometry in
+                ZStack {
+                    Color.black
+                        .ignoresSafeArea()
 
-                Image("D7BC305B-40A8-4086-B3F8-69ECFD32D11F_Untitled_design_2")
-                    .resizable()
-                    .scaledToFill()
-                    .ignoresSafeArea()
-                    .opacity(logoOpacity)
-                    .scaleEffect(logoScale)
+                    Image("D7BC305B-40A8-4086-B3F8-69ECFD32D11F_Untitled_design_2")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .ignoresSafeArea()
+                        .opacity(logoOpacity)
+                        .scaleEffect(logoScale)
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
             }
+            .ignoresSafeArea()
             .onAppear {
                 withAnimation(.easeOut(duration: 0.6)) {
                     logoOpacity = 1
