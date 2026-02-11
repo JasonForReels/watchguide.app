@@ -2,63 +2,176 @@
 //  SplashScreenView.swift
 //  WatchGuide-MovieandTVtracker
 //
-//  Splash screen displaying the app logo on launch
+//  Animated video splash screen that works on all devices (iPhone, iPad, all orientations)
 //
 
 import SwiftUI
+import AVFoundation
+import AVKit
 
 struct SplashScreenView: View {
     @State private var isActive = false
-    @State private var logoOpacity: Double = 0
-    @State private var logoScale: CGFloat = 0.85
-    @State private var isPulsing = false
+    @State private var fadeOut: Double = 1.0
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         if isActive {
             ContentView()
+                .transition(.opacity)
         } else {
-            GeometryReader { geometry in
-                ZStack {
-                    Color.black
-                        .ignoresSafeArea()
+            ZStack {
+                Color.black
+                    .ignoresSafeArea()
 
-                    Image("D7BC305B-40A8-4086-B3F8-69ECFD32D11F_Untitled_design_2")
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
-                        .ignoresSafeArea()
-                        .opacity(logoOpacity)
-                        .scaleEffect(isPulsing ? 1.06 : logoScale)
+                SplashVideoPlayer {
+                    finishSplash()
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height)
+                .ignoresSafeArea()
             }
-            .ignoresSafeArea()
+            .opacity(fadeOut)
             .onAppear {
-                // Phase 1: Fade in and scale up
-                withAnimation(.easeOut(duration: 0.6)) {
-                    logoOpacity = 1
-                    logoScale = 1
+                // Safety fallback: if video never triggers onFinished, skip after 8s
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
+                    finishSplash()
                 }
-
-                // Phase 2: Start pulsing after fade-in completes
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                    withAnimation(
-                        .easeInOut(duration: 0.6)
-                        .repeatCount(3, autoreverses: true)
-                    ) {
-                        isPulsing = true
-                    }
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                // If app goes to background during splash, finish immediately
+                if newPhase == .background {
+                    finishSplash()
                 }
+            }
+            .statusBarHidden(true)
+            .persistentSystemOverlays(.hidden)
+        }
+    }
 
-                // Phase 3: Transition to app after pulses finish
-                DispatchQueue.main.asyncAfter(deadline: .now() + 4.3) {
-                    withAnimation(.easeInOut(duration: 0.35)) {
-                        isActive = true
-                    }
+    private func finishSplash() {
+        guard !isActive else { return }
+        withAnimation(.easeInOut(duration: 0.35)) {
+            fadeOut = 0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation {
+                isActive = true
+            }
+        }
+    }
+}
+
+// MARK: - Video Player (UIKit wrapper)
+/// Plays the bundled MP4 once, filling the entire screen on every device,
+/// then calls `onFinished` so the app can transition.
+struct SplashVideoPlayer: UIViewControllerRepresentable {
+    var onFinished: () -> Void
+
+    func makeUIViewController(context: Context) -> SplashVideoViewController {
+        let vc = SplashVideoViewController()
+        vc.onFinished = onFinished
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: SplashVideoViewController, context: Context) {}
+}
+
+final class SplashVideoViewController: UIViewController {
+    var onFinished: (() -> Void)?
+
+    private var player: AVPlayer?
+    private var playerLayer: AVPlayerLayer?
+    private var observer: NSObjectProtocol?
+    private var statusObservation: NSKeyValueObservation?
+    private var hasFinished = false
+
+    override var prefersStatusBarHidden: Bool { true }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
+    override var prefersHomeIndicatorAutoHidden: Bool { true }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        guard let url = Bundle.main.url(
+            forResource: "C891E0F4-DF6C-4689-8EC3-865E5943F026_users_3e430e6b-9132-4628-92a7-dd0ab3746f5f_generated_d571b124-cd61-44c0-b7dc-c5a336ebaad6_generated_video",
+            withExtension: "mp4"
+        ) else {
+            // Video not found – skip straight to app
+            triggerFinish()
+            return
+        }
+
+        let asset = AVURLAsset(url: url)
+        let item = AVPlayerItem(asset: asset)
+        let avPlayer = AVPlayer(playerItem: item)
+        avPlayer.isMuted = false
+        self.player = avPlayer
+
+        let layer = AVPlayerLayer(player: avPlayer)
+        layer.videoGravity = .resizeAspectFill  // fills every screen edge-to-edge
+        layer.frame = view.bounds
+        view.layer.addSublayer(layer)
+        self.playerLayer = layer
+
+        // Listen for playback end
+        observer = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            self?.triggerFinish()
+        }
+
+        // Observe for errors using modern KVO so we don't get stuck
+        statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+            if item.status == .failed {
+                DispatchQueue.main.async {
+                    self?.triggerFinish()
                 }
             }
         }
+
+        avPlayer.play()
+    }
+
+    private func triggerFinish() {
+        guard !hasFinished else { return }
+        hasFinished = true
+        onFinished?()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Keep layer perfectly sized on rotation / resize / multitasking
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        playerLayer?.frame = view.bounds
+        CATransaction.commit()
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: { _ in
+            self.playerLayer?.frame = CGRect(origin: .zero, size: size)
+        })
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        player?.pause()
+        cleanup()
+    }
+
+    private func cleanup() {
+        if let obs = observer {
+            NotificationCenter.default.removeObserver(obs)
+            observer = nil
+        }
+        statusObservation?.invalidate()
+        statusObservation = nil
+    }
+
+    deinit {
+        cleanup()
     }
 }
 

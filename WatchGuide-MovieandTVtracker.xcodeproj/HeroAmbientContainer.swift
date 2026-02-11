@@ -118,12 +118,7 @@ struct AnimatedAmbientBackground: View {
 }
 
 // MARK: - Helpers
-extension Array {
-    subscript(safe index: Int) -> Element? {
-        guard index >= 0 && index < count else { return nil }
-        return self[index]
-    }
-}
+// Note: Array safe subscript is defined in HeroCarouselView.swift
 
 extension UIImage {
     // Average color as a fallback
