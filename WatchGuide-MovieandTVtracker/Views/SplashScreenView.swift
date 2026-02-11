@@ -22,8 +22,8 @@ struct SplashScreenView: View {
 
                 Image("D7BC305B-40A8-4086-B3F8-69ECFD32D11F_Untitled_design_2")
                     .resizable()
-                    .scaledToFit()
-                    .frame(width: 220, height: 220)
+                    .scaledToFill()
+                    .ignoresSafeArea()
                     .opacity(logoOpacity)
                     .scaleEffect(logoScale)
             }
