@@ -27,25 +27,23 @@ struct InlineTrailerPlayerView: UIViewRepresentable {
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         
-        // Allow YouTube embed to work properly
         let prefs = WKWebpagePreferences()
         prefs.allowsContentJavaScript = true
         config.defaultWebpagePreferences = prefs
         
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
+        webView.backgroundColor = .black
+        webView.scrollView.backgroundColor = .black
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.bounces = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.navigationDelegate = context.coordinator
-        // Allow interaction so YouTube iframe can initialize properly
-        webView.isUserInteractionEnabled = false
+        // MUST be true for YouTube iframe API to initialize and autoplay
+        webView.isUserInteractionEnabled = true
         
-        // Transparent background
         if #available(iOS 15.0, *) {
-            webView.underPageBackgroundColor = .clear
+            webView.underPageBackgroundColor = .black
         }
         
         context.coordinator.webView = webView
@@ -66,6 +64,8 @@ struct InlineTrailerPlayerView: UIViewRepresentable {
     }
     
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        // Pause before teardown to avoid audio leaking
+        uiView.evaluateJavaScript("pausePlayer();", completionHandler: nil)
         uiView.configuration.userContentController.removeAllScriptMessageHandlers()
         uiView.stopLoading()
         uiView.loadHTMLString("", baseURL: nil)
@@ -75,9 +75,6 @@ struct InlineTrailerPlayerView: UIViewRepresentable {
     // MARK: - YouTube Embed HTML
     
     private static func buildEmbedHTML(videoKey: String) -> String {
-        // Use the YouTube IFrame Player API with a proper embed.
-        // The oversized container + negative margins ensure the video fills
-        // the viewport edge-to-edge (hiding YouTube chrome / black bars).
         return """
         <!DOCTYPE html>
         <html>
@@ -86,19 +83,26 @@ struct InlineTrailerPlayerView: UIViewRepresentable {
         <style>
         *{margin:0;padding:0;box-sizing:border-box;}
         html,body{width:100%;height:100%;overflow:hidden;background:#000;}
-        .wrap{position:absolute;top:50%;left:50%;width:300vw;height:300vh;transform:translate(-50%,-50%);}
-        .wrap iframe{width:100%;height:100%;border:none;}
+        #player-wrap{
+          position:absolute;
+          top:50%;left:50%;
+          width:180%;height:180%;
+          transform:translate(-50%,-50%);
+          pointer-events:none;
+        }
+        #ytplayer{width:100%;height:100%;}
+        iframe{pointer-events:none;}
         </style>
         </head>
         <body>
-        <div class="wrap">
+        <div id="player-wrap">
           <div id="ytplayer"></div>
         </div>
         <script>
-        // Load YouTube IFrame API
         var tag=document.createElement('script');
         tag.src='https://www.youtube.com/iframe_api';
-        document.head.appendChild(tag);
+        var firstScript=document.getElementsByTagName('script')[0];
+        firstScript.parentNode.insertBefore(tag,firstScript);
 
         var player;
         var ready=false;
@@ -118,8 +122,6 @@ struct InlineTrailerPlayerView: UIViewRepresentable {
               disablekb:1,
               fs:0,
               cc_load_policy:0,
-              loop:1,
-              playlist:'\(videoKey)',
               origin:'https://www.youtube.com'
             },
             events:{
@@ -139,17 +141,17 @@ struct InlineTrailerPlayerView: UIViewRepresentable {
                 }
                 try{window.webkit.messageHandlers.ytState.postMessage(s);}catch(x){}
               },
-              onError:function(){
+              onError:function(e){
                 try{window.webkit.messageHandlers.ytState.postMessage('error');}catch(x){}
               }
             }
           });
         }
 
-        function mutePlayer(){if(ready&&player)player.mute();}
-        function unmutePlayer(){if(ready&&player)player.unMute();}
-        function pausePlayer(){if(ready&&player)player.pauseVideo();}
-        function resumePlayer(){if(ready&&player)player.playVideo();}
+        function mutePlayer(){if(ready&&player)try{player.mute();}catch(e){}}
+        function unmutePlayer(){if(ready&&player)try{player.unMute();}catch(e){}}
+        function pausePlayer(){if(ready&&player)try{player.pauseVideo();}catch(e){}}
+        function resumePlayer(){if(ready&&player)try{player.playVideo();}catch(e){}}
         </script>
         </body>
         </html>
@@ -189,10 +191,10 @@ struct InlineTrailerPlayerView: UIViewRepresentable {
         }
         
         // MARK: WKNavigationDelegate
-        // Allow YouTube navigation (needed for iframe API script loading)
         func webView(_ webView: WKWebView,
                      decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            // Allow all navigation for YouTube iframe API to load properly
             decisionHandler(.allow)
         }
         

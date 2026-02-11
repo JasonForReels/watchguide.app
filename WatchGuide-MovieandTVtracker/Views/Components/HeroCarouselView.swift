@@ -10,7 +10,7 @@ struct HeroCarouselView: View {
     let onItemTap: (MediaItem) -> Void
     
     @State private var currentIndex = 0
-    @State private var autoScrollTimer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()
+    @State private var autoScrollTimer = Timer.publish(every: 20, on: .main, in: .common).autoconnect()
     @StateObject private var trailerLoader = HeroTrailerLoader()
     @State private var isMuted = true
     @State private var isTrailerPlaying = false
@@ -96,16 +96,27 @@ struct HeroCarouselView: View {
                 }
             }
         }
+        // When trailer state changes: update mute button + auto-advance when done
+        .onChange(of: isTrailerPlaying) { oldVal, newVal in
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showMuteButton = newVal
+            }
+            if oldVal == true && newVal == false {
+                // Trailer just stopped — advance after a short delay
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !isTrailerPlaying, items.count > 1 else { return }
+                    withAnimation(.easeInOut(duration: 0.9)) {
+                        currentIndex = (currentIndex + 1) % items.count
+                    }
+                }
+            }
+        }
         .onChange(of: items.count) { _, newCount in
             if newCount == 0 {
                 currentIndex = 0
             } else if currentIndex >= newCount {
                 currentIndex = 0
-            }
-        }
-        .onChange(of: isTrailerPlaying) { _, playing in
-            withAnimation(.easeInOut(duration: 0.3)) {
-                showMuteButton = playing
             }
         }
         .onChange(of: currentIndex) { _, _ in
@@ -175,16 +186,21 @@ struct HeroCarouselSlide: View {
             
             // Trailer layer (placed on top, fades in when playing)
             if showTrailer, let key = trailerKey {
-                InlineTrailerPlayerView(
-                    videoKey: key,
-                    isMuted: $isMuted,
-                    isPlaying: $localIsPlaying
-                )
+                ZStack {
+                    InlineTrailerPlayerView(
+                        videoKey: key,
+                        isMuted: $isMuted,
+                        isPlaying: $localIsPlaying
+                    )
+                    
+                    // Transparent overlay to intercept taps (WKWebView needs interaction enabled for YT API)
+                    Color.clear
+                        .contentShape(Rectangle())
+                }
                 .frame(width: slideWidth, height: slideHeight)
                 .clipped()
                 .opacity(localIsPlaying ? 1 : 0)
                 .animation(.easeInOut(duration: 0.8), value: localIsPlaying)
-                .allowsHitTesting(false)
             }
             
             // Gradient overlay
