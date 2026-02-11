@@ -11,7 +11,7 @@ import SwiftUI
 struct WatchGuide_MovieandTVtrackerApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            SplashScreenView()
         }
     }
 }
