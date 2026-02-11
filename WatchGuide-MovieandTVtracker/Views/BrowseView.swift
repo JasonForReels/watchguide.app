@@ -28,9 +28,6 @@ struct BrowseView: View {
                         HeroCarouselView(items: viewModel.heroItems) { item in
                             selectedItem = item
                         }
-                        .aspectRatio(16.0/9.0, contentMode: .fit)
-                        .padding(.horizontal)
-                        .padding(.bottom, 12)
                     }
                     
                     // Networks Section (Streaming Services)
