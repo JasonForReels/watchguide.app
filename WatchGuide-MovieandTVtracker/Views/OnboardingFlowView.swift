@@ -8,8 +8,6 @@ import SwiftUI
 struct OnboardingFlowView: View {
     @AppStorage("onboardingComplete") private var onboardingComplete = false
     @State private var step: Step = .welcome
-    @State private var tmdbKey = ""
-    @State private var mdblistKey = ""
     @State private var isDownloading = false
     @State private var downloadError: String?
     
@@ -18,8 +16,6 @@ struct OnboardingFlowView: View {
     
     enum Step: Int, CaseIterable {
         case welcome
-        case tmdbKey
-        case mdblistKey
         case login
         case download
     }
@@ -93,28 +89,6 @@ struct OnboardingFlowView: View {
             switch step {
             case .welcome:
                 welcomeCard
-            case .tmdbKey:
-                apiKeyCard(
-                    title: "TMDB API Key",
-                    subtitle: "Add your personal TMDB key to fetch movies, shows, and artwork.",
-                    placeholder: "Paste TMDB API Key",
-                    text: $tmdbKey,
-                    helpURL: URL(string: "https://www.themoviedb.org/settings/api")!,
-                    helpLabel: "Get a TMDB API key",
-                    actionTitle: "Save TMDB Key",
-                    onAction: saveTMDB
-                )
-            case .mdblistKey:
-                apiKeyCard(
-                    title: "MDBList API Key",
-                    subtitle: "Enable curated lists and discovery collections.",
-                    placeholder: "Paste MDBList API Key",
-                    text: $mdblistKey,
-                    helpURL: URL(string: "https://mdblist.com/preferences/")!,
-                    helpLabel: "Get a MDBList API key",
-                    actionTitle: "Save MDBList Key",
-                    onAction: saveMDBList
-                )
             case .login:
                 OnboardingAuthView(onAuthenticated: {
                     step = .download
@@ -139,7 +113,7 @@ struct OnboardingFlowView: View {
             
             if step == .welcome {
                 Button("Get Started") {
-                    step = .tmdbKey
+                    step = .login
                 }
                 .buttonStyle(PrimaryPillButtonStyle())
             }
@@ -165,57 +139,6 @@ struct OnboardingFlowView: View {
             }
         }
         .padding(28)
-        .background(cardBackground)
-    }
-    
-    private func apiKeyCard(
-        title: String,
-        subtitle: String,
-        placeholder: String,
-        text: Binding<String>,
-        helpURL: URL,
-        helpLabel: String,
-        actionTitle: String,
-        onAction: @escaping () -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundColor(.white)
-            
-            Text(subtitle)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.white.opacity(0.7))
-            
-            TextField(placeholder, text: text)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .font(.system(size: 15, weight: .medium, design: .monospaced))
-                .padding(14)
-                .background(Color.white.opacity(0.08))
-                .cornerRadius(12)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                )
-                .foregroundColor(.white)
-            
-            Link(destination: helpURL) {
-                HStack(spacing: 6) {
-                    Image(systemName: "link")
-                    Text(helpLabel)
-                }
-                .font(.footnote)
-                .foregroundColor(.white.opacity(0.7))
-            }
-            
-            Button(actionTitle) {
-                onAction()
-            }
-            .buttonStyle(PrimaryPillButtonStyle())
-            .disabled(text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-        .padding(24)
         .background(cardBackground)
     }
     
@@ -270,8 +193,6 @@ struct OnboardingFlowView: View {
     private var titleText: String {
         switch step {
         case .welcome: return "Welcome"
-        case .tmdbKey: return "TMDB Setup"
-        case .mdblistKey: return "MDBList Setup"
         case .login: return "Sign In"
         case .download: return "Cloud Sync"
         }
@@ -280,24 +201,8 @@ struct OnboardingFlowView: View {
     private var subtitleText: String {
         switch step {
         case .welcome: return "Your personal movie and TV guide"
-        case .tmdbKey: return "Required to fetch TMDB data"
-        case .mdblistKey: return "Required for curated lists"
         case .login: return "Access your synced data"
         case .download: return "Pull your saved lists"
-        }
-    }
-    
-    private func saveTMDB() {
-        let saved = ApiKeyManager.shared.set(key: "TMDB_API_KEY", value: tmdbKey)
-        if saved {
-            step = .mdblistKey
-        }
-    }
-    
-    private func saveMDBList() {
-        let saved = ApiKeyManager.shared.set(key: "MDBLIST_API_KEY", value: mdblistKey)
-        if saved {
-            step = .login
         }
     }
     

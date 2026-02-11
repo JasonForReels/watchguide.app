@@ -30,10 +30,7 @@ class ApiKeyManager {
     
     // UserDefaults key to track initialization
     private let initializationKey = "ApiKeyManager_Initialized"
-    private let userProvidedKeys: Set<String> = [
-        "TMDB_API_KEY",
-        "MDBLIST_API_KEY"
-    ]
+    private let userProvidedKeys: Set<String> = []
     
     // Get project name from bundle (should match what Swifty used for encryption)
     private var projectName: String {

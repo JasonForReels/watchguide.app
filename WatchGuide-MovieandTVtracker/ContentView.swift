@@ -58,8 +58,6 @@ struct ContentView: View {
     
     private var requiresOnboarding: Bool {
         if !onboardingComplete { return true }
-        if !ApiKeyManager.shared.has(key: "TMDB_API_KEY") { return true }
-        if !ApiKeyManager.shared.has(key: "MDBLIST_API_KEY") { return true }
         return false
     }
     

@@ -11,9 +11,7 @@ actor TMDBService {
     private let baseURL = "https://api.themoviedb.org/3"
     private let imageBaseURL = "https://image.tmdb.org/t/p"
     
-    private var apiKey: String {
-        ApiKeyManager.shared.get(key: "TMDB_API_KEY") ?? ""
-    }
+    private let apiKey = "53b0ac93f3955b6a6ccb9782752fecf1"
     
     // MARK: - Optimized URLSession with caching
     private let session: URLSession = {

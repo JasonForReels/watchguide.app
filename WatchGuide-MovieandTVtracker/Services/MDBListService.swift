@@ -13,9 +13,7 @@ actor MDBListService {
     
     private let baseURL = "https://mdblist.com"
     
-    private var apiKey: String {
-        ApiKeyManager.shared.get(key: "MDBLIST_API_KEY") ?? ""
-    }
+    private let apiKey = "mi46uequ1wi40i8fxp4789jxz"
     
     // Optimized session with caching
     private let session: URLSession = {
