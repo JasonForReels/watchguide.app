@@ -37,9 +37,15 @@ private struct AIAssistantContent: View {
                     
                     Divider()
                     
-                    // Input bar — completely isolated, never redrawn by streaming
-                    AIInputBarContainer(viewModel: viewModel,
-                                        isInputFocused: $isInputFocused)
+                    // Input bar — observes only the lightweight AIInputState,
+                    // completely decoupled from streaming-heavy ViewModel changes
+                    AIInputBarContainer(
+                        inputState: viewModel.inputState,
+                        isInputFocused: $isInputFocused,
+                        onSend: {
+                            Task { await viewModel.sendMessage() }
+                        }
+                    )
                 }
             }
             .navigationTitle("Chron")
@@ -69,22 +75,21 @@ private struct ClearButton: View {
 }
 
 // MARK: - Input Bar Container
-// This view owns its OWN local copy of isLoading so the TextEditor is never
-// forcibly re-created by a parent body re-evaluation during streaming.
+// Owns its own @StateObject for input state so streaming changes to the main
+// ViewModel (messages, streamingMessageId, thinkingText, etc.) never cause
+// the TextEditor to be recreated.
 private struct AIInputBarContainer: View {
-    @ObservedObject var viewModel: AIAssistantViewModel
+    @ObservedObject var inputState: AIInputState
     var isInputFocused: FocusState<Bool>.Binding
+    let onSend: () -> Void
     
     var body: some View {
         AIInputBar(
-            inputText: $viewModel.inputText,
-            selectedModel: $viewModel.selectedModel,
-            isLoading: viewModel.isLoading,
+            inputText: $inputState.inputText,
+            selectedModel: $inputState.selectedModel,
+            isLoading: inputState.isLoading,
             isInputFocused: isInputFocused,
-            onSend: {
-                guard !viewModel.inputText.isEmpty else { return }
-                Task { await viewModel.sendMessage() }
-            }
+            onSend: onSend
         )
     }
 }
@@ -100,7 +105,7 @@ private struct AIMessageListView: View {
                 LazyVStack(spacing: 14) {
                     if viewModel.messages.isEmpty {
                         WelcomeView(onSuggestion: { text in
-                            viewModel.inputText = text
+                            viewModel.inputState.inputText = text
                             Task { await viewModel.sendMessage() }
                         })
                     }
@@ -755,20 +760,14 @@ struct TrailerPlayerSheet: View {
     }
 }
 
-// MARK: - View Model
+// MARK: - Lightweight Input State (isolated from streaming-heavy ViewModel)
+// Only publishes changes for inputText, selectedModel, and isLoading.
+// This ensures the TextEditor and model picker are NEVER redrawn by streaming.
 @MainActor
-class AIAssistantViewModel: ObservableObject {
-    @Published var messages: [AIService.ChatMessage] = []
+class AIInputState: ObservableObject {
     @Published var inputText = ""
+    @Published var selectedModel: AIService.ChronModel = .gemini25Flash
     @Published var isLoading = false
-    @Published var isThinking = false
-    @Published var currentThinkingText = ""
-    @Published var streamingMessageId: String? = nil
-    @Published var selectedModel: AIService.ChronModel = .grok4FastReasoning
-    @Published var webSearchEnabled = true
-    @Published var trailerMessages: [String: (trailerKey: String, trailerTitle: String)] = [:]
-    @Published var scrollTrigger = 0
-    @Published var currentUserQuery = ""
     
     private let modelKey = "chron_selected_model"
     
@@ -779,21 +778,43 @@ class AIAssistantViewModel: ObservableObject {
         }
     }
     
+    func saveModel() {
+        UserDefaults.standard.set(selectedModel.rawValue, forKey: modelKey)
+    }
+}
+
+// MARK: - View Model
+@MainActor
+class AIAssistantViewModel: ObservableObject {
+    @Published var messages: [AIService.ChatMessage] = []
+    @Published var isThinking = false
+    @Published var currentThinkingText = ""
+    @Published var streamingMessageId: String? = nil
+    @Published var webSearchEnabled = true
+    @Published var trailerMessages: [String: (trailerKey: String, trailerTitle: String)] = [:]
+    @Published var scrollTrigger = 0
+    @Published var currentUserQuery = ""
+    
+    /// Separate observable for the input bar — isolated from streaming churn
+    let inputState = AIInputState()
+    
     func sendMessage() async {
-        let userMessage = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let userMessage = inputState.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !userMessage.isEmpty else { return }
         
         let userChatMessage = AIService.ChatMessage(role: "user", content: userMessage)
         messages.append(userChatMessage)
-        inputText = ""
+        inputState.inputText = ""
         scrollTrigger += 1
         
-        isLoading = true
+        inputState.isLoading = true
         isThinking = true
         currentThinkingText = ""
         currentUserQuery = userMessage
         
-        UserDefaults.standard.set(selectedModel.rawValue, forKey: modelKey)
+        inputState.saveModel()
+        
+        let selectedModel = inputState.selectedModel
         
         // Check for trailer short-circuit first (non-streaming)
         let lowercased = userMessage.lowercased()
@@ -819,14 +840,14 @@ class AIAssistantViewModel: ObservableObject {
                     trailerMessages[assistantMessage.id] = (trailer.trailerKey, trailer.trailerTitle)
                 }
                 
-                isLoading = false
+                inputState.isLoading = false
                 scrollTrigger += 1
                 return
             } catch {
                 isThinking = false
                 let errorMessage = AIService.ChatMessage(role: "assistant", content: "Couldn't look that up — \(error.localizedDescription)")
                 messages.append(errorMessage)
-                isLoading = false
+                inputState.isLoading = false
                 scrollTrigger += 1
                 return
             }
@@ -836,7 +857,7 @@ class AIAssistantViewModel: ObservableObject {
         let likedItems = StorageService.shared.liked
         
         // Create a placeholder assistant message for streaming
-        var streamingMessage = AIService.ChatMessage(role: "assistant", content: "")
+        let streamingMessage = AIService.ChatMessage(role: "assistant", content: "")
         messages.append(streamingMessage)
         let streamIndex = messages.count - 1
         streamingMessageId = streamingMessage.id
@@ -876,20 +897,20 @@ class AIAssistantViewModel: ObservableObject {
                 }
                 streamingMessageId = nil
                 isThinking = false
-                isLoading = false
+                inputState.isLoading = false
                 scrollTrigger += 1
                 
             case .error(let error):
                 isThinking = false
                 streamingMessageId = nil
                 messages[streamIndex].content = "Sorry, something went wrong: \(error.localizedDescription)"
-                isLoading = false
+                inputState.isLoading = false
                 scrollTrigger += 1
             }
         }
         
         // Safety: ensure loading states are cleared
-        isLoading = false
+        inputState.isLoading = false
         isThinking = false
         streamingMessageId = nil
     }

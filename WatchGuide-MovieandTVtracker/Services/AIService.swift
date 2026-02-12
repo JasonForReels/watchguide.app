@@ -23,14 +23,12 @@ actor AIService {
     
     // MARK: - Available Models
     enum ChronModel: String, CaseIterable {
-        case grok4FastReasoning = "Grok-4-Fast-Reasoning"
         case gemini25Flash = "Gemini-2.5-Flash"
         case gemini20Flash = "Gemini-2.0-Flash"
         case gpt5Nano = "GPT-5-nano"
         
         var displayName: String {
             switch self {
-            case .grok4FastReasoning: return "Grok 4 Fast"
             case .gemini25Flash: return "Gemini 2.5 Flash"
             case .gemini20Flash: return "Gemini 2.0 Flash"
             case .gpt5Nano: return "GPT-5 Nano"
@@ -43,7 +41,7 @@ actor AIService {
         
         var supportsThinking: Bool {
             switch self {
-            case .grok4FastReasoning, .gemini25Flash: return true
+            case .gemini25Flash: return true
             case .gemini20Flash, .gpt5Nano: return false
             }
         }
@@ -91,7 +89,7 @@ actor AIService {
         conversationHistory: [ChatMessage],
         likedItems: [SavedMediaItem],
         webSearchEnabled: Bool = true,
-        model: ChronModel = .grok4FastReasoning
+        model: ChronModel = .gemini25Flash
     ) async throws -> (String, TrailerResponse?) {
         guard !apiKey.isEmpty else {
             throw AIError.noApiKey
@@ -125,7 +123,7 @@ actor AIService {
         conversationHistory: [ChatMessage],
         likedItems: [SavedMediaItem],
         webSearchEnabled: Bool = true,
-        model: ChronModel = .grok4FastReasoning
+        model: ChronModel = .gemini25Flash
     ) -> AsyncStream<StreamEvent> {
         AsyncStream { continuation in
             Task {
