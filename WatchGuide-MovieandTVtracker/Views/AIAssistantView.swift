@@ -722,7 +722,7 @@ class AIAssistantViewModel: ObservableObject {
     @Published var isThinking = false
     @Published var currentThinkingText = ""
     @Published var streamingMessageId: String? = nil
-    @Published var selectedModel: AIService.ChronModel = .gemini25Flash
+    @Published var selectedModel: AIService.ChronModel = .grok4FastReasoning
     @Published var webSearchEnabled = true
     @Published var trailerMessages: [String: (trailerKey: String, trailerTitle: String)] = [:]
     @Published var scrollTrigger = 0
