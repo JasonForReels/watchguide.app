@@ -15,8 +15,7 @@ struct AIAssistantView: View {
                 // Messages
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 16) {
-                            // Welcome message
+                        LazyVStack(spacing: 14) {
                             if viewModel.messages.isEmpty {
                                 welcomeView
                             }
@@ -25,26 +24,31 @@ struct AIAssistantView: View {
                                 MessageBubble(
                                     message: message,
                                     trailerKey: viewModel.trailerMessages[message.id]?.trailerKey,
-                                    trailerTitle: viewModel.trailerMessages[message.id]?.trailerTitle
+                                    trailerTitle: viewModel.trailerMessages[message.id]?.trailerTitle,
+                                    isStreaming: viewModel.streamingMessageId == message.id
                                 )
                                 .id(message.id)
                             }
                             
-                            if viewModel.isLoading {
-                                HStack {
-                                    TypingIndicator()
-                                    Spacer()
-                                }
-                                .padding(.horizontal)
-                                .id("loading")
+                            // Thinking indicator
+                            if viewModel.isThinking {
+                                ThinkingBubble(thinkingText: viewModel.currentThinkingText)
+                                    .id("thinking")
+                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                             }
                         }
                         .padding()
                     }
                     .scrollDismissesKeyboard(.interactively)
-                    .onChange(of: viewModel.messages.count) { _, _ in
-                        withAnimation {
-                            proxy.scrollTo(viewModel.messages.last?.id ?? "loading", anchor: .bottom)
+                    .onChange(of: viewModel.scrollTrigger) { _, _ in
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            if let streamId = viewModel.streamingMessageId {
+                                proxy.scrollTo(streamId, anchor: .bottom)
+                            } else if viewModel.isThinking {
+                                proxy.scrollTo("thinking", anchor: .bottom)
+                            } else {
+                                proxy.scrollTo(viewModel.messages.last?.id, anchor: .bottom)
+                            }
                         }
                     }
                     .onTapGesture {
@@ -54,187 +58,143 @@ struct AIAssistantView: View {
                 
                 Divider()
                 
-                // Model/Web Search toggles
-                HStack(spacing: 16) {
-                    // Model selector
-                    Menu {
-                        ForEach(AIService.ChronModel.allCases, id: \.rawValue) { model in
-                            Button {
-                                viewModel.selectedModel = model
-                            } label: {
-                                HStack {
-                                    Text(model.displayName)
-                                    if viewModel.selectedModel == model {
-                                        Image(systemName: "checkmark")
+                // Bottom bar
+                VStack(spacing: 0) {
+                    // Model selector (compact)
+                    HStack(spacing: 12) {
+                        Menu {
+                            ForEach(AIService.ChronModel.allCases, id: \.rawValue) { model in
+                                Button {
+                                    viewModel.selectedModel = model
+                                } label: {
+                                    HStack {
+                                        Text(model.displayName)
+                                        if viewModel.selectedModel == model {
+                                            Image(systemName: "checkmark")
+                                        }
                                     }
                                 }
                             }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "cpu")
+                                    .font(.system(size: 10))
+                                Text(viewModel.selectedModel.displayName)
+                                    .font(.caption2)
+                                    .lineLimit(1)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 7))
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Color(.systemGray5))
+                            .cornerRadius(6)
                         }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "cpu")
-                                .font(.caption)
-                            Text(viewModel.selectedModel.displayName)
-                                .font(.caption)
-                                .lineLimit(1)
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 8))
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color(.systemGray5))
-                        .cornerRadius(8)
+                        .foregroundColor(.secondary)
+                        
+                        Spacer()
                     }
-                    .foregroundColor(.primary)
+                    .padding(.horizontal)
+                    .padding(.top, 6)
+                    .padding(.bottom, 4)
                     
-                    // Web search toggle
-                    Button {
-                        viewModel.webSearchEnabled.toggle()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: viewModel.webSearchEnabled ? "globe" : "globe.badge.chevron.backward")
-                                .font(.caption)
-                            Text("Web Search")
-                                .font(.caption)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(viewModel.webSearchEnabled ? Color.accentColor.opacity(0.2) : Color(.systemGray5))
-                        .foregroundColor(viewModel.webSearchEnabled ? .accentColor : .secondary)
-                        .cornerRadius(8)
-                    }
-                    
-                    Spacer()
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                
-                // Input area
-                HStack(alignment: .bottom, spacing: 12) {
-                    TextEditor(text: $viewModel.inputText)
-                        .focused($isInputFocused)
-                        .frame(minHeight: 36, maxHeight: 100)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .scrollContentBackground(.hidden)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color(.systemGray5))
-                        .cornerRadius(18)
-                        .overlay {
-                            if viewModel.inputText.isEmpty {
-                                HStack {
-                                    Text("Ask Chron anything...")
-                                        .foregroundColor(Color(.placeholderText))
-                                        .padding(.leading, 12)
-                                        .allowsHitTesting(false)
-                                    Spacer()
+                    // Input area
+                    HStack(alignment: .bottom, spacing: 10) {
+                        TextEditor(text: $viewModel.inputText)
+                            .focused($isInputFocused)
+                            .frame(minHeight: 36, maxHeight: 100)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .scrollContentBackground(.hidden)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(.systemGray5))
+                            .cornerRadius(18)
+                            .overlay {
+                                if viewModel.inputText.isEmpty {
+                                    HStack {
+                                        Text("Ask Chron anything...")
+                                            .foregroundColor(Color(.placeholderText))
+                                            .padding(.leading, 12)
+                                            .allowsHitTesting(false)
+                                        Spacer()
+                                    }
                                 }
                             }
+                        
+                        Button {
+                            sendMessage()
+                        } label: {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .accentColor)
                         }
-                    
-                    Button {
-                        sendMessage()
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .accentColor)
+                        .disabled(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isLoading)
+                        .padding(.bottom, 4)
                     }
-                    .disabled(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isLoading)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
                 .background(Color(.systemGray6))
             }
             .navigationTitle("Chron")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button {
-                            viewModel.clearMessages()
-                        } label: {
-                            Label("Clear Chat", systemImage: "trash")
-                        }
+                    Button {
+                        viewModel.clearMessages()
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.subheadline)
                     }
+                    .disabled(viewModel.messages.isEmpty)
                 }
             }
         }
     }
     
     private var welcomeView: some View {
-        VStack(spacing: 24) {
-            // Logo
+        VStack(spacing: 20) {
+            Spacer().frame(height: 40)
+            
             ZStack {
                 Circle()
-                    .fill(Color.accentColor.opacity(0.15))
-                    .frame(width: 80, height: 80)
+                    .fill(Color.accentColor.opacity(0.12))
+                    .frame(width: 64, height: 64)
                 
                 Image(systemName: "sparkles")
-                    .font(.system(size: 36))
+                    .font(.system(size: 28))
                     .foregroundColor(.accentColor)
             }
             
-            VStack(spacing: 8) {
-                Text("Meet Chron")
-                    .font(.title2)
+            VStack(spacing: 6) {
+                Text("Chron")
+                    .font(.title3)
                     .fontWeight(.bold)
                 
-                Text("Your AI assistant for discovering movies and TV shows")
+                Text("Your movie & TV assistant")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            
-            // Model info
-            VStack(spacing: 4) {
-                Text("Powered by \(viewModel.selectedModel.displayName)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                if viewModel.webSearchEnabled {
-                    HStack(spacing: 4) {
-                        Image(systemName: "globe")
-                            .font(.caption2)
-                        Text("Web search enabled for up-to-date info")
-                            .font(.caption2)
-                    }
-                    .foregroundColor(.accentColor)
-                }
             }
             
             // Quick suggestions
-            VStack(spacing: 12) {
-                Text("Try asking:")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            VStack(spacing: 8) {
+                SuggestionChip(text: "What should I watch tonight?") {
+                    viewModel.inputText = "What should I watch tonight?"
+                    sendMessage()
+                }
                 
-                VStack(spacing: 8) {
-                    SuggestionButton(text: "What should I watch tonight?") {
-                        viewModel.inputText = "What should I watch tonight?"
-                        sendMessage()
-                    }
-                    
-                    SuggestionButton(text: "Recommend something like Breaking Bad") {
-                        viewModel.inputText = "Recommend something like Breaking Bad"
-                        sendMessage()
-                    }
-                    
-                    SuggestionButton(text: "What are the best sci-fi movies?") {
-                        viewModel.inputText = "What are the best sci-fi movies?"
-                        sendMessage()
-                    }
-                    
-                    SuggestionButton(text: "Show me the trailer for Dune") {
-                        viewModel.inputText = "Show me the trailer for Dune"
-                        sendMessage()
-                    }
+                SuggestionChip(text: "Something like Breaking Bad") {
+                    viewModel.inputText = "Something like Breaking Bad"
+                    sendMessage()
+                }
+                
+                SuggestionChip(text: "Best sci-fi movies ever") {
+                    viewModel.inputText = "Best sci-fi movies ever"
+                    sendMessage()
                 }
             }
+            .padding(.top, 8)
         }
-        .padding(.vertical, 40)
     }
     
     private func sendMessage() {
@@ -245,8 +205,8 @@ struct AIAssistantView: View {
     }
 }
 
-// MARK: - Suggestion Button
-struct SuggestionButton: View {
+// MARK: - Suggestion Chip
+struct SuggestionChip: View {
     let text: String
     let action: () -> Void
     
@@ -254,12 +214,74 @@ struct SuggestionButton: View {
         Button(action: action) {
             Text(text)
                 .font(.subheadline)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
                 .background(Color(.systemGray6))
-                .cornerRadius(20)
+                .cornerRadius(16)
         }
         .foregroundColor(.primary)
+    }
+}
+
+// MARK: - Thinking Bubble
+struct ThinkingBubble: View {
+    let thinkingText: String
+    @State private var isExpanded = false
+    @State private var dotPhase = 0
+    
+    private let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 6) {
+                // Thinking header with animated dots
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "brain")
+                            .font(.caption)
+                            .foregroundColor(.purple)
+                        
+                        Text("Thinking" + String(repeating: ".", count: (dotPhase % 3) + 1))
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(.purple)
+                        
+                        if !thinkingText.isEmpty {
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 8))
+                                .foregroundColor(.purple.opacity(0.6))
+                        }
+                    }
+                }
+                .disabled(thinkingText.isEmpty)
+                
+                // Expandable thinking content
+                if isExpanded && !thinkingText.isEmpty {
+                    Text(thinkingText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(8)
+                        .padding(10)
+                        .background(Color.purple.opacity(0.06))
+                        .cornerRadius(10)
+                        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color(.systemGray5).opacity(0.7))
+            .cornerRadius(16)
+            .frame(maxWidth: 280, alignment: .leading)
+            
+            Spacer()
+        }
+        .onReceive(timer) { _ in
+            dotPhase += 1
+        }
     }
 }
 
@@ -268,8 +290,10 @@ struct MessageBubble: View {
     let message: AIService.ChatMessage
     var trailerKey: String?
     var trailerTitle: String?
+    var isStreaming: Bool = false
     
     @State private var showTrailerPlayer = false
+    @State private var showThinking = false
     
     var isUser: Bool {
         message.role == "user"
@@ -279,28 +303,73 @@ struct MessageBubble: View {
         HStack {
             if isUser { Spacer() }
             
-            VStack(alignment: isUser ? .trailing : .leading, spacing: 8) {
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
                 if !isUser {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Image(systemName: "sparkles")
-                            .font(.caption)
+                            .font(.system(size: 10))
                             .foregroundColor(.accentColor)
                         Text("Chron")
-                            .font(.caption)
+                            .font(.caption2)
                             .fontWeight(.medium)
                             .foregroundColor(.secondary)
                     }
                 }
                 
-                Text(message.content)
-                    .font(.body)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(isUser ? Color.accentColor : Color(.systemGray5))
-                    .foregroundColor(isUser ? .white : .primary)
-                    .cornerRadius(16)
+                // Collapsible thinking section (for completed messages)
+                if let thinking = message.thinkingContent, !thinking.isEmpty, !isUser {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showThinking.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "brain")
+                                .font(.system(size: 9))
+                            Text("Thought process")
+                                .font(.caption2)
+                            Image(systemName: showThinking ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 7))
+                        }
+                        .foregroundColor(.purple.opacity(0.7))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.purple.opacity(0.08))
+                        .cornerRadius(8)
+                    }
+                    
+                    if showThinking {
+                        Text(thinking)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(12)
+                            .padding(8)
+                            .background(Color.purple.opacity(0.05))
+                            .cornerRadius(8)
+                            .transition(.opacity)
+                    }
+                }
                 
-                // Trailer button if available
+                // Main content
+                HStack(spacing: 0) {
+                    Text(message.content)
+                        .font(.body)
+                    
+                    // Streaming cursor
+                    if isStreaming {
+                        Text("|")
+                            .font(.body)
+                            .foregroundColor(.accentColor)
+                            .opacity(0.8)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(isUser ? Color.accentColor : Color(.systemGray5))
+                .foregroundColor(isUser ? .white : .primary)
+                .cornerRadius(16)
+                
+                // Trailer button
                 if let key = trailerKey, let title = trailerTitle, !isUser {
                     Button {
                         showTrailerPlayer = true
@@ -308,7 +377,7 @@ struct MessageBubble: View {
                         HStack(spacing: 6) {
                             Image(systemName: "play.circle.fill")
                                 .font(.title3)
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: 1) {
                                 Text("Watch Trailer")
                                     .font(.caption)
                                     .fontWeight(.semibold)
@@ -318,21 +387,21 @@ struct MessageBubble: View {
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
-                                .font(.caption)
+                                .font(.caption2)
                                 .foregroundColor(.secondary)
                         }
-                        .padding(12)
+                        .padding(10)
                         .background(Color(.systemGray6))
                         .cornerRadius(12)
                     }
                     .foregroundColor(.primary)
-                    .frame(maxWidth: 280)
+                    .frame(maxWidth: 260)
                     .sheet(isPresented: $showTrailerPlayer) {
                         TrailerPlayerSheet(videoKey: key, title: title)
                     }
                 }
             }
-            .frame(maxWidth: 280, alignment: isUser ? .trailing : .leading)
+            .frame(maxWidth: 300, alignment: isUser ? .trailing : .leading)
             
             if !isUser { Spacer() }
         }
@@ -358,7 +427,6 @@ struct TrailerPlayerSheet: View {
             VStack(spacing: 24) {
                 Spacer()
                 
-                // Thumbnail with play overlay
                 ZStack {
                     AsyncImage(url: thumbnailURL) { phase in
                         switch phase {
@@ -383,7 +451,6 @@ struct TrailerPlayerSheet: View {
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     
-                    // Play overlay
                     ZStack {
                         Circle()
                             .fill(.black.opacity(0.5))
@@ -401,7 +468,6 @@ struct TrailerPlayerSheet: View {
                 }
                 .padding(.horizontal)
                 
-                // Watch button
                 Button {
                     if let url = youtubeURL {
                         UIApplication.shared.open(url)
@@ -432,99 +498,149 @@ struct TrailerPlayerSheet: View {
     }
 }
 
-// MARK: - Typing Indicator
-struct TypingIndicator: View {
-    @State private var animationOffset = 0
-    
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<3) { index in
-                Circle()
-                    .fill(Color.secondary)
-                    .frame(width: 8, height: 8)
-                    .offset(y: animationOffset == index ? -5 : 0)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
-        .background(Color(.systemGray5))
-        .cornerRadius(16)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.4).repeatForever()) {
-                animationOffset = (animationOffset + 1) % 3
-            }
-        }
-    }
-}
-
 // MARK: - View Model
 @MainActor
 class AIAssistantViewModel: ObservableObject {
     @Published var messages: [AIService.ChatMessage] = []
     @Published var inputText = ""
     @Published var isLoading = false
+    @Published var isThinking = false
+    @Published var currentThinkingText = ""
+    @Published var streamingMessageId: String? = nil
     @Published var selectedModel: AIService.ChronModel = .gemini25Flash
     @Published var webSearchEnabled = true
     @Published var trailerMessages: [String: (trailerKey: String, trailerTitle: String)] = [:]
+    @Published var scrollTrigger = 0
     
     private let modelKey = "chron_selected_model"
-    private let webSearchKey = "chron_web_search_enabled"
     
     init() {
-        // Load persisted settings
         if let savedModel = UserDefaults.standard.string(forKey: modelKey),
            let model = AIService.ChronModel(rawValue: savedModel) {
             selectedModel = model
         }
-        webSearchEnabled = UserDefaults.standard.object(forKey: webSearchKey) as? Bool ?? true
     }
     
     func sendMessage() async {
         let userMessage = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !userMessage.isEmpty else { return }
         
-        // Add user message
         let userChatMessage = AIService.ChatMessage(role: "user", content: userMessage)
         messages.append(userChatMessage)
         inputText = ""
+        scrollTrigger += 1
         
         isLoading = true
+        isThinking = true
+        currentThinkingText = ""
         
-        // Persist settings
         UserDefaults.standard.set(selectedModel.rawValue, forKey: modelKey)
-        UserDefaults.standard.set(webSearchEnabled, forKey: webSearchKey)
         
-        do {
-            let likedItems = StorageService.shared.liked
-            let (response, trailerResponse) = try await AIService.shared.sendMessage(
-                userMessage,
-                conversationHistory: messages,
-                likedItems: likedItems,
-                webSearchEnabled: webSearchEnabled,
-                model: selectedModel
-            )
-            
-            let assistantMessage = AIService.ChatMessage(role: "assistant", content: response)
-            messages.append(assistantMessage)
-            
-            // Store trailer metadata if present
-            if let trailer = trailerResponse {
-                trailerMessages[assistantMessage.id] = (trailer.trailerKey, trailer.trailerTitle)
+        // Check for trailer short-circuit first (non-streaming)
+        let lowercased = userMessage.lowercased()
+        let trailerKeywords = ["trailer", "teaser", "preview"]
+        let isTrailerRequest = trailerKeywords.contains { lowercased.contains($0) }
+        
+        if isTrailerRequest {
+            do {
+                let likedItems = StorageService.shared.liked
+                let (response, trailerResponse) = try await AIService.shared.sendMessage(
+                    userMessage,
+                    conversationHistory: messages,
+                    likedItems: likedItems,
+                    webSearchEnabled: webSearchEnabled,
+                    model: selectedModel
+                )
+                
+                isThinking = false
+                let assistantMessage = AIService.ChatMessage(role: "assistant", content: response)
+                messages.append(assistantMessage)
+                
+                if let trailer = trailerResponse {
+                    trailerMessages[assistantMessage.id] = (trailer.trailerKey, trailer.trailerTitle)
+                }
+                
+                isLoading = false
+                scrollTrigger += 1
+                return
+            } catch {
+                isThinking = false
+                let errorMessage = AIService.ChatMessage(role: "assistant", content: "Couldn't look that up — \(error.localizedDescription)")
+                messages.append(errorMessage)
+                isLoading = false
+                scrollTrigger += 1
+                return
             }
-        } catch {
-            let errorMessage = AIService.ChatMessage(
-                role: "assistant",
-                content: "Sorry, I encountered an error: \(error.localizedDescription)"
-            )
-            messages.append(errorMessage)
         }
         
+        // Streaming path
+        let likedItems = StorageService.shared.liked
+        
+        // Create a placeholder assistant message for streaming
+        var streamingMessage = AIService.ChatMessage(role: "assistant", content: "")
+        messages.append(streamingMessage)
+        let streamIndex = messages.count - 1
+        streamingMessageId = streamingMessage.id
+        scrollTrigger += 1
+        
+        var accumulatedThinking = ""
+        
+        let stream = await AIService.shared.streamMessage(
+            userMessage,
+            conversationHistory: Array(messages.dropLast()),  // exclude placeholder
+            likedItems: likedItems,
+            webSearchEnabled: webSearchEnabled,
+            model: selectedModel
+        )
+        
+        for await event in stream {
+            switch event {
+            case .thinking(let text):
+                accumulatedThinking = text
+                currentThinkingText = text
+                scrollTrigger += 1
+                
+            case .content(let text):
+                if isThinking {
+                    isThinking = false
+                }
+                messages[streamIndex].content = text
+                // Throttle scroll updates
+                if text.count % 8 == 0 || text.count < 10 {
+                    scrollTrigger += 1
+                }
+                
+            case .done:
+                // Store thinking content on the message
+                if !accumulatedThinking.isEmpty {
+                    messages[streamIndex].thinkingContent = accumulatedThinking
+                }
+                streamingMessageId = nil
+                isThinking = false
+                isLoading = false
+                scrollTrigger += 1
+                
+            case .error(let error):
+                isThinking = false
+                streamingMessageId = nil
+                messages[streamIndex].content = "Sorry, something went wrong: \(error.localizedDescription)"
+                isLoading = false
+                scrollTrigger += 1
+            }
+        }
+        
+        // Safety: ensure loading states are cleared
         isLoading = false
+        isThinking = false
+        streamingMessageId = nil
     }
     
     func clearMessages() {
         messages = []
         trailerMessages = [:]
+        currentThinkingText = ""
+        isThinking = false
+        streamingMessageId = nil
     }
 }
 

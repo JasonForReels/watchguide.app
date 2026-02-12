@@ -38,24 +38,33 @@ actor AIService {
         var modelName: String {
             return self.rawValue
         }
+        
+        var supportsThinking: Bool {
+            switch self {
+            case .gemini25Flash: return true
+            case .gemini20Flash, .gpt5Nano: return false
+            }
+        }
     }
     
     // MARK: - Chat Message
     struct ChatMessage: Codable, Identifiable {
         let id: String
         let role: String
-        let content: String
+        var content: String
         let timestamp: Date
         var trailerKey: String?
         var trailerTitle: String?
+        var thinkingContent: String?
         
-        init(role: String, content: String, trailerKey: String? = nil, trailerTitle: String? = nil) {
+        init(role: String, content: String, trailerKey: String? = nil, trailerTitle: String? = nil, thinkingContent: String? = nil) {
             self.id = UUID().uuidString
             self.role = role
             self.content = content
             self.timestamp = Date()
             self.trailerKey = trailerKey
             self.trailerTitle = trailerTitle
+            self.thinkingContent = thinkingContent
         }
     }
     
@@ -66,7 +75,15 @@ actor AIService {
         let trailerTitle: String
     }
     
-    // MARK: - Send Message (Main Entry Point)
+    // MARK: - Stream Callback
+    enum StreamEvent {
+        case thinking(String)       // Accumulated thinking text
+        case content(String)        // Accumulated content text
+        case done                   // Stream finished
+        case error(Error)           // Error occurred
+    }
+    
+    // MARK: - Send Message (Non-streaming, for quick actions)
     func sendMessage(
         _ message: String,
         conversationHistory: [ChatMessage],
@@ -78,46 +95,180 @@ actor AIService {
             throw AIError.noApiKey
         }
         
-        // TRAILER SHORT-CIRCUIT: Check if user is asking for a trailer
+        // TRAILER SHORT-CIRCUIT
         if let trailerResponse = await checkForTrailerRequest(message) {
             return (trailerResponse.content, trailerResponse)
         }
         
-        // Otherwise, proceed with OpenRouter/OpenAI API call
-        let response = try await sendMessageToLLM(
-            message,
-            conversationHistory: conversationHistory,
-            likedItems: likedItems,
-            webSearchEnabled: webSearchEnabled,
-            model: model
-        )
+        var fullContent = ""
+        for await event in streamMessage(message, conversationHistory: conversationHistory, likedItems: likedItems, webSearchEnabled: webSearchEnabled, model: model) {
+            switch event {
+            case .content(let text):
+                fullContent = text
+            case .done:
+                break
+            case .error(let error):
+                throw error
+            case .thinking:
+                break
+            }
+        }
         
-        return (response, nil)
+        return (fullContent, nil)
+    }
+    
+    // MARK: - Stream Message (Main streaming entry point)
+    func streamMessage(
+        _ message: String,
+        conversationHistory: [ChatMessage],
+        likedItems: [SavedMediaItem],
+        webSearchEnabled: Bool = true,
+        model: ChronModel = .gemini25Flash
+    ) -> AsyncStream<StreamEvent> {
+        AsyncStream { continuation in
+            Task {
+                do {
+                    try await self.performStreamRequest(
+                        message: message,
+                        conversationHistory: conversationHistory,
+                        likedItems: likedItems,
+                        webSearchEnabled: webSearchEnabled,
+                        model: model,
+                        continuation: continuation
+                    )
+                } catch {
+                    continuation.yield(.error(error))
+                    continuation.finish()
+                }
+            }
+        }
+    }
+    
+    // MARK: - Perform Stream Request
+    private func performStreamRequest(
+        message: String,
+        conversationHistory: [ChatMessage],
+        likedItems: [SavedMediaItem],
+        webSearchEnabled: Bool,
+        model: ChronModel,
+        continuation: AsyncStream<StreamEvent>.Continuation
+    ) async throws {
+        guard !apiKey.isEmpty else {
+            throw AIError.noApiKey
+        }
+        
+        let systemPrompt = buildSystemPrompt(likedItems: likedItems, webSearchEnabled: webSearchEnabled)
+        
+        var messages: [[String: String]] = [
+            ["role": "system", "content": systemPrompt]
+        ]
+        
+        let recentHistory = conversationHistory.suffix(6)
+        for msg in recentHistory {
+            messages.append(["role": msg.role, "content": msg.content])
+        }
+        messages.append(["role": "user", "content": message])
+        
+        let requestBody: [String: Any] = [
+            "model": model.modelName,
+            "messages": messages,
+            "max_tokens": 600,
+            "temperature": 0.7,
+            "stream": true
+        ]
+        
+        guard let url = URL(string: baseURL) else {
+            throw AIError.invalidResponse
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        request.timeoutInterval = 90
+        
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            // Read the error body
+            var errorBody = ""
+            for try await line in bytes.lines {
+                errorBody += line
+            }
+            throw AIError.apiError("Error \(httpResponse.statusCode): \(errorBody.prefix(300))")
+        }
+        
+        // Parse SSE stream
+        var accumulatedContent = ""
+        var accumulatedThinking = ""
+        var isInThinking = false
+        
+        for try await line in bytes.lines {
+            // SSE lines start with "data: "
+            guard line.hasPrefix("data: ") else { continue }
+            let jsonString = String(line.dropFirst(6))
+            
+            if jsonString.trimmingCharacters(in: .whitespaces) == "[DONE]" {
+                continuation.yield(.done)
+                continuation.finish()
+                return
+            }
+            
+            guard let data = jsonString.data(using: .utf8) else { continue }
+            
+            do {
+                let chunk = try JSONDecoder().decode(StreamChunk.self, from: data)
+                if let delta = chunk.choices.first?.delta {
+                    // Check for thinking/reasoning content
+                    if let reasoning = delta.reasoning ?? delta.reasoning_content {
+                        accumulatedThinking += reasoning
+                        isInThinking = true
+                        continuation.yield(.thinking(accumulatedThinking))
+                    }
+                    
+                    // Regular content
+                    if let content = delta.content, !content.isEmpty {
+                        if isInThinking {
+                            isInThinking = false
+                        }
+                        accumulatedContent += content
+                        continuation.yield(.content(accumulatedContent))
+                    }
+                }
+            } catch {
+                // Skip malformed chunks
+                continue
+            }
+        }
+        
+        // If we exit the loop without [DONE]
+        continuation.yield(.done)
+        continuation.finish()
     }
     
     // MARK: - Trailer Short-Circuit
     private func checkForTrailerRequest(_ message: String) async -> TrailerResponse? {
         let lowercased = message.lowercased()
         
-        // Check for trailer-related keywords
         let trailerKeywords = ["trailer", "teaser", "preview", "watch the trailer", "show trailer", "play trailer", "first trailer"]
         let hasTrailerIntent = trailerKeywords.contains { lowercased.contains($0) }
         
         guard hasTrailerIntent else { return nil }
         
-        // Parse title from the query
         let title = parseTitle(from: message)
         guard !title.isEmpty else { return nil }
         
-        // Determine if looking for "first trailer" specifically
         let wantsFirstTrailer = lowercased.contains("first") || lowercased.contains("original") || lowercased.contains("initial")
         
-        // Search TMDB for the title
         do {
             let searchResults = try await TMDBService.shared.searchMulti(query: title)
             guard let bestMatch = searchResults.results.first else { return nil }
             
-            // Fetch videos for the matched item
             let videos: VideosResponse
             let mediaDetails: (title: String, year: String?, overview: String?)
             
@@ -131,18 +282,11 @@ actor AIService {
                 mediaDetails = (details.name, details.year, details.overview)
             }
             
-            // Select the best trailer using heuristics
             let trailer = selectBestTrailer(from: videos.results, preferFirst: wantsFirstTrailer)
             guard let selectedTrailer = trailer else { return nil }
             
-            // Compose verified summary
             let yearString = mediaDetails.year ?? "Unknown year"
-            let summary = composeTrailerSummary(
-                title: mediaDetails.title,
-                year: yearString,
-                trailerName: selectedTrailer.name,
-                overview: mediaDetails.overview
-            )
+            let summary = "**\(mediaDetails.title)** (\(yearString)) — \(selectedTrailer.name)"
             
             return TrailerResponse(
                 content: summary,
@@ -158,40 +302,22 @@ actor AIService {
     private func parseTitle(from message: String) -> String {
         var cleaned = message.lowercased()
         
-        // Remove common trailer-related phrases
         let phrasesToRemove = [
-            "show me the trailer for",
-            "show trailer for",
-            "play the trailer for",
-            "play trailer for",
-            "find the trailer for",
-            "find trailer for",
-            "get the trailer for",
-            "get trailer for",
-            "watch the trailer for",
-            "watch trailer for",
-            "first trailer for",
-            "trailer for",
-            "teaser for",
-            "show me",
-            "play",
-            "find",
-            "get",
-            "watch",
-            "trailer",
-            "teaser",
-            "the first",
-            "official",
-            "please",
-            "can you",
-            "could you"
+            "show me the trailer for", "show trailer for",
+            "play the trailer for", "play trailer for",
+            "find the trailer for", "find trailer for",
+            "get the trailer for", "get trailer for",
+            "watch the trailer for", "watch trailer for",
+            "first trailer for", "trailer for", "teaser for",
+            "show me", "play", "find", "get", "watch",
+            "trailer", "teaser", "the first", "official",
+            "please", "can you", "could you"
         ]
         
         for phrase in phrasesToRemove {
             cleaned = cleaned.replacingOccurrences(of: phrase, with: " ")
         }
         
-        // Clean up whitespace and return
         return cleaned
             .components(separatedBy: .whitespaces)
             .filter { !$0.isEmpty }
@@ -200,203 +326,61 @@ actor AIService {
     }
     
     private func selectBestTrailer(from videos: [Video], preferFirst: Bool) -> Video? {
-        // Filter to only YouTube trailers (excluding teasers, final trailers, etc.)
         let trailers = videos.filter {
-            $0.site.lowercased() == "youtube" &&
-            $0.type == "Trailer"
+            $0.site.lowercased() == "youtube" && $0.type == "Trailer"
         }
-        
         guard !trailers.isEmpty else { return nil }
         
-        // Keywords that indicate this is NOT a standard "Official Trailer"
         let excludeKeywords = ["final", "teaser", "tv spot", "featurette", "clip", "behind", "making of", "interview", "red band"]
-        
-        // Keywords that indicate this IS an official trailer we want
         let preferKeywords = ["official trailer", "theatrical trailer", "main trailer"]
         
-        // Score and sort trailers
         let scored = trailers.map { video -> (video: Video, score: Int) in
             var score = 0
             let nameLower = video.name.lowercased()
             
-            // Strong preference for official trailers
-            if video.official == true {
-                score += 100
-            }
-            
-            // Boost for preferred keywords
+            if video.official == true { score += 100 }
             for keyword in preferKeywords {
-                if nameLower.contains(keyword) {
-                    score += 50
-                    break
-                }
+                if nameLower.contains(keyword) { score += 50; break }
             }
-            
-            // Penalize excluded keywords (final trailer, teaser, etc.)
             for keyword in excludeKeywords {
-                if nameLower.contains(keyword) {
-                    score -= 200
-                    break
-                }
+                if nameLower.contains(keyword) { score -= 200; break }
             }
-            
-            // Simple "trailer" in name is good
-            if nameLower.contains("trailer") && !nameLower.contains("teaser") {
-                score += 20
-            }
-            
-            // Numbered trailers (Trailer 2, Trailer 3) get lower priority than first/main
+            if nameLower.contains("trailer") && !nameLower.contains("teaser") { score += 20 }
             if nameLower.contains("trailer 2") || nameLower.contains("trailer 3") || nameLower.contains("trailer #2") || nameLower.contains("trailer #3") {
                 score -= 30
             }
-            
             return (video, score)
         }
         
-        // Sort by score descending, then by date
         let sorted = scored.sorted { item1, item2 in
-            if item1.score != item2.score {
-                return item1.score > item2.score
-            }
-            // If scores equal and preferFirst, sort by date ascending (oldest first)
+            if item1.score != item2.score { return item1.score > item2.score }
             if preferFirst, let date1 = item1.video.publishedAt, let date2 = item2.video.publishedAt {
                 return date1 < date2
             }
             return false
         }
         
-        // Return the best scoring trailer
         return sorted.first?.video
-    }
-    
-    private func composeTrailerSummary(title: String, year: String, trailerName: String, overview: String?) -> String {
-        var summary = "Here's the trailer for **\(title)** (\(year)):\n\n"
-        summary += "**\(trailerName)**\n\n"
-        
-        if let overview = overview, !overview.isEmpty {
-            let shortOverview = String(overview.prefix(200))
-            let truncated = overview.count > 200 ? "\(shortOverview)..." : shortOverview
-            summary += "_\(truncated)_"
-        }
-        
-        return summary
-    }
-    
-    // MARK: - Send Message to LLM (Poe API)
-    private func sendMessageToLLM(
-        _ message: String,
-        conversationHistory: [ChatMessage],
-        likedItems: [SavedMediaItem],
-        webSearchEnabled: Bool,
-        model: ChronModel
-    ) async throws -> String {
-        // Build the system prompt with context
-        let systemPrompt = buildSystemPrompt(likedItems: likedItems, webSearchEnabled: webSearchEnabled)
-        
-        // Build OpenAI-style messages array
-        var messages: [[String: String]] = [
-            ["role": "system", "content": systemPrompt]
-        ]
-        
-        // Add recent conversation history
-        let recentHistory = conversationHistory.suffix(6)
-        for msg in recentHistory {
-            messages.append(["role": msg.role, "content": msg.content])
-        }
-        
-        // Add the current user message
-        messages.append(["role": "user", "content": message])
-        
-        // Standard OpenAI-compatible request body for Poe
-        let requestBody: [String: Any] = [
-            "model": model.modelName,
-            "messages": messages,
-            "max_tokens": 1024,
-            "temperature": 0.7,
-            "stream": false
-        ]
-        
-        guard let url = URL(string: baseURL) else {
-            throw AIError.invalidResponse
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        request.timeoutInterval = 90
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AIError.invalidResponse
-        }
-        
-        // Debug logging
-        if let responseString = String(data: data, encoding: .utf8) {
-            print("Poe API Response (\(httpResponse.statusCode)): \(responseString.prefix(500))")
-        }
-        
-        guard (200...299).contains(httpResponse.statusCode) else {
-            if let responseString = String(data: data, encoding: .utf8) {
-                throw AIError.apiError("Error \(httpResponse.statusCode): \(responseString)")
-            }
-            throw AIError.httpError(httpResponse.statusCode)
-        }
-        
-        // Parse response (OpenAI-compatible format)
-        let decoder = JSONDecoder()
-        let llmResponse = try decoder.decode(LLMResponse.self, from: data)
-        
-        guard let content = llmResponse.choices.first?.message.content else {
-            throw AIError.noContent
-        }
-        
-        return content
     }
     
     // MARK: - Build System Prompt
     private func buildSystemPrompt(likedItems: [SavedMediaItem], webSearchEnabled: Bool) -> String {
         var prompt = """
-        You are Chron, a friendly and knowledgeable AI assistant for WatchGuide, a movie and TV discovery app. Your role is to help users discover great content, answer questions about movies and TV shows, and provide personalized recommendations.
+        You are Chron, an AI movie & TV assistant. Be brief and punchy.
 
-        Style Guidelines:
-        - Be concise but informative - aim for focused, fact-checked summaries
-        - When recommending content, explain why it might appeal to the user
-        - Use markdown formatting: **bold** for titles, _italic_ for emphasis
-        - Format links as [text](url) when referencing external resources
-        - Use bullet points or numbered lists when listing multiple items
-        - Keep responses conversational and friendly
-
-        Important:
-        - If asked about trailers, mention that users can ask "Show me the trailer for [title]" for quick access
-        - Consider the user's preferences based on their liked items when making recommendations
-        - Provide accurate information about plot, cast, ratings, and streaming availability
-        - If you're uncertain about something, acknowledge it
-        
+        Rules:
+        - Keep answers SHORT: 2-4 sentences max for simple questions, use bullet points for lists
+        - Use **bold** for titles. No fluff, no filler, no disclaimers
+        - For recommendations: title + one-line reason, max 5 items
+        - For info questions: answer directly, skip the preamble
+        - Be casual and fun, like texting a film-buff friend
+        - For trailer requests, tell users to ask "trailer for [title]"
         """
         
-        // Add web search context if enabled
-        if webSearchEnabled {
-            prompt += """
-            
-            Web Search Enabled:
-            - You have access to web search for up-to-date information
-            - Use this to provide current release dates, streaming availability, and recent entertainment news
-            - Always cite information as being current when using web search results
-            
-            """
-        }
-        
-        // Inject liked items context for personalization
         if !likedItems.isEmpty {
-            prompt += "\n**User's Liked Items** (use this to personalize recommendations):\n"
-            for item in likedItems.prefix(20) {
-                let typeStr = item.mediaType == .movie ? "Movie" : "TV"
-                prompt += "- \(item.title) (\(typeStr), \(item.year ?? "unknown year"))\n"
-            }
+            prompt += "\n\nUser's taste (liked): "
+            let titles = likedItems.prefix(15).map { "\($0.title) (\($0.mediaType == .movie ? "M" : "TV"))" }
+            prompt += titles.joined(separator: ", ")
         }
         
         return prompt
@@ -404,16 +388,32 @@ actor AIService {
     
     // MARK: - Quick Actions
     func getSimilarRecommendations(for title: String, mediaType: MediaType) async throws -> String {
-        let message = "Suggest 5 \(mediaType == .movie ? "movies" : "TV shows") similar to '\(title)'. For each, briefly explain what makes it similar and why fans might enjoy it."
+        let message = "5 \(mediaType == .movie ? "movies" : "shows") like '\(title)'. Title + one-line why."
         let (response, _) = try await sendMessage(message, conversationHistory: [], likedItems: [])
         return response
     }
     
     func getMediaSummary(title: String, overview: String?) async throws -> String {
-        let message = "Give me a brief, engaging summary of '\(title)'. Include: genre, tone, notable aspects, and who would enjoy it. \(overview != nil ? "Context: \(overview!)" : "")"
+        let message = "Quick take on '\(title)' — genre, vibe, who it's for. 2-3 sentences max."
         let (response, _) = try await sendMessage(message, conversationHistory: [], likedItems: [])
         return response
     }
+}
+
+// MARK: - Stream Chunk Model
+struct StreamChunk: Codable {
+    let choices: [StreamChoice]
+}
+
+struct StreamChoice: Codable {
+    let delta: StreamDelta?
+}
+
+struct StreamDelta: Codable {
+    let role: String?
+    let content: String?
+    let reasoning: String?
+    let reasoning_content: String?
 }
 
 // MARK: - Errors
@@ -440,7 +440,7 @@ enum AIError: LocalizedError {
     }
 }
 
-// MARK: - LLM Response Models (OpenAI-compatible)
+// MARK: - LLM Response Models (OpenAI-compatible, kept for non-stream fallback)
 struct LLMResponse: Codable {
     let id: String?
     let choices: [LLMChoice]
