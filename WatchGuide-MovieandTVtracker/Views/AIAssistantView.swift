@@ -233,10 +233,30 @@ struct ThinkingBubble: View {
     
     private let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
     
+    /// Derive a short label from the thinking text
+    private var thinkingLabel: String {
+        let trimmed = thinkingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "Thinking" + String(repeating: ".", count: (dotPhase % 3) + 1)
+        }
+        // Take the first meaningful sentence/phrase, truncate to ~50 chars
+        let firstLine = trimmed.components(separatedBy: .newlines).first ?? trimmed
+        let cleaned = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.count <= 55 {
+            return cleaned + String(repeating: ".", count: (dotPhase % 3) + 1)
+        }
+        // Truncate at word boundary
+        let truncated = String(cleaned.prefix(52))
+        if let lastSpace = truncated.lastIndex(of: " ") {
+            return String(truncated[truncated.startIndex..<lastSpace]) + "..." + String(repeating: ".", count: (dotPhase % 3) + 1)
+        }
+        return truncated + "..." + String(repeating: ".", count: (dotPhase % 3) + 1)
+    }
+    
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 6) {
-                // Thinking header with animated dots
+                // Thinking header with live snippet
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isExpanded.toggle()
@@ -247,10 +267,12 @@ struct ThinkingBubble: View {
                             .font(.caption)
                             .foregroundColor(.purple)
                         
-                        Text("Thinking" + String(repeating: ".", count: (dotPhase % 3) + 1))
+                        Text(thinkingLabel)
                             .font(.caption)
                             .fontWeight(.medium)
                             .foregroundColor(.purple)
+                            .lineLimit(1)
+                            .animation(.none, value: thinkingLabel)
                         
                         if !thinkingText.isEmpty {
                             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
@@ -261,7 +283,7 @@ struct ThinkingBubble: View {
                 }
                 .disabled(thinkingText.isEmpty)
                 
-                // Expandable thinking content
+                // Expandable full thinking content
                 if isExpanded && !thinkingText.isEmpty {
                     Text(thinkingText)
                         .font(.caption)
@@ -277,7 +299,7 @@ struct ThinkingBubble: View {
             .padding(.vertical, 10)
             .background(Color(.systemGray5).opacity(0.7))
             .cornerRadius(16)
-            .frame(maxWidth: 280, alignment: .leading)
+            .frame(maxWidth: 300, alignment: .leading)
             
             Spacer()
         }
@@ -285,6 +307,81 @@ struct ThinkingBubble: View {
             dotPhase += 1
         }
     }
+}
+
+// MARK: - Markdown Text Helpers
+
+/// Parse simple markdown: **bold** and bullet points (* item)
+private func parseMarkdown(_ text: String) -> AttributedString {
+    var result = AttributedString()
+    let lines = text.components(separatedBy: "\n")
+    
+    for (lineIndex, line) in lines.enumerated() {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        
+        // Check if this is a bullet point line (starts with "* " or "- ")
+        let isBullet = trimmed.hasPrefix("* ") || trimmed.hasPrefix("- ")
+        
+        if isBullet {
+            // Add bullet character and parse the rest for bold
+            var bulletPrefix = AttributedString("• ")
+            bulletPrefix.font = .body
+            result.append(bulletPrefix)
+            
+            let content = String(trimmed.dropFirst(2))
+            result.append(parseBoldSegments(content))
+        } else {
+            result.append(parseBoldSegments(line))
+        }
+        
+        if lineIndex < lines.count - 1 {
+            result.append(AttributedString("\n"))
+        }
+    }
+    
+    return result
+}
+
+/// Parse **bold** markers within a line
+private func parseBoldSegments(_ text: String) -> AttributedString {
+    var result = AttributedString()
+    var remaining = text[text.startIndex...]
+    
+    while let boldStart = remaining.range(of: "**") {
+        // Add text before the bold marker
+        let before = remaining[remaining.startIndex..<boldStart.lowerBound]
+        if !before.isEmpty {
+            var attr = AttributedString(String(before))
+            attr.font = .body
+            result.append(attr)
+        }
+        
+        // Look for closing **
+        let afterStart = boldStart.upperBound
+        let searchRange = afterStart..<remaining.endIndex
+        if let boldEnd = remaining.range(of: "**", range: searchRange) {
+            let boldContent = remaining[afterStart..<boldEnd.lowerBound]
+            var boldAttr = AttributedString(String(boldContent))
+            boldAttr.font = .body.bold()
+            result.append(boldAttr)
+            remaining = remaining[boldEnd.upperBound...]
+        } else {
+            // No closing **, treat the ** as literal text
+            var attr = AttributedString(String(remaining[boldStart.lowerBound...]))
+            attr.font = .body
+            result.append(attr)
+            return result
+        }
+    }
+    
+    // Add any remaining text
+    if !remaining.isEmpty {
+        var attr = AttributedString(String(remaining))
+        attr.font = .body
+        result.append(attr)
+    }
+    
+    return result
 }
 
 // MARK: - Message Bubble
@@ -352,10 +449,14 @@ struct MessageBubble: View {
                     }
                 }
                 
-                // Main content
+                // Main content with markdown rendering
                 HStack(spacing: 0) {
-                    Text(message.content)
-                        .font(.body)
+                    if isUser {
+                        Text(message.content)
+                            .font(.body)
+                    } else {
+                        Text(parseMarkdown(message.content))
+                    }
                     
                     // Streaming cursor
                     if isStreaming {
