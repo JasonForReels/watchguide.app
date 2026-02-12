@@ -12,56 +12,20 @@ struct AIAssistantView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Messages
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 14) {
-                            if viewModel.messages.isEmpty {
-                                welcomeView
-                            }
-                            
-                            ForEach(viewModel.messages) { message in
-                                MessageBubble(
-                                    message: message,
-                                    trailerKey: viewModel.trailerMessages[message.id]?.trailerKey,
-                                    trailerTitle: viewModel.trailerMessages[message.id]?.trailerTitle,
-                                    isStreaming: viewModel.streamingMessageId == message.id
-                                )
-                                .id(message.id)
-                            }
-                            
-                            // Thinking indicator
-                            if viewModel.isThinking {
-                                ThinkingBubble(thinkingText: viewModel.currentThinkingText, userQuery: viewModel.currentUserQuery)
-                                    .id("thinking")
-                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                            }
-                        }
-                        .padding()
-                    }
-                    .scrollDismissesKeyboard(.interactively)
-                    .onChange(of: viewModel.scrollTrigger) { _, _ in
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            if let streamId = viewModel.streamingMessageId {
-                                proxy.scrollTo(streamId, anchor: .bottom)
-                            } else if viewModel.isThinking {
-                                proxy.scrollTo("thinking", anchor: .bottom)
-                            } else {
-                                proxy.scrollTo(viewModel.messages.last?.id, anchor: .bottom)
-                            }
-                        }
-                    }
-                    .simultaneousGesture(
-                        TapGesture().onEnded {
-                            isInputFocused = false
-                        }
-                    )
-                }
+                // Messages — in its own observed sub-view
+                AIMessageListView(viewModel: viewModel, dismissKeyboard: { isInputFocused = false })
                 
                 Divider()
                 
-                // Bottom bar — extracted to isolate redraws from the message list
-                AIInputBar(viewModel: viewModel, isInputFocused: $isInputFocused, onSend: sendMessage)
+                // Bottom bar — uses bindings, NOT @ObservedObject, so it only
+                // redraws when its specific bindings change
+                AIInputBar(
+                    inputText: $viewModel.inputText,
+                    selectedModel: $viewModel.selectedModel,
+                    isLoading: viewModel.isLoading,
+                    isInputFocused: $isInputFocused,
+                    onSend: sendMessage
+                )
             }
             .navigationTitle("Chron")
             .navigationBarTitleDisplayMode(.inline)
@@ -79,7 +43,72 @@ struct AIAssistantView: View {
         }
     }
     
-    private var welcomeView: some View {
+    private func sendMessage() {
+        guard !viewModel.inputText.isEmpty else { return }
+        Task {
+            await viewModel.sendMessage()
+        }
+    }
+}
+
+// MARK: - Message List (isolated observation of streaming state)
+private struct AIMessageListView: View {
+    @ObservedObject var viewModel: AIAssistantViewModel
+    let dismissKeyboard: () -> Void
+    
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 14) {
+                    if viewModel.messages.isEmpty {
+                        WelcomeView(onSuggestion: { text in
+                            viewModel.inputText = text
+                            Task { await viewModel.sendMessage() }
+                        })
+                    }
+                    
+                    ForEach(viewModel.messages) { message in
+                        MessageBubble(
+                            message: message,
+                            trailerKey: viewModel.trailerMessages[message.id]?.trailerKey,
+                            trailerTitle: viewModel.trailerMessages[message.id]?.trailerTitle,
+                            isStreaming: viewModel.streamingMessageId == message.id
+                        )
+                        .id(message.id)
+                    }
+                    
+                    if viewModel.isThinking {
+                        ThinkingBubble(thinkingText: viewModel.currentThinkingText, userQuery: viewModel.currentUserQuery)
+                            .id("thinking")
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                }
+                .padding()
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: viewModel.scrollTrigger) { _, _ in
+                withAnimation(.easeOut(duration: 0.2)) {
+                    if let streamId = viewModel.streamingMessageId {
+                        proxy.scrollTo(streamId, anchor: .bottom)
+                    } else if viewModel.isThinking {
+                        proxy.scrollTo("thinking", anchor: .bottom)
+                    } else {
+                        proxy.scrollTo(viewModel.messages.last?.id, anchor: .bottom)
+                    }
+                }
+            }
+            .simultaneousGesture(
+                TapGesture().onEnded { dismissKeyboard() }
+            )
+        }
+    }
+}
+
+// MARK: - Welcome View (static, no observation needed)
+private struct WelcomeView: View {
+    let onSuggestion: (String) -> Void
+    
+    var body: some View {
         VStack(spacing: 20) {
             Spacer().frame(height: 40)
             
@@ -103,95 +132,61 @@ struct AIAssistantView: View {
                     .foregroundColor(.secondary)
             }
             
-            // Quick suggestions
             VStack(spacing: 8) {
                 SuggestionChip(text: "What should I watch tonight?") {
-                    viewModel.inputText = "What should I watch tonight?"
-                    sendMessage()
+                    onSuggestion("What should I watch tonight?")
                 }
                 
                 SuggestionChip(text: "Something like Breaking Bad") {
-                    viewModel.inputText = "Something like Breaking Bad"
-                    sendMessage()
+                    onSuggestion("Something like Breaking Bad")
                 }
                 
                 SuggestionChip(text: "Best sci-fi movies ever") {
-                    viewModel.inputText = "Best sci-fi movies ever"
-                    sendMessage()
+                    onSuggestion("Best sci-fi movies ever")
                 }
             }
             .padding(.top, 8)
         }
     }
-    
-    private func sendMessage() {
-        guard !viewModel.inputText.isEmpty else { return }
-        Task {
-            await viewModel.sendMessage()
-        }
-    }
 }
 
-// MARK: - AI Input Bar (isolated to prevent redraw propagation)
+// MARK: - AI Input Bar (uses bindings only — no @ObservedObject, no unnecessary redraws)
 struct AIInputBar: View {
-    @ObservedObject var viewModel: AIAssistantViewModel
+    @Binding var inputText: String
+    @Binding var selectedModel: AIService.ChronModel
+    let isLoading: Bool
     var isInputFocused: FocusState<Bool>.Binding
     let onSend: () -> Void
     
     var body: some View {
         VStack(spacing: 0) {
-            // Model selector (compact)
-            modelSelector
+            ModelSelectorRow(selectedModel: $selectedModel)
             
-            // Input area
-            HStack(alignment: .bottom, spacing: 10) {
-                TextEditor(text: $viewModel.inputText)
-                    .focused(isInputFocused)
-                    .frame(minHeight: 36, maxHeight: 100)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .scrollContentBackground(.hidden)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color(.systemGray5))
-                    .cornerRadius(18)
-                    .overlay {
-                        if viewModel.inputText.isEmpty {
-                            HStack {
-                                Text("Ask Chron anything...")
-                                    .foregroundColor(Color(.placeholderText))
-                                    .padding(.leading, 12)
-                                    .allowsHitTesting(false)
-                                Spacer()
-                            }
-                        }
-                    }
-                
-                Button {
-                    onSend()
-                } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .accentColor)
-                }
-                .disabled(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isLoading)
-                .padding(.bottom, 4)
-            }
-            .padding(.horizontal)
-            .padding(.bottom, 8)
+            AIInputTextField(
+                inputText: $inputText,
+                isLoading: isLoading,
+                isInputFocused: isInputFocused,
+                onSend: onSend
+            )
         }
         .background(Color(.systemGray6))
     }
+}
+
+// MARK: - Model Selector (fully isolated, only redraws on model change)
+private struct ModelSelectorRow: View {
+    @Binding var selectedModel: AIService.ChronModel
     
-    private var modelSelector: some View {
+    var body: some View {
         HStack(spacing: 12) {
             Menu {
                 ForEach(AIService.ChronModel.allCases, id: \.rawValue) { model in
                     Button {
-                        viewModel.selectedModel = model
+                        selectedModel = model
                     } label: {
                         HStack {
                             Text(model.displayName)
-                            if viewModel.selectedModel == model {
+                            if selectedModel == model {
                                 Image(systemName: "checkmark")
                             }
                         }
@@ -201,7 +196,7 @@ struct AIInputBar: View {
                 HStack(spacing: 4) {
                     Image(systemName: "cpu")
                         .font(.system(size: 10))
-                    Text(viewModel.selectedModel.displayName)
+                    Text(selectedModel.displayName)
                         .font(.caption2)
                         .lineLimit(1)
                     Image(systemName: "chevron.up.chevron.down")
@@ -219,6 +214,55 @@ struct AIInputBar: View {
         .padding(.horizontal)
         .padding(.top, 6)
         .padding(.bottom, 4)
+    }
+}
+
+// MARK: - Input Text Field (isolated from model & streaming state)
+private struct AIInputTextField: View {
+    @Binding var inputText: String
+    let isLoading: Bool
+    var isInputFocused: FocusState<Bool>.Binding
+    let onSend: () -> Void
+    
+    private var trimmedEmpty: Bool {
+        inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            TextEditor(text: $inputText)
+                .focused(isInputFocused)
+                .frame(minHeight: 36, maxHeight: 100)
+                .fixedSize(horizontal: false, vertical: true)
+                .scrollContentBackground(.hidden)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(.systemGray5))
+                .cornerRadius(18)
+                .overlay {
+                    if inputText.isEmpty {
+                        HStack {
+                            Text("Ask Chron anything...")
+                                .foregroundColor(Color(.placeholderText))
+                                .padding(.leading, 12)
+                                .allowsHitTesting(false)
+                            Spacer()
+                        }
+                    }
+                }
+            
+            Button {
+                onSend()
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(trimmedEmpty ? .secondary : .accentColor)
+            }
+            .disabled(trimmedEmpty || isLoading)
+            .padding(.bottom, 4)
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 8)
     }
 }
 
