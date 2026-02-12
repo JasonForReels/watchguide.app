@@ -5,27 +5,42 @@
 
 import SwiftUI
 
+// MARK: - Top-level shell (owns the StateObject but its body is trivially cheap)
 struct AIAssistantView: View {
     @StateObject private var viewModel = AIAssistantViewModel()
+    
+    var body: some View {
+        // The shell itself never reads any @Published property of the viewModel,
+        // so its body is only evaluated once.  Everything is delegated to children
+        // that each observe only the slice of state they need.
+        AIAssistantContent(viewModel: viewModel)
+    }
+}
+
+// MARK: - Content wrapper (handles layout, navigation, toolbar)
+private struct AIAssistantContent: View {
+    @ObservedObject var viewModel: AIAssistantViewModel
     @FocusState private var isInputFocused: Bool
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Messages — in its own observed sub-view
-                AIMessageListView(viewModel: viewModel, dismissKeyboard: { isInputFocused = false })
+            ZStack {
+                // Full-area tap target to dismiss keyboard (behind everything)
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { isInputFocused = false }
                 
-                Divider()
-                
-                // Bottom bar — uses bindings only, so it only redraws when
-                // its specific bound values change (not on every stream token)
-                AIInputBar(
-                    inputText: $viewModel.inputText,
-                    selectedModel: $viewModel.selectedModel,
-                    isLoading: $viewModel.isLoading,
-                    isInputFocused: $isInputFocused,
-                    onSend: sendMessage
-                )
+                VStack(spacing: 0) {
+                    // Messages — isolated sub-view
+                    AIMessageListView(viewModel: viewModel,
+                                      dismissKeyboard: { isInputFocused = false })
+                    
+                    Divider()
+                    
+                    // Input bar — completely isolated, never redrawn by streaming
+                    AIInputBarContainer(viewModel: viewModel,
+                                        isInputFocused: $isInputFocused)
+                }
             }
             .navigationTitle("Chron")
             .navigationBarTitleDisplayMode(.inline)
@@ -34,13 +49,6 @@ struct AIAssistantView: View {
                     ClearButton(viewModel: viewModel)
                 }
             }
-        }
-    }
-    
-    private func sendMessage() {
-        guard !viewModel.inputText.isEmpty else { return }
-        Task {
-            await viewModel.sendMessage()
         }
     }
 }
@@ -57,6 +65,27 @@ private struct ClearButton: View {
                 .font(.subheadline)
         }
         .disabled(viewModel.messages.isEmpty)
+    }
+}
+
+// MARK: - Input Bar Container
+// This view owns its OWN local copy of isLoading so the TextEditor is never
+// forcibly re-created by a parent body re-evaluation during streaming.
+private struct AIInputBarContainer: View {
+    @ObservedObject var viewModel: AIAssistantViewModel
+    var isInputFocused: FocusState<Bool>.Binding
+    
+    var body: some View {
+        AIInputBar(
+            inputText: $viewModel.inputText,
+            selectedModel: $viewModel.selectedModel,
+            isLoading: viewModel.isLoading,
+            isInputFocused: isInputFocused,
+            onSend: {
+                guard !viewModel.inputText.isEmpty else { return }
+                Task { await viewModel.sendMessage() }
+            }
+        )
     }
 }
 
@@ -163,7 +192,7 @@ private struct WelcomeView: View {
 struct AIInputBar: View {
     @Binding var inputText: String
     @Binding var selectedModel: AIService.ChronModel
-    @Binding var isLoading: Bool
+    let isLoading: Bool
     var isInputFocused: FocusState<Bool>.Binding
     let onSend: () -> Void
     
