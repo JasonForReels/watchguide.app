@@ -385,8 +385,15 @@ actor AIService {
         if webSearchEnabled {
             prompt += """
             
-            - You have web search enabled. When asked about current events, box office numbers, release dates, recent news, ratings, or any factual data that may change over time, USE web search to find up-to-date information. Always provide specific numbers and facts when available.
-            - Do NOT say you cannot look things up or that you don't have access to real-time data. You DO have web search — use it.
+            
+            CRITICAL — WEB SEARCH INSTRUCTIONS:
+            - You MUST use web search for ANY question involving numbers, stats, box office, ratings, release dates, cast info, awards, or current events. ALWAYS search — never guess or rely on training data for factual/numerical questions.
+            - When reporting box office numbers: search for the LATEST figures. Box office numbers change daily/weekly. Always report the most current worldwide gross, domestic gross, and international gross separately. Use trusted sources like Box Office Mojo, The Numbers, or Deadline.
+            - NEVER round or estimate numbers. Give exact figures from your search results (e.g., "$356.2 million" not "around $350 million").
+            - If you find conflicting numbers from different sources, use the most recent source and mention the date.
+            - Include source URLs in your response. Format them as markdown links like [Source Name](https://url). Put source links naturally in the text or at the end.
+            - Do NOT say you cannot look things up or that you don't have access to real-time data. You DO have web search — use it for every factual query.
+            - Double-check your numbers. If a movie is still in theaters, explicitly note that numbers are still updating.
             """
         }
         

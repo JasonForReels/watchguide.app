@@ -5,6 +5,113 @@
 
 import SwiftUI
 
+// MARK: - Extracted Link Model
+struct ExtractedLink: Identifiable {
+    let id = UUID()
+    let displayName: String
+    let url: URL
+}
+
+// MARK: - Link Extraction Utility
+private func extractLinks(from text: String) -> (cleanedText: String, links: [ExtractedLink]) {
+    var links: [ExtractedLink] = []
+    var cleaned = text
+    
+    // Match markdown links [text](url)
+    let markdownPattern = "\\[([^\\]]+)\\]\\((https?://[^\\)]+)\\)"
+    if let markdownRegex = try? NSRegularExpression(pattern: markdownPattern, options: []) {
+        let matches = markdownRegex.matches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned))
+        // Process in reverse so ranges stay valid
+        for match in matches.reversed() {
+            if let textRange = Range(match.range(at: 1), in: cleaned),
+               let urlRange = Range(match.range(at: 2), in: cleaned),
+               let fullRange = Range(match.range, in: cleaned),
+               let url = URL(string: String(cleaned[urlRange])) {
+                let displayText = String(cleaned[textRange])
+                links.insert(ExtractedLink(displayName: displayText, url: url), at: 0)
+                cleaned.replaceSubrange(fullRange, with: displayText)
+            }
+        }
+    }
+    
+    // Match bare URLs
+    let urlPattern = "https?://[^\\s\\)\\]>\"',]+"
+    if let urlRegex = try? NSRegularExpression(pattern: urlPattern, options: []) {
+        let matches = urlRegex.matches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned))
+        for match in matches.reversed() {
+            if let range = Range(match.range, in: cleaned) {
+                let urlString = String(cleaned[range]).trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?)"))
+                if let url = URL(string: urlString) {
+                    let host = url.host ?? urlString
+                    let displayName = host
+                        .replacingOccurrences(of: "www.", with: "")
+                        .components(separatedBy: ".").first?.capitalized ?? host
+                    // Only add if not already captured from markdown links
+                    if !links.contains(where: { $0.url.absoluteString == url.absoluteString }) {
+                        links.insert(ExtractedLink(displayName: displayName, url: url), at: 0)
+                    }
+                    cleaned.replaceSubrange(range, with: "")
+                }
+            }
+        }
+    }
+    
+    // Clean up extra whitespace/newlines left by removal
+    cleaned = cleaned
+        .replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
+        .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    
+    // Deduplicate links by URL
+    var seen = Set<String>()
+    links = links.filter { link in
+        let key = link.url.absoluteString
+        if seen.contains(key) { return false }
+        seen.insert(key)
+        return true
+    }
+    
+    return (cleaned, links)
+}
+
+private func domainDisplayName(from url: URL) -> String {
+    let host = url.host ?? url.absoluteString
+    let cleaned = host.replacingOccurrences(of: "www.", with: "")
+    // Capitalize first component nicely
+    let parts = cleaned.components(separatedBy: ".")
+    if let first = parts.first {
+        // Known site names
+        let knownNames: [String: String] = [
+            "boxofficemojo": "Box Office Mojo",
+            "rottentomatoes": "Rotten Tomatoes",
+            "imdb": "IMDb",
+            "wikipedia": "Wikipedia",
+            "themoviedb": "TMDB",
+            "metacritic": "Metacritic",
+            "variety": "Variety",
+            "deadline": "Deadline",
+            "hollywoodreporter": "Hollywood Reporter",
+            "theguardian": "The Guardian",
+            "nytimes": "NY Times",
+            "bbc": "BBC",
+            "reddit": "Reddit",
+            "youtube": "YouTube",
+            "twitter": "Twitter",
+            "letterboxd": "Letterboxd",
+            "the-numbers": "The Numbers",
+            "forbes": "Forbes",
+            "screenrant": "Screen Rant",
+            "collider": "Collider",
+            "indiewire": "IndieWire"
+        ]
+        if let known = knownNames[first.lowercased()] {
+            return known
+        }
+        return first.prefix(1).uppercased() + first.dropFirst()
+    }
+    return cleaned
+}
+
 // MARK: - Top-level shell (owns the StateObject, body is trivially cheap)
 struct AIAssistantView: View {
     @StateObject private var viewModel = AIAssistantViewModel()
@@ -43,12 +150,10 @@ private struct AIAssistantBody: View {
                 }
             )
         }
-        .contentShape(Rectangle())
-        .onTapGesture { isInputFocused = false }
     }
 }
 
-/// Isolated clear-button — only observes messageCount
+/// Isolated clear-button — only observes messageCount via a simple count
 private struct ClearButton: View {
     @ObservedObject var viewModel: AIAssistantViewModel
     
@@ -96,7 +201,7 @@ private struct AIMessageListView: View {
                         })
                     }
                     
-                    ForEach(viewModel.messages, id: \.id) { message in
+                    ForEach(viewModel.messages) { message in
                         let isStreaming = viewModel.streamingMessageId == message.id
                         let trailer = viewModel.trailerMessages[message.id]
                         MessageBubbleWrapper(
@@ -127,13 +232,13 @@ private struct AIMessageListView: View {
                 }
             }
             .simultaneousGesture(
-                TapGesture().onEnded { dismissKeyboard() }
+                DragGesture().onChanged { _ in dismissKeyboard() }
             )
         }
     }
 }
 
-// MARK: - MessageBubbleWrapper (caches markdown, only recomputes when content length changes)
+// MARK: - MessageBubbleWrapper (caches markdown + links, only recomputes when content length changes)
 private struct MessageBubbleWrapper: View {
     let message: AIService.ChatMessage
     var trailerKey: String?
@@ -141,32 +246,36 @@ private struct MessageBubbleWrapper: View {
     var isStreaming: Bool
     
     @State private var cachedMarkdown: AttributedString?
+    @State private var cachedLinks: [ExtractedLink] = []
     @State private var lastParsedLength: Int = -1
     
     var body: some View {
-        let md = currentMarkdown
+        let (md, links) = currentContent
         MessageBubble(
             message: message,
             parsedMarkdown: md,
+            links: links,
             trailerKey: trailerKey,
             trailerTitle: trailerTitle,
             isStreaming: isStreaming
         )
     }
     
-    private var currentMarkdown: AttributedString {
-        if message.role == "user" { return AttributedString() }
+    private var currentContent: (AttributedString, [ExtractedLink]) {
+        if message.role == "user" { return (AttributedString(), []) }
         let len = message.content.count
         if len == lastParsedLength, let cached = cachedMarkdown {
-            return cached
+            return (cached, cachedLinks)
         }
-        let parsed = parseMarkdown(message.content)
-        // Schedule state update outside body evaluation
+        let extraction = extractLinks(from: message.content)
+        let parsed = parseMarkdown(extraction.cleanedText)
+        let links = extraction.links
         DispatchQueue.main.async {
             cachedMarkdown = parsed
+            cachedLinks = links
             lastParsedLength = len
         }
-        return parsed
+        return (parsed, links)
     }
 }
 
@@ -550,10 +659,79 @@ private func parseBoldSegments(_ text: String) -> AttributedString {
     return result
 }
 
+// MARK: - Source Link Chip
+private struct SourceLinkChip: View {
+    let link: ExtractedLink
+    
+    var body: some View {
+        Button {
+            UIApplication.shared.open(link.url)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 8, weight: .bold))
+                Text(domainDisplayName(from: link.url))
+                    .font(.caption2)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(.systemGray6))
+            .foregroundColor(.accentColor)
+            .cornerRadius(10)
+        }
+    }
+}
+
+// MARK: - Source Links Flow Layout
+private struct SourceLinksFlowLayout: Layout {
+    var spacing: CGFloat = 6
+    
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth && x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        
+        return CGSize(width: maxWidth, height: y + rowHeight)
+    }
+    
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x: CGFloat = bounds.minX
+        var y: CGFloat = bounds.minY
+        var rowHeight: CGFloat = 0
+        
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX && x > bounds.minX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
 // MARK: - Message Bubble
 struct MessageBubble: View {
     let message: AIService.ChatMessage
     let parsedMarkdown: AttributedString
+    var links: [ExtractedLink] = []
     var trailerKey: String?
     var trailerTitle: String?
     var isStreaming: Bool = false
@@ -633,6 +811,24 @@ struct MessageBubble: View {
                 .background(isUser ? Color.accentColor : Color(.systemGray5))
                 .foregroundColor(isUser ? .white : .primary)
                 .cornerRadius(16)
+                
+                // Source links below the bubble
+                if !isUser && !links.isEmpty && !isStreaming {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Sources")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+                        
+                        SourceLinksFlowLayout(spacing: 6) {
+                            ForEach(links) { link in
+                                SourceLinkChip(link: link)
+                            }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
                 
                 if let key = trailerKey, let title = trailerTitle, !isUser {
                     Button {
