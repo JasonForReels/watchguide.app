@@ -5,61 +5,50 @@
 
 import SwiftUI
 
-// MARK: - Top-level shell (owns the StateObject but its body is trivially cheap)
+// MARK: - Top-level shell (owns the StateObject, body is trivially cheap)
 struct AIAssistantView: View {
     @StateObject private var viewModel = AIAssistantViewModel()
     
     var body: some View {
-        // The shell itself never reads any @Published property of the viewModel,
-        // so its body is only evaluated once.  Everything is delegated to children
-        // that each observe only the slice of state they need.
-        AIAssistantContent(viewModel: viewModel)
-    }
-}
-
-// MARK: - Content wrapper (handles layout, navigation, toolbar)
-private struct AIAssistantContent: View {
-    @ObservedObject var viewModel: AIAssistantViewModel
-    @FocusState private var isInputFocused: Bool
-    
-    var body: some View {
         NavigationStack {
-            ZStack {
-                // Full-area tap target to dismiss keyboard (behind everything)
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture { isInputFocused = false }
-                
-                VStack(spacing: 0) {
-                    // Messages — isolated sub-view
-                    AIMessageListView(viewModel: viewModel,
-                                      dismissKeyboard: { isInputFocused = false })
-                    
-                    Divider()
-                    
-                    // Input bar — observes only the lightweight AIInputState,
-                    // completely decoupled from streaming-heavy ViewModel changes
-                    AIInputBarContainer(
-                        inputState: viewModel.inputState,
-                        isInputFocused: $isInputFocused,
-                        onSend: {
-                            Task { await viewModel.sendMessage() }
-                        }
-                    )
+            AIAssistantBody(viewModel: viewModel)
+                .navigationTitle("Chron")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        ClearButton(viewModel: viewModel)
+                    }
                 }
-            }
-            .navigationTitle("Chron")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    ClearButton(viewModel: viewModel)
-                }
-            }
         }
     }
 }
 
-/// Isolated clear-button so toolbar doesn't force parent body re-evaluation
+// MARK: - Body (layout only — delegates heavy observation to children)
+private struct AIAssistantBody: View {
+    let viewModel: AIAssistantViewModel
+    @FocusState private var isInputFocused: Bool
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            AIMessageListView(viewModel: viewModel,
+                              dismissKeyboard: { isInputFocused = false })
+            
+            Divider()
+            
+            AIInputBarContainer(
+                inputState: viewModel.inputState,
+                isInputFocused: $isInputFocused,
+                onSend: {
+                    Task { await viewModel.sendMessage() }
+                }
+            )
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { isInputFocused = false }
+    }
+}
+
+/// Isolated clear-button
 private struct ClearButton: View {
     @ObservedObject var viewModel: AIAssistantViewModel
     
@@ -74,10 +63,7 @@ private struct ClearButton: View {
     }
 }
 
-// MARK: - Input Bar Container
-// Owns its own @StateObject for input state so streaming changes to the main
-// ViewModel (messages, streamingMessageId, thinkingText, etc.) never cause
-// the TextEditor to be recreated.
+// MARK: - Input Bar Container (observes only the lightweight AIInputState)
 private struct AIInputBarContainer: View {
     @ObservedObject var inputState: AIInputState
     var isInputFocused: FocusState<Bool>.Binding
@@ -94,7 +80,7 @@ private struct AIInputBarContainer: View {
     }
 }
 
-// MARK: - Message List (isolated observation of streaming state)
+// MARK: - Message List (only this view observes the streaming-heavy ViewModel)
 private struct AIMessageListView: View {
     @ObservedObject var viewModel: AIAssistantViewModel
     let dismissKeyboard: () -> Void
@@ -110,12 +96,14 @@ private struct AIMessageListView: View {
                         })
                     }
                     
-                    ForEach(viewModel.messages) { message in
-                        MessageBubble(
+                    ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
+                        let isStreaming = viewModel.streamingMessageId == message.id
+                        let trailer = viewModel.trailerMessages[message.id]
+                        MessageBubbleWrapper(
                             message: message,
-                            trailerKey: viewModel.trailerMessages[message.id]?.trailerKey,
-                            trailerTitle: viewModel.trailerMessages[message.id]?.trailerTitle,
-                            isStreaming: viewModel.streamingMessageId == message.id
+                            trailerKey: trailer?.trailerKey,
+                            trailerTitle: trailer?.trailerTitle,
+                            isStreaming: isStreaming
                         )
                         .id(message.id)
                     }
@@ -130,14 +118,12 @@ private struct AIMessageListView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: viewModel.scrollTrigger) { _, _ in
-                withAnimation(.easeOut(duration: 0.2)) {
-                    if let streamId = viewModel.streamingMessageId {
-                        proxy.scrollTo(streamId, anchor: .bottom)
-                    } else if viewModel.isThinking {
-                        proxy.scrollTo("thinking", anchor: .bottom)
-                    } else {
-                        proxy.scrollTo(viewModel.messages.last?.id, anchor: .bottom)
-                    }
+                if let streamId = viewModel.streamingMessageId {
+                    proxy.scrollTo(streamId, anchor: .bottom)
+                } else if viewModel.isThinking {
+                    proxy.scrollTo("thinking", anchor: .bottom)
+                } else if let lastId = viewModel.messages.last?.id {
+                    proxy.scrollTo(lastId, anchor: .bottom)
                 }
             }
             .simultaneousGesture(
@@ -147,7 +133,45 @@ private struct AIMessageListView: View {
     }
 }
 
-// MARK: - Welcome View (static, no observation needed)
+// MARK: - MessageBubbleWrapper (caches markdown, only recomputes when content changes)
+private struct MessageBubbleWrapper: View {
+    let message: AIService.ChatMessage
+    var trailerKey: String?
+    var trailerTitle: String?
+    var isStreaming: Bool
+    
+    @State private var cachedMarkdown: AttributedString?
+    @State private var cachedContentLength: Int = 0
+    
+    var body: some View {
+        MessageBubble(
+            message: message,
+            parsedMarkdown: computedMarkdown,
+            trailerKey: trailerKey,
+            trailerTitle: trailerTitle,
+            isStreaming: isStreaming
+        )
+        .onChange(of: message.content.count) { _, newCount in
+            // Only reparse when content actually changes length
+            if newCount != cachedContentLength {
+                cachedContentLength = newCount
+                if message.role != "user" {
+                    cachedMarkdown = parseMarkdown(message.content)
+                }
+            }
+        }
+    }
+    
+    private var computedMarkdown: AttributedString {
+        if message.role == "user" { return AttributedString() }
+        if let cached = cachedMarkdown, cachedContentLength == message.content.count {
+            return cached
+        }
+        return parseMarkdown(message.content)
+    }
+}
+
+// MARK: - Welcome View (static)
 private struct WelcomeView: View {
     let onSuggestion: (String) -> Void
     
@@ -193,7 +217,7 @@ private struct WelcomeView: View {
     }
 }
 
-// MARK: - AI Input Bar (uses bindings only — no @ObservedObject, no unnecessary redraws)
+// MARK: - AI Input Bar
 struct AIInputBar: View {
     @Binding var inputText: String
     @Binding var selectedModel: AIService.ChronModel
@@ -216,7 +240,7 @@ struct AIInputBar: View {
     }
 }
 
-// MARK: - Model Selector (fully isolated, only redraws on model change)
+// MARK: - Model Selector
 private struct ModelSelectorRow: View, Equatable {
     @Binding var selectedModel: AIService.ChronModel
     
@@ -264,7 +288,7 @@ private struct ModelSelectorRow: View, Equatable {
     }
 }
 
-// MARK: - Input Text Field (isolated from model & streaming state)
+// MARK: - Input Text Field
 private struct AIInputTextField: View {
     @Binding var inputText: String
     let isLoading: Bool
@@ -341,7 +365,6 @@ struct ThinkingBubble: View {
     
     private let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
     
-    /// Contextual placeholder phrases when no real thinking text is available
     private var placeholderPhrases: [String] {
         let query = userQuery.lowercased()
         if query.contains("recommend") || query.contains("suggest") || query.contains("should i watch") || query.contains("what to watch") {
@@ -386,7 +409,6 @@ struct ThinkingBubble: View {
         String(repeating: ".", count: (dotPhase % 3) + 1)
     }
     
-    /// Derive a short label from the thinking text, or cycle through contextual placeholders
     private var thinkingLabel: String {
         let trimmed = thinkingText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -394,13 +416,11 @@ struct ThinkingBubble: View {
             let idx = placeholderIndex % phrases.count
             return phrases[idx] + dots
         }
-        // Take the first meaningful sentence/phrase, truncate to ~50 chars
         let firstLine = trimmed.components(separatedBy: .newlines).first ?? trimmed
         let cleaned = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
         if cleaned.count <= 55 {
             return cleaned + dots
         }
-        // Truncate at word boundary
         let truncated = String(cleaned.prefix(52))
         if let lastSpace = truncated.lastIndex(of: " ") {
             return String(truncated[truncated.startIndex..<lastSpace]) + "..." + dots
@@ -411,7 +431,6 @@ struct ThinkingBubble: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 6) {
-                // Thinking header with live snippet
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isExpanded.toggle()
@@ -438,7 +457,6 @@ struct ThinkingBubble: View {
                 }
                 .disabled(thinkingText.isEmpty)
                 
-                // Expandable full thinking content
                 if isExpanded && !thinkingText.isEmpty {
                     Text(thinkingText)
                         .font(.caption)
@@ -460,7 +478,6 @@ struct ThinkingBubble: View {
         }
         .onReceive(timer) { _ in
             dotPhase += 1
-            // Cycle placeholder every 2 ticks (~1 second)
             if dotPhase % 4 == 0 {
                 placeholderIndex += 1
             }
@@ -470,19 +487,15 @@ struct ThinkingBubble: View {
 
 // MARK: - Markdown Text Helpers
 
-/// Parse simple markdown: **bold** and bullet points (* item)
 private func parseMarkdown(_ text: String) -> AttributedString {
     var result = AttributedString()
     let lines = text.components(separatedBy: "\n")
     
     for (lineIndex, line) in lines.enumerated() {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        
-        // Check if this is a bullet point line (starts with "* " or "- ")
         let isBullet = trimmed.hasPrefix("* ") || trimmed.hasPrefix("- ")
         
         if isBullet {
-            // Add bullet character and parse the rest for bold
             var bulletPrefix = AttributedString("• ")
             bulletPrefix.font = .body
             result.append(bulletPrefix)
@@ -501,13 +514,11 @@ private func parseMarkdown(_ text: String) -> AttributedString {
     return result
 }
 
-/// Parse **bold** markers within a line
 private func parseBoldSegments(_ text: String) -> AttributedString {
     var result = AttributedString()
     var remaining = text[text.startIndex...]
     
     while let boldStart = remaining.range(of: "**") {
-        // Add text before the bold marker
         let before = remaining[remaining.startIndex..<boldStart.lowerBound]
         if !before.isEmpty {
             var attr = AttributedString(String(before))
@@ -515,7 +526,6 @@ private func parseBoldSegments(_ text: String) -> AttributedString {
             result.append(attr)
         }
         
-        // Look for closing **
         let afterStart = boldStart.upperBound
         let searchRange = afterStart..<remaining.endIndex
         if let boldEnd = remaining.range(of: "**", range: searchRange) {
@@ -525,7 +535,6 @@ private func parseBoldSegments(_ text: String) -> AttributedString {
             result.append(boldAttr)
             remaining = remaining[boldEnd.upperBound...]
         } else {
-            // No closing **, treat the ** as literal text
             var attr = AttributedString(String(remaining[boldStart.lowerBound...]))
             attr.font = .body
             result.append(attr)
@@ -533,7 +542,6 @@ private func parseBoldSegments(_ text: String) -> AttributedString {
         }
     }
     
-    // Add any remaining text
     if !remaining.isEmpty {
         var attr = AttributedString(String(remaining))
         attr.font = .body
@@ -546,6 +554,7 @@ private func parseBoldSegments(_ text: String) -> AttributedString {
 // MARK: - Message Bubble
 struct MessageBubble: View {
     let message: AIService.ChatMessage
+    let parsedMarkdown: AttributedString
     var trailerKey: String?
     var trailerTitle: String?
     var isStreaming: Bool = false
@@ -553,9 +562,7 @@ struct MessageBubble: View {
     @State private var showTrailerPlayer = false
     @State private var showThinking = false
     
-    var isUser: Bool {
-        message.role == "user"
-    }
+    private var isUser: Bool { message.role == "user" }
     
     var body: some View {
         HStack {
@@ -574,7 +581,6 @@ struct MessageBubble: View {
                     }
                 }
                 
-                // Collapsible thinking section (for completed messages)
                 if let thinking = message.thinkingContent, !thinking.isEmpty, !isUser {
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
@@ -608,16 +614,14 @@ struct MessageBubble: View {
                     }
                 }
                 
-                // Main content with markdown rendering
                 HStack(spacing: 0) {
                     if isUser {
                         Text(message.content)
                             .font(.body)
                     } else {
-                        Text(parseMarkdown(message.content))
+                        Text(parsedMarkdown)
                     }
                     
-                    // Streaming cursor
                     if isStreaming {
                         Text("|")
                             .font(.body)
@@ -631,7 +635,6 @@ struct MessageBubble: View {
                 .foregroundColor(isUser ? .white : .primary)
                 .cornerRadius(16)
                 
-                // Trailer button
                 if let key = trailerKey, let title = trailerTitle, !isUser {
                     Button {
                         showTrailerPlayer = true
@@ -760,9 +763,7 @@ struct TrailerPlayerSheet: View {
     }
 }
 
-// MARK: - Lightweight Input State (isolated from streaming-heavy ViewModel)
-// Only publishes changes for inputText, selectedModel, and isLoading.
-// This ensures the TextEditor and model picker are NEVER redrawn by streaming.
+// MARK: - Lightweight Input State
 @MainActor
 class AIInputState: ObservableObject {
     @Published var inputText = ""
@@ -795,8 +796,11 @@ class AIAssistantViewModel: ObservableObject {
     @Published var scrollTrigger = 0
     @Published var currentUserQuery = ""
     
-    /// Separate observable for the input bar — isolated from streaming churn
     let inputState = AIInputState()
+    
+    // Throttle: only publish content changes every N characters or after a time interval
+    private var lastContentPublishLength = 0
+    private static let contentPublishThreshold = 12
     
     func sendMessage() async {
         let userMessage = inputState.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -856,18 +860,19 @@ class AIAssistantViewModel: ObservableObject {
         // Streaming path
         let likedItems = StorageService.shared.liked
         
-        // Create a placeholder assistant message for streaming
         let streamingMessage = AIService.ChatMessage(role: "assistant", content: "")
         messages.append(streamingMessage)
         let streamIndex = messages.count - 1
         streamingMessageId = streamingMessage.id
+        lastContentPublishLength = 0
         scrollTrigger += 1
         
         var accumulatedThinking = ""
+        var pendingContent = ""
         
         let stream = await AIService.shared.streamMessage(
             userMessage,
-            conversationHistory: Array(messages.dropLast()),  // exclude placeholder
+            conversationHistory: Array(messages.dropLast()),
             likedItems: likedItems,
             webSearchEnabled: webSearchEnabled,
             model: selectedModel
@@ -878,20 +883,25 @@ class AIAssistantViewModel: ObservableObject {
             case .thinking(let text):
                 accumulatedThinking = text
                 currentThinkingText = text
-                scrollTrigger += 1
                 
             case .content(let text):
                 if isThinking {
                     isThinking = false
                 }
-                messages[streamIndex].content = text
-                // Throttle scroll updates
-                if text.count % 8 == 0 || text.count < 10 {
+                pendingContent = text
+                // Throttle UI updates: only publish every N chars
+                let delta = text.count - lastContentPublishLength
+                if delta >= Self.contentPublishThreshold || text.count < 20 {
+                    messages[streamIndex].content = text
+                    lastContentPublishLength = text.count
                     scrollTrigger += 1
                 }
                 
             case .done:
-                // Store thinking content on the message
+                // Flush any remaining pending content
+                if !pendingContent.isEmpty {
+                    messages[streamIndex].content = pendingContent
+                }
                 if !accumulatedThinking.isEmpty {
                     messages[streamIndex].thinkingContent = accumulatedThinking
                 }
