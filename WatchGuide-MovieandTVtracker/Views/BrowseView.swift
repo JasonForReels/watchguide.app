@@ -8,16 +8,15 @@ import SwiftUI
 struct BrowseView: View {
     @StateObject private var viewModel = BrowseViewModel()
     @Binding var selectedItem: MediaItem?
-    @State private var showNetworkHub = false
     @State private var selectedNetworkHub: NetworkHub?
-    @State private var showTwentiethCenturySheet = false
-    @State private var showWarnerBrosSheet = false
-    @State private var showDreamWorksSheet = false
-    @State private var showDCStudiosSheet = false
-    @State private var showUniversalPicturesSheet = false
-    @State private var showSonyPicturesSheet = false
+    @State private var activeStudioSheet: StudioSheet?
     @State private var showCustomizeSheet = false
     @State private var selectedPerson: Person?
+    
+    enum StudioSheet: String, Identifiable {
+        case twentiethCentury, warnerBros, dreamWorks, dcStudios, universalPictures, sonyPictures
+        var id: String { rawValue }
+    }
     
     var body: some View {
         NavigationStack {
@@ -34,7 +33,6 @@ struct BrowseView: View {
                     if !viewModel.networkHubs.isEmpty {
                         NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
                             selectedNetworkHub = hub
-                            showNetworkHub = true
                         }
                         .padding(.top, 4)
                     }
@@ -62,24 +60,12 @@ struct BrowseView: View {
                         // Insert Studios buttons after Trending TV Shows row
                         if row.title == "Trending TV Shows" {
                             StudiosHubRow(
-                                onTwentiethCenturyTap: {
-                                    showTwentiethCenturySheet = true
-                                },
-                                onWarnerBrosTap: {
-                                    showWarnerBrosSheet = true
-                                },
-                                onDreamWorksTap: {
-                                    showDreamWorksSheet = true
-                                },
-                                onDCStudiosTap: {
-                                    showDCStudiosSheet = true
-                                },
-                                onUniversalPicturesTap: {
-                                    showUniversalPicturesSheet = true
-                                },
-                                onSonyPicturesTap: {
-                                    showSonyPicturesSheet = true
-                                }
+                                onTwentiethCenturyTap: { activeStudioSheet = .twentiethCentury },
+                                onWarnerBrosTap: { activeStudioSheet = .warnerBros },
+                                onDreamWorksTap: { activeStudioSheet = .dreamWorks },
+                                onDCStudiosTap: { activeStudioSheet = .dcStudios },
+                                onUniversalPicturesTap: { activeStudioSheet = .universalPictures },
+                                onSonyPicturesTap: { activeStudioSheet = .sonyPictures }
                             )
                         }
                     }
@@ -104,28 +90,24 @@ struct BrowseView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showNetworkHub) {
-                if let hub = selectedNetworkHub {
-                    NetworkHubSheet(hub: hub, selectedItem: $selectedItem)
+            .sheet(item: $selectedNetworkHub) { hub in
+                NetworkHubSheet(hub: hub, selectedItem: $selectedItem)
+            }
+            .sheet(item: $activeStudioSheet) { studio in
+                switch studio {
+                case .twentiethCentury:
+                    TwentiethCenturyStudiosSheet(selectedItem: $selectedItem)
+                case .warnerBros:
+                    WarnerBrosSheet(selectedItem: $selectedItem)
+                case .dreamWorks:
+                    DreamWorksSheet(selectedItem: $selectedItem)
+                case .dcStudios:
+                    DCStudiosSheet(selectedItem: $selectedItem)
+                case .universalPictures:
+                    UniversalPicturesSheet(selectedItem: $selectedItem)
+                case .sonyPictures:
+                    SonyPicturesSheet(selectedItem: $selectedItem)
                 }
-            }
-            .sheet(isPresented: $showTwentiethCenturySheet) {
-                TwentiethCenturyStudiosSheet(selectedItem: $selectedItem)
-            }
-            .sheet(isPresented: $showWarnerBrosSheet) {
-                WarnerBrosSheet(selectedItem: $selectedItem)
-            }
-            .sheet(isPresented: $showDreamWorksSheet) {
-                DreamWorksSheet(selectedItem: $selectedItem)
-            }
-            .sheet(isPresented: $showDCStudiosSheet) {
-                DCStudiosSheet(selectedItem: $selectedItem)
-            }
-            .sheet(isPresented: $showUniversalPicturesSheet) {
-                UniversalPicturesSheet(selectedItem: $selectedItem)
-            }
-            .sheet(isPresented: $showSonyPicturesSheet) {
-                SonyPicturesSheet(selectedItem: $selectedItem)
             }
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
@@ -1250,8 +1232,6 @@ struct SonyPicturesSheet: View {
 
 // MARK: - Browse Discover Section
 struct BrowseDiscoverSection: View {
-    @ObservedObject private var storage = StorageService.shared
-    
     var body: some View {
         VStack(spacing: 20) {
             // Section Header
@@ -1343,50 +1323,8 @@ struct BrowseDiscoverSection: View {
             }
             .padding(.horizontal)
             
-            // Quick Stats Row
-            if storage.watched.count > 0 || storage.liked.count > 0 {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Quick Glance")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .padding(.horizontal)
-                    
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            QuickStatPill(
-                                label: "Watched",
-                                value: "\(storage.watched.count)",
-                                iconName: "checkmark.circle.fill",
-                                color: .green
-                            )
-                            
-                            QuickStatPill(
-                                label: "Watchlist",
-                                value: "\(storage.wantToWatch.count)",
-                                iconName: "bookmark.fill",
-                                color: .blue
-                            )
-                            
-                            QuickStatPill(
-                                label: "Liked",
-                                value: "\(storage.liked.count)",
-                                iconName: "heart.fill",
-                                color: .red
-                            )
-                            
-                            if storage.customLists.count > 0 {
-                                QuickStatPill(
-                                    label: "Lists",
-                                    value: "\(storage.customLists.count)",
-                                    iconName: "folder.fill",
-                                    color: .purple
-                                )
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
-                }
-            }
+            // Quick Stats Row — only observes storage here
+            BrowseQuickStatsRow()
             
             // Collections
             if !PopularTMDBCollection.popular.isEmpty {
@@ -1414,6 +1352,57 @@ struct BrowseDiscoverSection: View {
             Spacer(minLength: 40)
         }
         .padding(.top, 8)
+    }
+}
+
+// MARK: - Quick Stats Row (isolated storage observation)
+struct BrowseQuickStatsRow: View {
+    @ObservedObject private var storage = StorageService.shared
+    
+    var body: some View {
+        if storage.watched.count > 0 || storage.liked.count > 0 {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Quick Glance")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                    .padding(.horizontal)
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        QuickStatPill(
+                            label: "Watched",
+                            value: "\(storage.watched.count)",
+                            iconName: "checkmark.circle.fill",
+                            color: .green
+                        )
+                        
+                        QuickStatPill(
+                            label: "Watchlist",
+                            value: "\(storage.wantToWatch.count)",
+                            iconName: "bookmark.fill",
+                            color: .blue
+                        )
+                        
+                        QuickStatPill(
+                            label: "Liked",
+                            value: "\(storage.liked.count)",
+                            iconName: "heart.fill",
+                            color: .red
+                        )
+                        
+                        if storage.customLists.count > 0 {
+                            QuickStatPill(
+                                label: "Lists",
+                                value: "\(storage.customLists.count)",
+                                iconName: "folder.fill",
+                                color: .purple
+                            )
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
     }
 }
 

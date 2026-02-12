@@ -13,6 +13,9 @@ struct ContentView: View {
     @State private var selectedMediaItem: MediaItem?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
+    // Track which tabs have been visited so we only create their views once
+    @State private var visitedTabs: Set<Tab> = [.browse]
+    
     enum Tab: Int, CaseIterable, Identifiable {
         case browse = 0
         case search = 1
@@ -69,28 +72,54 @@ struct ContentView: View {
             }
             
             Tab.search.tab {
-                NavigationStack {
-                    SearchView(selectedItem: $selectedMediaItem)
-                        .navigationTitle("Search")
+                LazyTabContent(tab: .search, visitedTabs: $visitedTabs) {
+                    NavigationStack {
+                        SearchView(selectedItem: $selectedMediaItem)
+                            .navigationTitle("Search")
+                    }
                 }
             }
             
             Tab.ai.tab {
-                AIAssistantView()
+                LazyTabContent(tab: .ai, visitedTabs: $visitedTabs) {
+                    AIAssistantView()
+                }
             }
             
             Tab.lists.tab {
-                ListsView()
+                LazyTabContent(tab: .lists, visitedTabs: $visitedTabs) {
+                    ListsView()
+                }
             }
             
             Tab.settings.tab {
-                NavigationStack {
-                    SettingsView()
-                        .navigationTitle("Settings")
+                LazyTabContent(tab: .settings, visitedTabs: $visitedTabs) {
+                    NavigationStack {
+                        SettingsView()
+                            .navigationTitle("Settings")
+                    }
                 }
             }
         }
         .tint(.accentColor)
+        .onChange(of: selectedTab) { _, newTab in
+            visitedTabs.insert(newTab)
+        }
+    }
+}
+
+/// Wraps tab content so it is only created on first visit, then kept alive.
+struct LazyTabContent<Content: View>: View {
+    let tab: ContentView.Tab
+    @Binding var visitedTabs: Set<ContentView.Tab>
+    @ViewBuilder let content: () -> Content
+    
+    var body: some View {
+        if visitedTabs.contains(tab) {
+            content()
+        } else {
+            Color.clear
+        }
     }
 }
 

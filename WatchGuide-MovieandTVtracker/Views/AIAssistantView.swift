@@ -60,83 +60,8 @@ struct AIAssistantView: View {
                 
                 Divider()
                 
-                // Bottom bar
-                VStack(spacing: 0) {
-                    // Model selector (compact)
-                    HStack(spacing: 12) {
-                        Menu {
-                            ForEach(AIService.ChronModel.allCases, id: \.rawValue) { model in
-                                Button {
-                                    viewModel.selectedModel = model
-                                } label: {
-                                    HStack {
-                                        Text(model.displayName)
-                                        if viewModel.selectedModel == model {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "cpu")
-                                    .font(.system(size: 10))
-                                Text(viewModel.selectedModel.displayName)
-                                    .font(.caption2)
-                                    .lineLimit(1)
-                                Image(systemName: "chevron.up.chevron.down")
-                                    .font(.system(size: 7))
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(Color(.systemGray5))
-                            .cornerRadius(6)
-                        }
-                        .foregroundColor(.secondary)
-                        
-                        Spacer()
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 6)
-                    .padding(.bottom, 4)
-                    
-                    // Input area
-                    HStack(alignment: .bottom, spacing: 10) {
-                        TextEditor(text: $viewModel.inputText)
-                            .focused($isInputFocused)
-                            .frame(minHeight: 36, maxHeight: 100)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .scrollContentBackground(.hidden)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color(.systemGray5))
-                            .cornerRadius(18)
-                            .overlay {
-                                if viewModel.inputText.isEmpty {
-                                    HStack {
-                                        Text("Ask Chron anything...")
-                                            .foregroundColor(Color(.placeholderText))
-                                            .padding(.leading, 12)
-                                            .allowsHitTesting(false)
-                                        Spacer()
-                                    }
-                                }
-                            }
-                        
-                        Button {
-                            sendMessage()
-                        } label: {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.title2)
-                                .foregroundColor(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .accentColor)
-                        }
-                        .disabled(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isLoading)
-                        .padding(.bottom, 4)
-                    }
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
-                }
-                .background(Color(.systemGray6))
+                // Bottom bar — extracted to isolate redraws from the message list
+                AIInputBar(viewModel: viewModel, isInputFocused: $isInputFocused, onSend: sendMessage)
             }
             .navigationTitle("Chron")
             .navigationBarTitleDisplayMode(.inline)
@@ -204,6 +129,96 @@ struct AIAssistantView: View {
         Task {
             await viewModel.sendMessage()
         }
+    }
+}
+
+// MARK: - AI Input Bar (isolated to prevent redraw propagation)
+struct AIInputBar: View {
+    @ObservedObject var viewModel: AIAssistantViewModel
+    var isInputFocused: FocusState<Bool>.Binding
+    let onSend: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Model selector (compact)
+            modelSelector
+            
+            // Input area
+            HStack(alignment: .bottom, spacing: 10) {
+                TextEditor(text: $viewModel.inputText)
+                    .focused(isInputFocused)
+                    .frame(minHeight: 36, maxHeight: 100)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(.systemGray5))
+                    .cornerRadius(18)
+                    .overlay {
+                        if viewModel.inputText.isEmpty {
+                            HStack {
+                                Text("Ask Chron anything...")
+                                    .foregroundColor(Color(.placeholderText))
+                                    .padding(.leading, 12)
+                                    .allowsHitTesting(false)
+                                Spacer()
+                            }
+                        }
+                    }
+                
+                Button {
+                    onSend()
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .accentColor)
+                }
+                .disabled(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isLoading)
+                .padding(.bottom, 4)
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+        }
+        .background(Color(.systemGray6))
+    }
+    
+    private var modelSelector: some View {
+        HStack(spacing: 12) {
+            Menu {
+                ForEach(AIService.ChronModel.allCases, id: \.rawValue) { model in
+                    Button {
+                        viewModel.selectedModel = model
+                    } label: {
+                        HStack {
+                            Text(model.displayName)
+                            if viewModel.selectedModel == model {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "cpu")
+                        .font(.system(size: 10))
+                    Text(viewModel.selectedModel.displayName)
+                        .font(.caption2)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 7))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color(.systemGray5))
+                .cornerRadius(6)
+            }
+            .foregroundColor(.secondary)
+            
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.top, 6)
+        .padding(.bottom, 4)
     }
 }
 
