@@ -172,7 +172,7 @@ actor AIService {
         var requestBody: [String: Any] = [
             "model": model.modelName,
             "messages": messages,
-            "max_tokens": 1200,
+            "max_tokens": 2048,
             "temperature": 0.7,
             "stream": true
         ]
@@ -380,6 +380,8 @@ actor AIService {
         - Be casual and fun, like texting a film-buff friend
         - Use bullet points for lists
         - For trailer requests, tell users to ask "trailer for [title]"
+        - NEVER include "Related searches", "Related questions", "People also ask", or similar sections in your response. Only answer the question directly.
+        - Always finish your response completely. Never stop mid-sentence or mid-number.
         """
         
         if webSearchEnabled {

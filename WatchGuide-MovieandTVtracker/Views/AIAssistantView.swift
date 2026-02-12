@@ -719,6 +719,26 @@ private func cleanAIResponse(_ text: String) -> String {
         cleaned = headerRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
     }
     
+    // Remove "Related searches:" sections and everything after
+    if let relatedRegex = try? NSRegularExpression(pattern: "\\n*Related searches?:.*$", options: [.dotMatchesLineSeparators, .caseInsensitive]) {
+        cleaned = relatedRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+    }
+    
+    // Remove "Related questions:" sections
+    if let relatedQRegex = try? NSRegularExpression(pattern: "\\n*Related questions?:.*$", options: [.dotMatchesLineSeparators, .caseInsensitive]) {
+        cleaned = relatedQRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+    }
+    
+    // Remove "People also ask:" sections
+    if let paaRegex = try? NSRegularExpression(pattern: "\\n*People also ask:.*$", options: [.dotMatchesLineSeparators, .caseInsensitive]) {
+        cleaned = paaRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+    }
+    
+    // Remove lines starting with "+ " that are related search suggestions
+    if let plusLineRegex = try? NSRegularExpression(pattern: "^\\+\\s+.+$", options: .anchorsMatchLines) {
+        cleaned = plusLineRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+    }
+    
     // Remove "Learn more:" sections at the end that reference sources
     if let learnMoreRegex = try? NSRegularExpression(pattern: "\\n*Learn more:.*$", options: [.dotMatchesLineSeparators]) {
         cleaned = learnMoreRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
