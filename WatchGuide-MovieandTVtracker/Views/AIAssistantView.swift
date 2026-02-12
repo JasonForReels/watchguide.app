@@ -51,9 +51,11 @@ struct AIAssistantView: View {
                             }
                         }
                     }
-                    .onTapGesture {
-                        isInputFocused = false
-                    }
+                    .simultaneousGesture(
+                        TapGesture().onEnded {
+                            isInputFocused = false
+                        }
+                    )
                 }
                 
                 Divider()

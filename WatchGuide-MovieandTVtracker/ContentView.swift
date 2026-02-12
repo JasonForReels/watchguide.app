@@ -26,7 +26,7 @@ struct ContentView: View {
             switch self {
             case .browse: return "Browse"
             case .search: return "Search"
-            case .ai: return "AI"
+            case .ai: return "Chron"
             case .lists: return "Lists"
             case .settings: return "Settings"
             }
