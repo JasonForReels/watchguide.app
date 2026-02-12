@@ -83,6 +83,9 @@ struct BrowseView: View {
                             )
                         }
                     }
+                    
+                    // MARK: - Discover Section
+                    BrowseDiscoverSection()
                 }
                 .padding(.vertical)
             }
@@ -1242,6 +1245,175 @@ struct SonyPicturesSheet: View {
         }
         
         isLoading = false
+    }
+}
+
+// MARK: - Browse Discover Section
+struct BrowseDiscoverSection: View {
+    @ObservedObject private var storage = StorageService.shared
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Section Header
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Discover")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    Text("Explore, analyze, and find your next watch")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal)
+            
+            // Feature Cards Grid
+            VStack(spacing: 14) {
+                // Mood Discovery - Hero card
+                NavigationLink(destination: MoodDiscoveryView()) {
+                    DiscoverFeatureCard(
+                        title: "Mood Discovery",
+                        subtitle: "Pick your vibe, get curated results",
+                        iconName: "sparkles",
+                        accentColor: .purple,
+                        isLarge: true
+                    )
+                }
+                .buttonStyle(.plain)
+                
+                HStack(spacing: 14) {
+                    NavigationLink(destination: RandomPickView()) {
+                        DiscoverFeatureCard(
+                            title: "Random Pick",
+                            subtitle: "Can't decide? Let us choose",
+                            iconName: "dice.fill",
+                            accentColor: .orange,
+                            isLarge: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    
+                    NavigationLink(destination: CountdownCalendarView()) {
+                        DiscoverFeatureCard(
+                            title: "Countdown",
+                            subtitle: "Upcoming release dates",
+                            iconName: "calendar.badge.clock",
+                            accentColor: .green,
+                            isLarge: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                
+                HStack(spacing: 14) {
+                    NavigationLink(destination: DecadeExplorerView()) {
+                        DiscoverFeatureCard(
+                            title: "Time Machine",
+                            subtitle: "Explore cinema by decade",
+                            iconName: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+                            accentColor: .teal,
+                            isLarge: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    
+                    NavigationLink(destination: StatsInsightsView()) {
+                        DiscoverFeatureCard(
+                            title: "My Stats",
+                            subtitle: "Your watching insights",
+                            iconName: "chart.bar.fill",
+                            accentColor: .blue,
+                            isLarge: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                
+                NavigationLink(destination: AIRecommendView()) {
+                    DiscoverFeatureCard(
+                        title: "AI Recommendations",
+                        subtitle: "Get personalized picks from AI assistants",
+                        iconName: "brain.head.profile.fill",
+                        accentColor: Color(.systemGray),
+                        isLarge: true
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal)
+            
+            // Quick Stats Row
+            if storage.watched.count > 0 || storage.liked.count > 0 {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Quick Glance")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .padding(.horizontal)
+                    
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            QuickStatPill(
+                                label: "Watched",
+                                value: "\(storage.watched.count)",
+                                iconName: "checkmark.circle.fill",
+                                color: .green
+                            )
+                            
+                            QuickStatPill(
+                                label: "Watchlist",
+                                value: "\(storage.wantToWatch.count)",
+                                iconName: "bookmark.fill",
+                                color: .blue
+                            )
+                            
+                            QuickStatPill(
+                                label: "Liked",
+                                value: "\(storage.liked.count)",
+                                iconName: "heart.fill",
+                                color: .red
+                            )
+                            
+                            if storage.customLists.count > 0 {
+                                QuickStatPill(
+                                    label: "Lists",
+                                    value: "\(storage.customLists.count)",
+                                    iconName: "folder.fill",
+                                    color: .purple
+                                )
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+            }
+            
+            // Collections
+            if !PopularTMDBCollection.popular.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Collections")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .padding(.horizontal)
+                    
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(PopularTMDBCollection.popular) { collection in
+                                NavigationLink(destination: TMDBCollectionSheet(collection: collection)) {
+                                    TMDBCollectionTile(collection: collection)
+                                        .frame(width: 180)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+            }
+            
+            Spacer(minLength: 40)
+        }
+        .padding(.top, 8)
     }
 }
 
