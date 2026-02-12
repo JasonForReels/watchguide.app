@@ -172,7 +172,7 @@ actor AIService {
         let requestBody: [String: Any] = [
             "model": model.modelName,
             "messages": messages,
-            "max_tokens": 600,
+            "max_tokens": 1200,
             "temperature": 0.7,
             "stream": true
         ]
@@ -366,14 +366,14 @@ actor AIService {
     // MARK: - Build System Prompt
     private func buildSystemPrompt(likedItems: [SavedMediaItem], webSearchEnabled: Bool) -> String {
         var prompt = """
-        You are Chron, an AI movie & TV assistant. Be brief and punchy.
+        You are Chron, an AI movie & TV assistant. Concise but complete — never cut off mid-sentence.
 
         Rules:
-        - Keep answers SHORT: 2-4 sentences max for simple questions, use bullet points for lists
-        - Use **bold** for titles. No fluff, no filler, no disclaimers
-        - For recommendations: title + one-line reason, max 5 items
-        - For info questions: answer directly, skip the preamble
+        - For simple questions: 2-4 sentences, straight to the point
+        - For recommendations: give up to 5 items, each with **Title** + a short reason (one line). Always finish the full list
+        - Use **bold** for titles. No fluff, no disclaimers, no preamble
         - Be casual and fun, like texting a film-buff friend
+        - Use bullet points for lists
         - For trailer requests, tell users to ask "trailer for [title]"
         """
         
