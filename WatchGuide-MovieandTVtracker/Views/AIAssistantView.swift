@@ -119,7 +119,7 @@ struct AIAssistantView: View {
     var body: some View {
         NavigationStack {
             AIAssistantBody(viewModel: viewModel)
-                .navigationTitle("Chron")
+                .navigationTitle("Scout")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
@@ -268,7 +268,7 @@ private struct MessageBubbleWrapper: View {
             return (cached, cachedLinks)
         }
         let extraction = extractLinks(from: message.content)
-        let parsed = parseMarkdown(extraction.cleanedText)
+        let parsed = parseMarkdown(extraction.cleanedText) // cleanAIResponse is called inside parseMarkdown
         let links = extraction.links
         DispatchQueue.main.async {
             cachedMarkdown = parsed
@@ -298,7 +298,7 @@ private struct WelcomeView: View {
             }
             
             VStack(spacing: 6) {
-                Text("Chron")
+                Text("Scout")
                     .font(.title3)
                     .fontWeight(.bold)
                 
@@ -421,7 +421,8 @@ private struct AIInputTextField: View {
                 .overlay {
                     if inputText.isEmpty {
                         HStack {
-                            Text("Ask Chron anything...")
+                            Text("Ask Scout anything...")
+                                .font(.body)
                                 .foregroundColor(Color(.placeholderText))
                                 .padding(.leading, 12)
                                 .allowsHitTesting(false)
@@ -595,23 +596,75 @@ struct ThinkingBubble: View {
 
 // MARK: - Markdown Text Helpers
 
+private func cleanAIResponse(_ text: String) -> String {
+    var cleaned = text
+    
+    // Remove markdown reference links like [[1]]() or [[1]](url)
+    if let refRegex = try? NSRegularExpression(pattern: "\\[\\[\\d+\\]\\]\\([^)]*\\)", options: []) {
+        cleaned = refRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+    }
+    
+    // Remove numbered reference footnotes like [1], [2] etc at end
+    if let fnRegex = try? NSRegularExpression(pattern: "\\[\\d+\\]", options: []) {
+        cleaned = fnRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+    }
+    
+    // Remove horizontal rules (---, ___, ***)
+    cleaned = cleaned.replacingOccurrences(of: "\n---\n", with: "\n")
+    cleaned = cleaned.replacingOccurrences(of: "\n___\n", with: "\n")
+    cleaned = cleaned.replacingOccurrences(of: "\n***\n", with: "\n")
+    
+    // Remove markdown headers (# ## ###)
+    if let headerRegex = try? NSRegularExpression(pattern: "^#{1,3}\\s+", options: .anchorsMatchLines) {
+        cleaned = headerRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+    }
+    
+    // Remove "Learn more:" sections at the end that reference sources
+    if let learnMoreRegex = try? NSRegularExpression(pattern: "\\n*Learn more:.*$", options: [.dotMatchesLineSeparators]) {
+        cleaned = learnMoreRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+    }
+    
+    // Remove "Sources:" sections at the end
+    if let sourcesRegex = try? NSRegularExpression(pattern: "\\n*Sources?:.*$", options: [.dotMatchesLineSeparators]) {
+        cleaned = sourcesRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+    }
+    
+    // Clean up excessive newlines
+    cleaned = cleaned.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+    cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    
+    return cleaned
+}
+
 private func parseMarkdown(_ text: String) -> AttributedString {
+    let cleaned = cleanAIResponse(text)
     var result = AttributedString()
-    let lines = text.components(separatedBy: "\n")
+    let lines = cleaned.components(separatedBy: "\n")
     
     for (lineIndex, line) in lines.enumerated() {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
+        
+        // Skip pure separator lines
+        if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+            continue
+        }
+        
         let isBullet = trimmed.hasPrefix("* ") || trimmed.hasPrefix("- ")
+        // Numbered list items like "1. " or "2. "
+        let isNumberedList = trimmed.range(of: "^\\d+\\.\\s", options: .regularExpression) != nil
         
         if isBullet {
-            var bulletPrefix = AttributedString("• ")
+            var bulletPrefix = AttributedString("  • ")
             bulletPrefix.font = .body
             result.append(bulletPrefix)
             
             let content = String(trimmed.dropFirst(2))
-            result.append(parseBoldSegments(content))
+            result.append(parseInlineFormatting(content))
+        } else if isNumberedList {
+            // Keep the number but style it
+            result.append(parseInlineFormatting("  " + trimmed))
         } else {
-            result.append(parseBoldSegments(line))
+            result.append(parseInlineFormatting(line))
         }
         
         if lineIndex < lines.count - 1 {
@@ -622,7 +675,7 @@ private func parseMarkdown(_ text: String) -> AttributedString {
     return result
 }
 
-private func parseBoldSegments(_ text: String) -> AttributedString {
+private func parseInlineFormatting(_ text: String) -> AttributedString {
     var result = AttributedString()
     var remaining = text[text.startIndex...]
     
@@ -643,6 +696,7 @@ private func parseBoldSegments(_ text: String) -> AttributedString {
             result.append(boldAttr)
             remaining = remaining[boldEnd.upperBound...]
         } else {
+            // No closing **, just append the rest as normal text
             var attr = AttributedString(String(remaining[boldStart.lowerBound...]))
             attr.font = .body
             result.append(attr)
@@ -738,8 +792,13 @@ struct MessageBubble: View {
     
     @State private var showTrailerPlayer = false
     @State private var showThinking = false
+    @Environment(\.colorScheme) private var colorScheme
     
     private var isUser: Bool { message.role == "user" }
+    
+    private var assistantBubbleColor: Color {
+        colorScheme == .dark ? Color(.systemGray5) : Color(.systemGray6)
+    }
     
     var body: some View {
         HStack {
@@ -751,11 +810,12 @@ struct MessageBubble: View {
                         Image(systemName: "sparkles")
                             .font(.system(size: 10))
                             .foregroundColor(.accentColor)
-                        Text("Chron")
+                        Text("Scout")
                             .font(.caption2)
-                            .fontWeight(.medium)
+                            .fontWeight(.semibold)
                             .foregroundColor(.secondary)
                     }
+                    .padding(.leading, 4)
                 }
                 
                 if let thinking = message.thinkingContent, !thinking.isEmpty, !isUser {
@@ -769,12 +829,13 @@ struct MessageBubble: View {
                                 .font(.system(size: 9))
                             Text("Thought process")
                                 .font(.caption2)
+                                .fontWeight(.medium)
                             Image(systemName: showThinking ? "chevron.up" : "chevron.down")
                                 .font(.system(size: 7))
                         }
                         .foregroundColor(.purple.opacity(0.7))
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 5)
                         .background(Color.purple.opacity(0.08))
                         .cornerRadius(8)
                     }
@@ -784,42 +845,45 @@ struct MessageBubble: View {
                             .font(.caption2)
                             .foregroundColor(.secondary)
                             .lineLimit(12)
-                            .padding(8)
+                            .padding(10)
                             .background(Color.purple.opacity(0.05))
-                            .cornerRadius(8)
+                            .cornerRadius(10)
                             .transition(.opacity)
                     }
                 }
                 
-                HStack(spacing: 0) {
-                    if isUser {
-                        Text(message.content)
-                            .font(.body)
-                    } else {
-                        Text(parsedMarkdown)
-                    }
-                    
-                    if isStreaming {
-                        Text("|")
-                            .font(.body)
-                            .foregroundColor(.accentColor)
-                            .opacity(0.8)
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 0) {
+                        if isUser {
+                            Text(message.content)
+                                .font(.body)
+                        } else {
+                            Text(parsedMarkdown)
+                        }
+                        
+                        if isStreaming {
+                            Text("|")
+                                .font(.body)
+                                .foregroundColor(.accentColor)
+                                .opacity(0.8)
+                        }
                     }
                 }
                 .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(isUser ? Color.accentColor : Color(.systemGray5))
+                .padding(.vertical, 11)
+                .background(
+                    isUser ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(assistantBubbleColor)
+                )
                 .foregroundColor(isUser ? .white : .primary)
-                .cornerRadius(16)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 
                 // Source links below the bubble
                 if !isUser && !links.isEmpty && !isStreaming {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Sources")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(.secondary)
-                            .textCase(.uppercase)
-                            .tracking(0.5)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("SOURCES")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(Color.secondary.opacity(0.6))
+                            .tracking(0.8)
                         
                         SourceLinksFlowLayout(spacing: 6) {
                             ForEach(links) { link in
@@ -827,16 +891,18 @@ struct MessageBubble: View {
                             }
                         }
                     }
-                    .padding(.top, 2)
+                    .padding(.top, 4)
+                    .padding(.leading, 4)
                 }
                 
                 if let key = trailerKey, let title = trailerTitle, !isUser {
                     Button {
                         showTrailerPlayer = true
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             Image(systemName: "play.circle.fill")
                                 .font(.title3)
+                                .foregroundColor(.accentColor)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text("Watch Trailer")
                                     .font(.caption)
@@ -850,9 +916,15 @@ struct MessageBubble: View {
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                         }
-                        .padding(10)
-                        .background(Color(.systemGray6))
-                        .cornerRadius(12)
+                        .padding(11)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color(.systemGray6))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color(.systemGray4).opacity(0.3), lineWidth: 0.5)
+                        )
                     }
                     .foregroundColor(.primary)
                     .frame(maxWidth: 260)
@@ -861,10 +933,24 @@ struct MessageBubble: View {
                     }
                 }
             }
-            .frame(maxWidth: 300, alignment: isUser ? .trailing : .leading)
+            .frame(maxWidth: 320, alignment: isUser ? .trailing : .leading)
             
             if !isUser { Spacer() }
         }
+    }
+}
+
+// Helper for type-erased ShapeStyle
+private struct AnyShapeStyle: ShapeStyle {
+    private let _resolve: (inout EnvironmentValues) -> Color
+    
+    init(_ color: Color) {
+        _resolve = { _ in color }
+    }
+    
+    func resolve(in environment: EnvironmentValues) -> some ShapeStyle {
+        var env = environment
+        return _resolve(&env)
     }
 }
 

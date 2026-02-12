@@ -1569,6 +1569,8 @@ struct ForYouRow: View {
 private struct ForYouErrorRow: View {
     let message: String
     let onRetry: () -> Void
+    @State private var isPressed = false
+    @State private var rotationAngle: Double = 0
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1580,32 +1582,57 @@ private struct ForYouErrorRow: View {
             }
             .padding(.horizontal)
             
-            HStack(spacing: 12) {
-                Image(systemName: "arrow.clockwise.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(message)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    
-                    Button(action: onRetry) {
-                        Text("Tap to retry")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundColor(.accentColor)
-                    }
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    rotationAngle += 360
                 }
-                
-                Spacer()
+                onRetry()
+            }) {
+                HStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.1))
+                            .frame(width: 44, height: 44)
+                        
+                        Image(systemName: "arrow.trianglehead.2.clockwise")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.accentColor)
+                            .rotationEffect(.degrees(rotationAngle))
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Couldn't load picks")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                        
+                        Text("Tap to refresh")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(Color.secondary.opacity(0.5))
+                }
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(.systemGray6))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color(.systemGray4).opacity(0.3), lineWidth: 0.5)
+                )
             }
-            .padding(.horizontal)
-            .padding(.vertical, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(.systemGray6))
-            )
+            .buttonStyle(.plain)
+            .scaleEffect(isPressed ? 0.97 : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
+            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+                isPressed = pressing
+            }, perform: {})
             .padding(.horizontal)
         }
     }
@@ -2195,3 +2222,4 @@ struct BrowseCustomizeSheet: View {
 #Preview {
     BrowseView(selectedItem: .constant(nil))
 }
+

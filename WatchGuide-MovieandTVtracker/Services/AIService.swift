@@ -371,7 +371,7 @@ actor AIService {
     // MARK: - Build System Prompt
     private func buildSystemPrompt(likedItems: [SavedMediaItem], webSearchEnabled: Bool) -> String {
         var prompt = """
-        You are Chron, an AI movie & TV assistant. Concise but complete — never cut off mid-sentence.
+        You are Scout, an AI movie & TV assistant. Concise but complete — never cut off mid-sentence.
 
         Rules:
         - For simple questions: 2-4 sentences, straight to the point

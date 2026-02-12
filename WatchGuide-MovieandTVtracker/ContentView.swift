@@ -29,7 +29,7 @@ struct ContentView: View {
             switch self {
             case .browse: return "Browse"
             case .search: return "Search"
-            case .ai: return "Chron"
+            case .ai: return "Scout"
             case .lists: return "Lists"
             case .settings: return "Settings"
             }
