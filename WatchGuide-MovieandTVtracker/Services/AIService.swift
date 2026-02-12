@@ -382,6 +382,7 @@ actor AIService {
         - For trailer requests, tell users to ask "trailer for [title]"
         - NEVER include "Related searches", "Related questions", "People also ask", or similar sections in your response. Only answer the question directly.
         - Always finish your response completely. Never stop mid-sentence or mid-number.
+        - CRITICAL: NEVER repeat yourself. State facts exactly ONCE. If you mention box office numbers, dates, or any data, say it ONE time only. Do NOT restate or rephrase the same information a second time. Your response must be concise with zero redundancy.
         """
         
         if webSearchEnabled {
@@ -396,6 +397,7 @@ actor AIService {
             - Include source URLs in your response. Format them as markdown links like [Source Name](https://url). Put source links naturally in the text or at the end.
             - Do NOT say you cannot look things up or that you don't have access to real-time data. You DO have web search — use it for every factual query.
             - Double-check your numbers. If a movie is still in theaters, explicitly note that numbers are still updating.
+            - IMPORTANT: Even if multiple search results contain the same data, only state each fact ONCE. Synthesize all sources into a single, non-repetitive answer. Never duplicate paragraphs or bullet points.
             """
         }
         

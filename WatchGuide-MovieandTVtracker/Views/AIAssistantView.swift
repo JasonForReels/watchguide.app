@@ -749,11 +749,62 @@ private func cleanAIResponse(_ text: String) -> String {
         cleaned = sourcesRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
     }
     
+    // --- DEDUPLICATION: Remove repeated blocks of text ---
+    cleaned = deduplicateResponse(cleaned)
+    
     // Clean up excessive newlines
     cleaned = cleaned.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
     cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     
     return cleaned
+}
+
+/// Detects and removes duplicated paragraphs/blocks within a response.
+/// Splits by double-newline into paragraphs, then removes any paragraph that
+/// is a near-duplicate of an earlier one (using normalized comparison).
+private func deduplicateResponse(_ text: String) -> String {
+    // Split into paragraphs (blocks separated by blank lines)
+    let paragraphs = text.components(separatedBy: "\n\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    
+    guard paragraphs.count > 1 else { return text }
+    
+    var seen: [String] = []
+    var result: [String] = []
+    
+    for paragraph in paragraphs {
+        // Normalize: lowercase, collapse whitespace, strip markdown bold markers and punctuation differences
+        let normalized = paragraph
+            .lowercased()
+            .replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "*", with: "")
+            .replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Check if this paragraph is a near-duplicate of any we've already kept
+        let isDuplicate = seen.contains { existing in
+            // Exact match after normalization
+            if existing == normalized { return true }
+            // Check if one is a substantial substring of the other (>70% overlap)
+            let shorter = min(existing.count, normalized.count)
+            let longer = max(existing.count, normalized.count)
+            guard shorter > 40 else { return false } // only dedup non-trivial blocks
+            // Use Jaccard-like word overlap
+            let existingWords = Set(existing.components(separatedBy: .whitespaces))
+            let normalizedWords = Set(normalized.components(separatedBy: .whitespaces))
+            let intersection = existingWords.intersection(normalizedWords).count
+            let union = existingWords.union(normalizedWords).count
+            guard union > 0 else { return false }
+            let similarity = Double(intersection) / Double(union)
+            return similarity > 0.7
+        }
+        
+        if !isDuplicate {
+            seen.append(normalized)
+            result.append(paragraph)
+        }
+    }
+    
+    return result.joined(separator: "\n\n")
 }
 
 private func parseMarkdown(_ text: String) -> AttributedString {
