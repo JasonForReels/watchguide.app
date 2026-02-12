@@ -238,6 +238,31 @@ private struct AIMessageListView: View {
     }
 }
 
+// MARK: - Word boundary helper
+/// Returns indices into the original string where each "word" (whitespace-delimited token) ends.
+/// E.g. for "Hello world\nFoo" → [5, 11, 15] meaning after char 5 you've revealed "Hello", etc.
+private func wordEndIndices(in text: String) -> [String.Index] {
+    var indices: [String.Index] = []
+    var i = text.startIndex
+    while i < text.endIndex {
+        // Skip whitespace / newlines (they get included with previous word)
+        if text[i].isWhitespace || text[i].isNewline {
+            i = text.index(after: i)
+            continue
+        }
+        // Walk to end of word
+        while i < text.endIndex && !text[i].isWhitespace && !text[i].isNewline {
+            i = text.index(after: i)
+        }
+        // Include trailing whitespace/newlines with this word
+        while i < text.endIndex && (text[i].isWhitespace || text[i].isNewline) {
+            i = text.index(after: i)
+        }
+        indices.append(i)
+    }
+    return indices
+}
+
 // MARK: - MessageBubbleWrapper (caches markdown + links, only recomputes when content length changes)
 private struct MessageBubbleWrapper: View {
     let message: AIService.ChatMessage
@@ -249,33 +274,108 @@ private struct MessageBubbleWrapper: View {
     @State private var cachedLinks: [ExtractedLink] = []
     @State private var lastParsedLength: Int = -1
     
+    // Word-by-word streaming state
+    @State private var displayedWordCount: Int = 0
+    @State private var wordRevealTimer: Timer?
+    @State private var totalWordCount: Int = 0
+    @State private var cleanedFullText: String = ""
+    @State private var wordBoundaries: [String.Index] = []
+    
     var body: some View {
-        let (md, links) = currentContent
+        let (md, links, streamMd) = currentContent
         MessageBubble(
             message: message,
-            parsedMarkdown: md,
+            parsedMarkdown: isStreaming ? streamMd : md,
             links: links,
             trailerKey: trailerKey,
             trailerTitle: trailerTitle,
             isStreaming: isStreaming
         )
+        .onChange(of: message.content.count) { _, _ in
+            if isStreaming {
+                updateWordReveal()
+            }
+        }
+        .onChange(of: isStreaming) { _, newValue in
+            if !newValue {
+                // Streaming ended — immediately show all content, stop timer
+                wordRevealTimer?.invalidate()
+                wordRevealTimer = nil
+                displayedWordCount = 0
+                totalWordCount = 0
+                cleanedFullText = ""
+                wordBoundaries = []
+            }
+        }
+        .onDisappear {
+            wordRevealTimer?.invalidate()
+            wordRevealTimer = nil
+        }
     }
     
-    private var currentContent: (AttributedString, [ExtractedLink]) {
-        if message.role == "user" { return (AttributedString(), []) }
+    private func updateWordReveal() {
+        let cleaned = cleanAIResponse(message.content)
+        cleanedFullText = cleaned
+        let boundaries = wordEndIndices(in: cleaned)
+        wordBoundaries = boundaries
+        totalWordCount = boundaries.count
+        
+        // If displayed count is already caught up, wait for more
+        if displayedWordCount >= totalWordCount { return }
+        
+        // If timer is already running, it will catch up naturally
+        guard wordRevealTimer == nil else { return }
+        
+        // Start a timer to reveal words one by one
+        wordRevealTimer = Timer.scheduledTimer(withTimeInterval: 0.035, repeats: true) { timer in
+            DispatchQueue.main.async {
+                if displayedWordCount < totalWordCount {
+                    displayedWordCount += 1
+                } else {
+                    // Caught up — pause the timer until more content arrives
+                    timer.invalidate()
+                    wordRevealTimer = nil
+                }
+            }
+        }
+    }
+    
+    private var currentContent: (AttributedString, [ExtractedLink], AttributedString) {
+        if message.role == "user" { return (AttributedString(), [], AttributedString()) }
+        
+        // Full parsed content (for non-streaming / final display)
         let len = message.content.count
+        var fullMd: AttributedString
+        var links: [ExtractedLink]
+        
         if len == lastParsedLength, let cached = cachedMarkdown {
-            return (cached, cachedLinks)
+            fullMd = cached
+            links = cachedLinks
+        } else {
+            let extraction = extractLinks(from: message.content)
+            let parsed = parseMarkdown(extraction.cleanedText)
+            links = extraction.links
+            fullMd = parsed
+            DispatchQueue.main.async {
+                cachedMarkdown = parsed
+                cachedLinks = links
+                lastParsedLength = len
+            }
         }
-        let extraction = extractLinks(from: message.content)
-        let parsed = parseMarkdown(extraction.cleanedText) // cleanAIResponse is called inside parseMarkdown
-        let links = extraction.links
-        DispatchQueue.main.async {
-            cachedMarkdown = parsed
-            cachedLinks = links
-            lastParsedLength = len
+        
+        // Build streaming (partial) markdown by truncating at word boundary
+        var streamMd = AttributedString()
+        if isStreaming && displayedWordCount > 0 && !wordBoundaries.isEmpty {
+            let boundaryIdx = min(displayedWordCount, wordBoundaries.count) - 1
+            let endIndex = wordBoundaries[boundaryIdx]
+            let partial = String(cleanedFullText[cleanedFullText.startIndex..<endIndex])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            streamMd = parseMarkdown(partial)
+        } else if isStreaming {
+            streamMd = AttributedString()
         }
-        return (parsed, links)
+        
+        return (fullMd, links, streamMd)
     }
 }
 
@@ -781,6 +881,23 @@ private struct SourceLinksFlowLayout: Layout {
     }
 }
 
+// MARK: - Blinking Cursor
+private struct BlinkingCursor: View {
+    @State private var visible = true
+    
+    var body: some View {
+        Text("|")
+            .font(.body)
+            .foregroundColor(.accentColor)
+            .opacity(visible ? 0.9 : 0.0)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
+                    visible = false
+                }
+            }
+    }
+}
+
 // MARK: - Message Bubble
 struct MessageBubble: View {
     let message: AIService.ChatMessage
@@ -862,10 +979,7 @@ struct MessageBubble: View {
                         }
                         
                         if isStreaming {
-                            Text("|")
-                                .font(.body)
-                                .foregroundColor(.accentColor)
-                                .opacity(0.8)
+                            BlinkingCursor()
                         }
                     }
                 }
