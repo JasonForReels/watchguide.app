@@ -463,7 +463,7 @@ class AIAssistantViewModel: ObservableObject {
     @Published var messages: [AIService.ChatMessage] = []
     @Published var inputText = ""
     @Published var isLoading = false
-    @Published var selectedModel: AIService.ChronModel = .geminiFlash
+    @Published var selectedModel: AIService.ChronModel = .gemini25Flash
     @Published var webSearchEnabled = true
     @Published var trailerMessages: [String: (trailerKey: String, trailerTitle: String)] = [:]
     

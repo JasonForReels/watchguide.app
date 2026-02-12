@@ -8,27 +8,11 @@ import Foundation
 actor AIService {
     static let shared = AIService()
     
-    // OpenRouter API endpoint (OpenAI-compatible)
-    private let baseURL = "https://openrouter.ai/api/v1/chat/completions"
+    // Poe OpenAI-compatible API endpoint
+    private let baseURL = "https://api.poe.com/v1/chat/completions"
     
     private var apiKey: String {
-        // Try OpenRouter first, fall back to OpenAI
-        if let key = ApiKeyManager.shared.get(key: "OPENROUTER_API_KEY"), !key.isEmpty {
-            return key
-        }
-        return ApiKeyManager.shared.get(key: "OPENAI_API_KEY") ?? ""
-    }
-    
-    private var isUsingOpenAI: Bool {
-        let orKey = ApiKeyManager.shared.get(key: "OPENROUTER_API_KEY") ?? ""
-        return orKey.isEmpty
-    }
-    
-    private var effectiveBaseURL: String {
-        if isUsingOpenAI {
-            return "https://api.openai.com/v1/chat/completions"
-        }
-        return baseURL
+        return ApiKeyManager.shared.get(key: "POE_API_KEY") ?? ""
     }
     
     private init() {}
@@ -39,26 +23,20 @@ actor AIService {
     
     // MARK: - Available Models
     enum ChronModel: String, CaseIterable {
-        case geminiFlash = "google/gemini-2.0-flash-001"
-        case deepseek = "deepseek/deepseek-chat-v3-0324:free"
+        case gemini25Flash = "Gemini-2.5-Flash"
+        case gemini20Flash = "Gemini-2.0-Flash"
+        case gpt5Nano = "GPT-5-nano"
         
         var displayName: String {
             switch self {
-            case .geminiFlash: return "Gemini Flash"
-            case .deepseek: return "DeepSeek V3 (Free)"
+            case .gemini25Flash: return "Gemini 2.5 Flash"
+            case .gemini20Flash: return "Gemini 2.0 Flash"
+            case .gpt5Nano: return "GPT-5 Nano"
             }
         }
         
-        var openRouterModelName: String {
+        var modelName: String {
             return self.rawValue
-        }
-        
-        // Fallback model name when using OpenAI directly
-        var openAIModelName: String {
-            switch self {
-            case .geminiFlash: return "gpt-4o-mini"
-            case .deepseek: return "gpt-4o-mini"
-            }
         }
     }
     
@@ -94,7 +72,7 @@ actor AIService {
         conversationHistory: [ChatMessage],
         likedItems: [SavedMediaItem],
         webSearchEnabled: Bool = true,
-        model: ChronModel = .geminiFlash
+        model: ChronModel = .gemini25Flash
     ) async throws -> (String, TrailerResponse?) {
         guard !apiKey.isEmpty else {
             throw AIError.noApiKey
@@ -304,7 +282,7 @@ actor AIService {
         return summary
     }
     
-    // MARK: - Send Message to LLM (OpenRouter or OpenAI)
+    // MARK: - Send Message to LLM (Poe API)
     private func sendMessageToLLM(
         _ message: String,
         conversationHistory: [ChatMessage],
@@ -329,18 +307,16 @@ actor AIService {
         // Add the current user message
         messages.append(["role": "user", "content": message])
         
-        // Choose model name based on provider
-        let modelName = isUsingOpenAI ? model.openAIModelName : model.openRouterModelName
-        
-        // Standard OpenAI-compatible request body
+        // Standard OpenAI-compatible request body for Poe
         let requestBody: [String: Any] = [
-            "model": modelName,
+            "model": model.modelName,
             "messages": messages,
             "max_tokens": 1024,
-            "temperature": 0.7
+            "temperature": 0.7,
+            "stream": false
         ]
         
-        guard let url = URL(string: effectiveBaseURL) else {
+        guard let url = URL(string: baseURL) else {
             throw AIError.invalidResponse
         }
         
@@ -348,12 +324,6 @@ actor AIService {
         request.httpMethod = "POST"
         request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // OpenRouter-specific headers
-        if !isUsingOpenAI {
-            request.addValue("WatchGuide", forHTTPHeaderField: "X-Title")
-            request.addValue("https://watchguide.app", forHTTPHeaderField: "HTTP-Referer")
-        }
         
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         request.timeoutInterval = 90
@@ -366,7 +336,7 @@ actor AIService {
         
         // Debug logging
         if let responseString = String(data: data, encoding: .utf8) {
-            print("LLM API Response (\(httpResponse.statusCode)): \(responseString.prefix(500))")
+            print("Poe API Response (\(httpResponse.statusCode)): \(responseString.prefix(500))")
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
@@ -457,7 +427,7 @@ enum AIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noApiKey:
-            return "AI API key not configured. Please add your OpenRouter or OpenAI API key in Settings."
+            return "AI API key not configured. Please add your Poe API key in Settings."
         case .invalidResponse:
             return "Invalid response from AI service"
         case .httpError(let code):
