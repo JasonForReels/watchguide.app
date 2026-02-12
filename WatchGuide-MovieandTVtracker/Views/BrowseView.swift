@@ -1420,13 +1420,18 @@ class ForYouViewModel: ObservableObject {
     @Published var items: [MediaItem] = []
     @Published var isLoading = false
     @Published var hasLoaded = false
+    @Published var errorMessage: String?
     
     private var lastLikedCount: Int = -1
+    private var hasLikedItems: Bool {
+        !StorageService.shared.liked.isEmpty
+    }
     
     func loadIfNeeded() async {
         let liked = StorageService.shared.liked
         guard !liked.isEmpty else {
             items = []
+            errorMessage = nil
             hasLoaded = true
             return
         }
@@ -1439,63 +1444,100 @@ class ForYouViewModel: ObservableObject {
         let liked = StorageService.shared.liked
         guard !liked.isEmpty else {
             items = []
+            errorMessage = nil
             hasLoaded = true
             return
         }
+        hasLoaded = false
         await load(liked: liked)
+    }
+    
+    func retry() {
+        Task {
+            let liked = StorageService.shared.liked
+            guard !liked.isEmpty else { return }
+            hasLoaded = false
+            await load(liked: liked)
+        }
     }
     
     private func load(liked: [SavedMediaItem]) async {
         isLoading = true
+        errorMessage = nil
         lastLikedCount = liked.count
         
-        do {
-            let recs = try await AIService.shared.getForYouRecommendations(likedItems: liked)
-            
-            // Resolve each recommendation to a MediaItem via TMDB search
-            var resolved: [(order: Int, item: MediaItem)] = []
-            let likedIds = Set(liked.map { $0.mediaId })
-            
-            await withTaskGroup(of: (Int, MediaItem?).self) { group in
-                for (index, rec) in recs.prefix(10).enumerated() {
-                    group.addTask {
-                        do {
-                            let results = try await TMDBService.shared.searchMulti(query: rec.title)
-                            // Try to match the correct type
-                            let preferred = results.results.first(where: {
-                                let mt = $0.resolvedMediaType
-                                return (rec.mediaType == "movie" && mt == .movie) || (rec.mediaType == "tv" && mt == .tv)
-                            }) ?? results.results.first
-                            
-                            if let item = preferred, !likedIds.contains(item.id) {
-                                return (index, item)
+        // Retry up to 2 times on failure
+        for attempt in 0..<2 {
+            do {
+                if attempt > 0 {
+                    try await Task.sleep(nanoseconds: 1_000_000_000) // 1s backoff
+                }
+                
+                let recs = try await AIService.shared.getForYouRecommendations(likedItems: liked)
+                
+                guard !recs.isEmpty else {
+                    continue
+                }
+                
+                // Resolve each recommendation to a MediaItem via TMDB search
+                var resolved: [(order: Int, item: MediaItem)] = []
+                let likedIds = Set(liked.map { $0.mediaId })
+                
+                await withTaskGroup(of: (Int, MediaItem?).self) { group in
+                    for (index, rec) in recs.prefix(10).enumerated() {
+                        group.addTask {
+                            do {
+                                let results = try await TMDBService.shared.searchMulti(query: rec.title)
+                                // Try to match the correct type
+                                let preferred = results.results.first(where: {
+                                    let mt = $0.resolvedMediaType
+                                    return (rec.mediaType == "movie" && mt == .movie) || (rec.mediaType == "tv" && mt == .tv)
+                                }) ?? results.results.first
+                                
+                                if let item = preferred, !likedIds.contains(item.id) {
+                                    return (index, item)
+                                }
+                                return (index, nil)
+                            } catch {
+                                return (index, nil)
                             }
-                            return (index, nil)
-                        } catch {
-                            return (index, nil)
+                        }
+                    }
+                    
+                    for await (index, item) in group {
+                        if let item = item {
+                            resolved.append((order: index, item: item))
                         }
                     }
                 }
                 
-                for await (index, item) in group {
-                    if let item = item {
-                        resolved.append((order: index, item: item))
-                    }
+                // Sort by original order and deduplicate
+                let sortedItems = resolved.sorted { $0.order < $1.order }.map { $0.item }
+                var seen = Set<Int>()
+                let finalItems = sortedItems.filter { item in
+                    if seen.contains(item.id) { return false }
+                    seen.insert(item.id)
+                    return true
                 }
+                
+                if finalItems.isEmpty {
+                    continue
+                }
+                
+                items = finalItems
+                isLoading = false
+                hasLoaded = true
+                return
+                
+            } catch {
+                print("For You attempt \(attempt + 1) error: \(error)")
             }
-            
-            // Sort by original order and deduplicate
-            let sortedItems = resolved.sorted { $0.order < $1.order }.map { $0.item }
-            var seen = Set<Int>()
-            items = sortedItems.filter { item in
-                if seen.contains(item.id) { return false }
-                seen.insert(item.id)
-                return true
-            }
-        } catch {
-            print("For You error: \(error)")
         }
         
+        // Both attempts failed
+        if items.isEmpty {
+            errorMessage = "Couldn't load recommendations"
+        }
         isLoading = false
         hasLoaded = true
     }
@@ -1515,6 +1557,56 @@ struct ForYouRow: View {
                 items: viewModel.items,
                 onItemTap: onItemTap
             )
+        } else if let error = viewModel.errorMessage {
+            ForYouErrorRow(message: error) {
+                viewModel.retry()
+            }
+        }
+    }
+}
+
+// MARK: - For You Error / Retry Row
+private struct ForYouErrorRow: View {
+    let message: String
+    let onRetry: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("For You")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                Spacer()
+            }
+            .padding(.horizontal)
+            
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.clockwise.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    
+                    Button(action: onRetry) {
+                        Text("Tap to retry")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(.accentColor)
+                    }
+                }
+                
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(.systemGray6))
+            )
+            .padding(.horizontal)
         }
     }
 }

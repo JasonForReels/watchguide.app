@@ -447,7 +447,7 @@ actor AIService {
         Mix movies and TV shows. Focus on lesser-known gems and recent releases they likely haven't seen yet.
         Do NOT suggest titles the user already likes.
         
-        RESPOND ONLY with a JSON array. No markdown, no explanation, no code fences. Just raw JSON.
+        RESPOND ONLY with a JSON array. No markdown, no explanation, no code fences, no thinking text. Just raw JSON.
         Format: [{"title":"Movie or Show Name","type":"movie"},{"title":"Another Title","type":"tv"}]
         The "type" field must be either "movie" or "tv".
         """
@@ -474,36 +474,57 @@ actor AIService {
         request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        request.timeoutInterval = 30
+        request.timeoutInterval = 45
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
+        guard let httpResponse = response as? HTTPURLResponse else {
             throw AIError.invalidResponse
         }
         
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? "Unknown"
+            print("For You API error \(httpResponse.statusCode): \(body.prefix(300))")
+            throw AIError.httpError(httpResponse.statusCode)
+        }
+        
         let llmResponse = try JSONDecoder().decode(LLMResponse.self, from: data)
-        guard let content = llmResponse.choices.first?.message.content else {
+        guard let content = llmResponse.choices.first?.message.content, !content.isEmpty else {
             throw AIError.noContent
         }
         
-        // Parse the JSON array from the response
-        let cleaned = content
+        // Parse the JSON array from the response — handle various LLM output quirks
+        var cleaned = content
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "```json", with: "")
             .replacingOccurrences(of: "```", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         
-        guard let jsonData = cleaned.data(using: .utf8) else { return [] }
+        // Try to extract JSON array if there's surrounding text
+        if let startIdx = cleaned.firstIndex(of: "["),
+           let endIdx = cleaned.lastIndex(of: "]") {
+            cleaned = String(cleaned[startIdx...endIdx])
+        }
+        
+        guard let jsonData = cleaned.data(using: .utf8) else {
+            print("For You: could not convert cleaned content to data")
+            throw AIError.noContent
+        }
         
         struct Rec: Codable {
             let title: String
             let type: String
         }
         
-        let recs = (try? JSONDecoder().decode([Rec].self, from: jsonData)) ?? []
-        return recs.map { ($0.title, $0.type) }
+        do {
+            let recs = try JSONDecoder().decode([Rec].self, from: jsonData)
+            let results = recs.map { ($0.title, $0.type) }
+            if results.isEmpty { throw AIError.noContent }
+            return results
+        } catch {
+            print("For You JSON parse error: \(error), raw content: \(cleaned.prefix(500))")
+            throw AIError.noContent
+        }
     }
 }
 
