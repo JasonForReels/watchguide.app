@@ -41,10 +41,14 @@ struct AIAssistantView: View {
                         }
                         .padding()
                     }
+                    .scrollDismissesKeyboard(.interactively)
                     .onChange(of: viewModel.messages.count) { _, _ in
                         withAnimation {
                             proxy.scrollTo(viewModel.messages.last?.id ?? "loading", anchor: .bottom)
                         }
+                    }
+                    .onTapGesture {
+                        isInputFocused = false
                     }
                 }
                 
@@ -106,13 +110,26 @@ struct AIAssistantView: View {
                 .padding(.vertical, 8)
                 
                 // Input area
-                HStack(spacing: 12) {
-                    TextField("Ask Chron anything...", text: $viewModel.inputText, axis: .vertical)
-                        .textFieldStyle(.plain)
+                HStack(alignment: .bottom, spacing: 12) {
+                    TextEditor(text: $viewModel.inputText)
                         .focused($isInputFocused)
-                        .lineLimit(1...4)
-                        .onSubmit {
-                            sendMessage()
+                        .frame(minHeight: 36, maxHeight: 100)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .scrollContentBackground(.hidden)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(.systemGray5))
+                        .cornerRadius(18)
+                        .overlay {
+                            if viewModel.inputText.isEmpty {
+                                HStack {
+                                    Text("Ask Chron anything...")
+                                        .foregroundColor(Color(.placeholderText))
+                                        .padding(.leading, 12)
+                                        .allowsHitTesting(false)
+                                    Spacer()
+                                }
+                            }
                         }
                     
                     Button {
@@ -120,11 +137,13 @@ struct AIAssistantView: View {
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.title2)
-                            .foregroundColor(viewModel.inputText.isEmpty ? .secondary : .accentColor)
+                            .foregroundColor(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .accentColor)
                     }
-                    .disabled(viewModel.inputText.isEmpty || viewModel.isLoading)
+                    .disabled(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isLoading)
+                    .padding(.bottom, 4)
                 }
-                .padding()
+                .padding(.horizontal)
+                .padding(.vertical, 8)
                 .background(Color(.systemGray6))
             }
             .navigationTitle("Chron")
