@@ -169,13 +169,18 @@ actor AIService {
         }
         messages.append(["role": "user", "content": message])
         
-        let requestBody: [String: Any] = [
+        var requestBody: [String: Any] = [
             "model": model.modelName,
             "messages": messages,
             "max_tokens": 1200,
             "temperature": 0.7,
             "stream": true
         ]
+        
+        // Enable web search via Poe's extra_body parameter
+        if webSearchEnabled {
+            requestBody["web_search"] = true
+        }
         
         guard let url = URL(string: baseURL) else {
             throw AIError.invalidResponse
@@ -376,6 +381,14 @@ actor AIService {
         - Use bullet points for lists
         - For trailer requests, tell users to ask "trailer for [title]"
         """
+        
+        if webSearchEnabled {
+            prompt += """
+            
+            - You have web search enabled. When asked about current events, box office numbers, release dates, recent news, ratings, or any factual data that may change over time, USE web search to find up-to-date information. Always provide specific numbers and facts when available.
+            - Do NOT say you cannot look things up or that you don't have access to real-time data. You DO have web search — use it.
+            """
+        }
         
         if !likedItems.isEmpty {
             prompt += "\n\nUser's taste (liked): "

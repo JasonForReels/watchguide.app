@@ -23,7 +23,7 @@ struct AIAssistantView: View {
     }
 }
 
-// MARK: - Body (layout only — delegates heavy observation to children)
+// MARK: - Body (layout only — no observation, just passes references)
 private struct AIAssistantBody: View {
     let viewModel: AIAssistantViewModel
     @FocusState private var isInputFocused: Bool
@@ -48,7 +48,7 @@ private struct AIAssistantBody: View {
     }
 }
 
-/// Isolated clear-button
+/// Isolated clear-button — only observes messageCount
 private struct ClearButton: View {
     @ObservedObject var viewModel: AIAssistantViewModel
     
@@ -80,7 +80,7 @@ private struct AIInputBarContainer: View {
     }
 }
 
-// MARK: - Message List (only this view observes the streaming-heavy ViewModel)
+// MARK: - Message List (observes ViewModel for structural changes only)
 private struct AIMessageListView: View {
     @ObservedObject var viewModel: AIAssistantViewModel
     let dismissKeyboard: () -> Void
@@ -96,7 +96,7 @@ private struct AIMessageListView: View {
                         })
                     }
                     
-                    ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
+                    ForEach(viewModel.messages, id: \.id) { message in
                         let isStreaming = viewModel.streamingMessageId == message.id
                         let trailer = viewModel.trailerMessages[message.id]
                         MessageBubbleWrapper(
@@ -133,7 +133,7 @@ private struct AIMessageListView: View {
     }
 }
 
-// MARK: - MessageBubbleWrapper (caches markdown, only recomputes when content changes)
+// MARK: - MessageBubbleWrapper (caches markdown, only recomputes when content length changes)
 private struct MessageBubbleWrapper: View {
     let message: AIService.ChatMessage
     var trailerKey: String?
@@ -141,33 +141,32 @@ private struct MessageBubbleWrapper: View {
     var isStreaming: Bool
     
     @State private var cachedMarkdown: AttributedString?
-    @State private var cachedContentLength: Int = 0
+    @State private var lastParsedLength: Int = -1
     
     var body: some View {
+        let md = currentMarkdown
         MessageBubble(
             message: message,
-            parsedMarkdown: computedMarkdown,
+            parsedMarkdown: md,
             trailerKey: trailerKey,
             trailerTitle: trailerTitle,
             isStreaming: isStreaming
         )
-        .onChange(of: message.content.count) { _, newCount in
-            // Only reparse when content actually changes length
-            if newCount != cachedContentLength {
-                cachedContentLength = newCount
-                if message.role != "user" {
-                    cachedMarkdown = parseMarkdown(message.content)
-                }
-            }
-        }
     }
     
-    private var computedMarkdown: AttributedString {
+    private var currentMarkdown: AttributedString {
         if message.role == "user" { return AttributedString() }
-        if let cached = cachedMarkdown, cachedContentLength == message.content.count {
+        let len = message.content.count
+        if len == lastParsedLength, let cached = cachedMarkdown {
             return cached
         }
-        return parseMarkdown(message.content)
+        let parsed = parseMarkdown(message.content)
+        // Schedule state update outside body evaluation
+        DispatchQueue.main.async {
+            cachedMarkdown = parsed
+            lastParsedLength = len
+        }
+        return parsed
     }
 }
 
@@ -798,9 +797,12 @@ class AIAssistantViewModel: ObservableObject {
     
     let inputState = AIInputState()
     
-    // Throttle: only publish content changes every N characters or after a time interval
-    private var lastContentPublishLength = 0
-    private static let contentPublishThreshold = 12
+    // Aggressive throttle: buffer content and only push to UI periodically
+    private var lastPublishTime: CFAbsoluteTime = 0
+    private static let publishInterval: CFAbsoluteTime = 0.08 // ~12fps max for content updates
+    private static let charThreshold = 30 // minimum chars between UI pushes
+    private var lastPublishedLength = 0
+    private var pendingFlushTask: Task<Void, Never>?
     
     func sendMessage() async {
         let userMessage = inputState.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -864,7 +866,8 @@ class AIAssistantViewModel: ObservableObject {
         messages.append(streamingMessage)
         let streamIndex = messages.count - 1
         streamingMessageId = streamingMessage.id
-        lastContentPublishLength = 0
+        lastPublishedLength = 0
+        lastPublishTime = CFAbsoluteTimeGetCurrent()
         scrollTrigger += 1
         
         var accumulatedThinking = ""
@@ -882,22 +885,48 @@ class AIAssistantViewModel: ObservableObject {
             switch event {
             case .thinking(let text):
                 accumulatedThinking = text
-                currentThinkingText = text
+                // Throttle thinking updates too
+                let now = CFAbsoluteTimeGetCurrent()
+                if now - lastPublishTime > 0.15 {
+                    currentThinkingText = text
+                    lastPublishTime = now
+                }
                 
             case .content(let text):
                 if isThinking {
                     isThinking = false
+                    currentThinkingText = accumulatedThinking
                 }
                 pendingContent = text
-                // Throttle UI updates: only publish every N chars
-                let delta = text.count - lastContentPublishLength
-                if delta >= Self.contentPublishThreshold || text.count < 20 {
+                
+                // Time + char based throttle — only push when enough time AND content has elapsed
+                let now = CFAbsoluteTimeGetCurrent()
+                let charDelta = text.count - lastPublishedLength
+                let timeDelta = now - lastPublishTime
+                
+                if (charDelta >= Self.charThreshold && timeDelta >= Self.publishInterval) || text.count < 20 {
+                    pendingFlushTask?.cancel()
                     messages[streamIndex].content = text
-                    lastContentPublishLength = text.count
+                    lastPublishedLength = text.count
+                    lastPublishTime = now
                     scrollTrigger += 1
+                } else if pendingFlushTask == nil || pendingFlushTask?.isCancelled == true {
+                    // Schedule a deferred flush so content doesn't stall
+                    let capturedText = text
+                    pendingFlushTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                        guard !Task.isCancelled, let self else { return }
+                        if streamIndex < self.messages.count {
+                            self.messages[streamIndex].content = capturedText
+                            self.lastPublishedLength = capturedText.count
+                            self.lastPublishTime = CFAbsoluteTimeGetCurrent()
+                            self.scrollTrigger += 1
+                        }
+                    }
                 }
                 
             case .done:
+                pendingFlushTask?.cancel()
                 // Flush any remaining pending content
                 if !pendingContent.isEmpty {
                     messages[streamIndex].content = pendingContent
@@ -911,6 +940,7 @@ class AIAssistantViewModel: ObservableObject {
                 scrollTrigger += 1
                 
             case .error(let error):
+                pendingFlushTask?.cancel()
                 isThinking = false
                 streamingMessageId = nil
                 messages[streamIndex].content = "Sorry, something went wrong: \(error.localizedDescription)"
@@ -920,12 +950,14 @@ class AIAssistantViewModel: ObservableObject {
         }
         
         // Safety: ensure loading states are cleared
+        pendingFlushTask?.cancel()
         inputState.isLoading = false
         isThinking = false
         streamingMessageId = nil
     }
     
     func clearMessages() {
+        pendingFlushTask?.cancel()
         messages = []
         trailerMessages = [:]
         currentThinkingText = ""
