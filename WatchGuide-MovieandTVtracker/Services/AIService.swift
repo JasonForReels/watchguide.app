@@ -8,11 +8,27 @@ import Foundation
 actor AIService {
     static let shared = AIService()
     
-    // Poe API endpoint for chat completions
-    private let baseURL = "https://api.poe.com/bot/chat_completions"
+    // OpenRouter API endpoint (OpenAI-compatible)
+    private let baseURL = "https://openrouter.ai/api/v1/chat/completions"
     
     private var apiKey: String {
-        ApiKeyManager.shared.get(key: "POE_API_KEY") ?? ""
+        // Try OpenRouter first, fall back to OpenAI
+        if let key = ApiKeyManager.shared.get(key: "OPENROUTER_API_KEY"), !key.isEmpty {
+            return key
+        }
+        return ApiKeyManager.shared.get(key: "OPENAI_API_KEY") ?? ""
+    }
+    
+    private var isUsingOpenAI: Bool {
+        let orKey = ApiKeyManager.shared.get(key: "OPENROUTER_API_KEY") ?? ""
+        return orKey.isEmpty
+    }
+    
+    private var effectiveBaseURL: String {
+        if isUsingOpenAI {
+            return "https://api.openai.com/v1/chat/completions"
+        }
+        return baseURL
     }
     
     private init() {}
@@ -23,21 +39,25 @@ actor AIService {
     
     // MARK: - Available Models
     enum ChronModel: String, CaseIterable {
-        case hermes3 = "nousresearch/hermes-3-llama-3.1-405b:free"
-        case gpt4oMini = "gpt-4o-mini"
+        case geminiFlash = "google/gemini-2.0-flash-001"
+        case deepseek = "deepseek/deepseek-chat-v3-0324:free"
         
         var displayName: String {
             switch self {
-            case .hermes3: return "Hermes 3 (Free)"
-            case .gpt4oMini: return "GPT-4o Mini"
+            case .geminiFlash: return "Gemini Flash"
+            case .deepseek: return "DeepSeek V3 (Free)"
             }
         }
         
-        // Normalize model for Poe API
-        var poeModelName: String {
+        var openRouterModelName: String {
+            return self.rawValue
+        }
+        
+        // Fallback model name when using OpenAI directly
+        var openAIModelName: String {
             switch self {
-            case .hermes3: return "nousresearch/hermes-3-llama-3.1-405b:free"
-            case .gpt4oMini: return "gpt-4o-mini"
+            case .geminiFlash: return "gpt-4o-mini"
+            case .deepseek: return "gpt-4o-mini"
             }
         }
     }
@@ -74,7 +94,7 @@ actor AIService {
         conversationHistory: [ChatMessage],
         likedItems: [SavedMediaItem],
         webSearchEnabled: Bool = true,
-        model: ChronModel = .hermes3
+        model: ChronModel = .geminiFlash
     ) async throws -> (String, TrailerResponse?) {
         guard !apiKey.isEmpty else {
             throw AIError.noApiKey
@@ -85,8 +105,8 @@ actor AIService {
             return (trailerResponse.content, trailerResponse)
         }
         
-        // Otherwise, proceed with Poe API call
-        let response = try await sendMessageToPoe(
+        // Otherwise, proceed with OpenRouter/OpenAI API call
+        let response = try await sendMessageToLLM(
             message,
             conversationHistory: conversationHistory,
             likedItems: likedItems,
@@ -152,7 +172,7 @@ actor AIService {
                 trailerTitle: mediaDetails.title
             )
         } catch {
-            print("Trailer lookup failed: \(error), falling back to Poe")
+            print("Trailer lookup failed: \(error), falling back to LLM")
             return nil
         }
     }
@@ -284,8 +304,8 @@ actor AIService {
         return summary
     }
     
-    // MARK: - Send Message to Poe
-    private func sendMessageToPoe(
+    // MARK: - Send Message to LLM (OpenRouter or OpenAI)
+    private func sendMessageToLLM(
         _ message: String,
         conversationHistory: [ChatMessage],
         likedItems: [SavedMediaItem],
@@ -306,28 +326,35 @@ actor AIService {
             messages.append(["role": msg.role, "content": msg.content])
         }
         
-        // Add the current user message with optional web search hint
-        var userMessage = message
-        if webSearchEnabled {
-            userMessage = "\(message) --web_search true"
-        }
-        messages.append(["role": "user", "content": userMessage])
+        // Add the current user message
+        messages.append(["role": "user", "content": message])
         
-        // Get the Poe model name
-        let poeModel = model.poeModelName
+        // Choose model name based on provider
+        let modelName = isUsingOpenAI ? model.openAIModelName : model.openRouterModelName
         
-        // Poe API request format
+        // Standard OpenAI-compatible request body
         let requestBody: [String: Any] = [
-            "model": poeModel,
+            "model": modelName,
             "messages": messages,
             "max_tokens": 1024,
             "temperature": 0.7
         ]
         
-        var request = URLRequest(url: URL(string: baseURL)!)
+        guard let url = URL(string: effectiveBaseURL) else {
+            throw AIError.invalidResponse
+        }
+        
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        // OpenRouter-specific headers
+        if !isUsingOpenAI {
+            request.addValue("WatchGuide", forHTTPHeaderField: "X-Title")
+            request.addValue("https://watchguide.app", forHTTPHeaderField: "HTTP-Referer")
+        }
+        
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         request.timeoutInterval = 90
         
@@ -339,7 +366,7 @@ actor AIService {
         
         // Debug logging
         if let responseString = String(data: data, encoding: .utf8) {
-            print("Poe API Response (\(httpResponse.statusCode)): \(responseString)")
+            print("LLM API Response (\(httpResponse.statusCode)): \(responseString.prefix(500))")
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
@@ -349,11 +376,11 @@ actor AIService {
             throw AIError.httpError(httpResponse.statusCode)
         }
         
-        // Parse response
+        // Parse response (OpenAI-compatible format)
         let decoder = JSONDecoder()
-        let poeResponse = try decoder.decode(PoeResponse.self, from: data)
+        let llmResponse = try decoder.decode(LLMResponse.self, from: data)
         
-        guard let content = poeResponse.choices.first?.message.content else {
+        guard let content = llmResponse.choices.first?.message.content else {
             throw AIError.noContent
         }
         
@@ -430,7 +457,7 @@ enum AIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noApiKey:
-            return "Poe API key not configured. Please add your API key in Settings."
+            return "AI API key not configured. Please add your OpenRouter or OpenAI API key in Settings."
         case .invalidResponse:
             return "Invalid response from AI service"
         case .httpError(let code):
@@ -443,17 +470,17 @@ enum AIError: LocalizedError {
     }
 }
 
-// MARK: - Poe Response Models
-struct PoeResponse: Codable {
+// MARK: - LLM Response Models (OpenAI-compatible)
+struct LLMResponse: Codable {
     let id: String?
-    let choices: [PoeChoice]
+    let choices: [LLMChoice]
     let model: String?
-    let usage: PoeUsage?
+    let usage: LLMUsage?
 }
 
-struct PoeChoice: Codable {
+struct LLMChoice: Codable {
     let index: Int?
-    let message: PoeMessage
+    let message: LLMMessage
     let finishReason: String?
     
     enum CodingKeys: String, CodingKey {
@@ -462,12 +489,12 @@ struct PoeChoice: Codable {
     }
 }
 
-struct PoeMessage: Codable {
+struct LLMMessage: Codable {
     let role: String
-    let content: String
+    let content: String?
 }
 
-struct PoeUsage: Codable {
+struct LLMUsage: Codable {
     let promptTokens: Int?
     let completionTokens: Int?
     let totalTokens: Int?
