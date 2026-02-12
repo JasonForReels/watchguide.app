@@ -17,12 +17,12 @@ struct AIAssistantView: View {
                 
                 Divider()
                 
-                // Bottom bar — uses bindings, NOT @ObservedObject, so it only
-                // redraws when its specific bindings change
+                // Bottom bar — uses bindings only, so it only redraws when
+                // its specific bound values change (not on every stream token)
                 AIInputBar(
                     inputText: $viewModel.inputText,
                     selectedModel: $viewModel.selectedModel,
-                    isLoading: viewModel.isLoading,
+                    isLoading: $viewModel.isLoading,
                     isInputFocused: $isInputFocused,
                     onSend: sendMessage
                 )
@@ -31,13 +31,7 @@ struct AIAssistantView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        viewModel.clearMessages()
-                    } label: {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.subheadline)
-                    }
-                    .disabled(viewModel.messages.isEmpty)
+                    ClearButton(viewModel: viewModel)
                 }
             }
         }
@@ -48,6 +42,21 @@ struct AIAssistantView: View {
         Task {
             await viewModel.sendMessage()
         }
+    }
+}
+
+/// Isolated clear-button so toolbar doesn't force parent body re-evaluation
+private struct ClearButton: View {
+    @ObservedObject var viewModel: AIAssistantViewModel
+    
+    var body: some View {
+        Button {
+            viewModel.clearMessages()
+        } label: {
+            Image(systemName: "arrow.counterclockwise")
+                .font(.subheadline)
+        }
+        .disabled(viewModel.messages.isEmpty)
     }
 }
 
@@ -154,7 +163,7 @@ private struct WelcomeView: View {
 struct AIInputBar: View {
     @Binding var inputText: String
     @Binding var selectedModel: AIService.ChronModel
-    let isLoading: Bool
+    @Binding var isLoading: Bool
     var isInputFocused: FocusState<Bool>.Binding
     let onSend: () -> Void
     
@@ -174,8 +183,12 @@ struct AIInputBar: View {
 }
 
 // MARK: - Model Selector (fully isolated, only redraws on model change)
-private struct ModelSelectorRow: View {
+private struct ModelSelectorRow: View, Equatable {
     @Binding var selectedModel: AIService.ChronModel
+    
+    static func == (lhs: ModelSelectorRow, rhs: ModelSelectorRow) -> Bool {
+        lhs.selectedModel == rhs.selectedModel
+    }
     
     var body: some View {
         HStack(spacing: 12) {
