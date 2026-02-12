@@ -32,7 +32,7 @@ struct AIAssistantView: View {
                             
                             // Thinking indicator
                             if viewModel.isThinking {
-                                ThinkingBubble(thinkingText: viewModel.currentThinkingText)
+                                ThinkingBubble(thinkingText: viewModel.currentThinkingText, userQuery: viewModel.currentUserQuery)
                                     .id("thinking")
                                     .transition(.opacity.combined(with: .move(edge: .bottom)))
                             }
@@ -228,29 +228,78 @@ struct SuggestionChip: View {
 // MARK: - Thinking Bubble
 struct ThinkingBubble: View {
     let thinkingText: String
+    let userQuery: String
     @State private var isExpanded = false
     @State private var dotPhase = 0
+    @State private var placeholderIndex = 0
     
-    private let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
+    private let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
     
-    /// Derive a short label from the thinking text
+    /// Contextual placeholder phrases when no real thinking text is available
+    private var placeholderPhrases: [String] {
+        let query = userQuery.lowercased()
+        if query.contains("recommend") || query.contains("suggest") || query.contains("should i watch") || query.contains("what to watch") {
+            return [
+                "Browsing the catalogue",
+                "Matching your taste",
+                "Picking the best titles",
+                "Curating recommendations"
+            ]
+        } else if query.contains("like") || query.contains("similar") {
+            return [
+                "Finding similar titles",
+                "Comparing vibes and genres",
+                "Looking for the right match",
+                "Digging through hidden gems"
+            ]
+        } else if query.contains("best") || query.contains("top") || query.contains("greatest") {
+            return [
+                "Ranking the greats",
+                "Sorting through the classics",
+                "Pulling up the best picks",
+                "Reviewing ratings and acclaim"
+            ]
+        } else if query.contains("explain") || query.contains("what is") || query.contains("who is") || query.contains("tell me about") {
+            return [
+                "Looking that up",
+                "Gathering details",
+                "Pulling together info",
+                "Checking the facts"
+            ]
+        } else {
+            return [
+                "Mulling it over",
+                "Searching my memory",
+                "Putting thoughts together",
+                "Working on a response"
+            ]
+        }
+    }
+    
+    private var dots: String {
+        String(repeating: ".", count: (dotPhase % 3) + 1)
+    }
+    
+    /// Derive a short label from the thinking text, or cycle through contextual placeholders
     private var thinkingLabel: String {
         let trimmed = thinkingText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return "Thinking" + String(repeating: ".", count: (dotPhase % 3) + 1)
+            let phrases = placeholderPhrases
+            let idx = placeholderIndex % phrases.count
+            return phrases[idx] + dots
         }
         // Take the first meaningful sentence/phrase, truncate to ~50 chars
         let firstLine = trimmed.components(separatedBy: .newlines).first ?? trimmed
         let cleaned = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
         if cleaned.count <= 55 {
-            return cleaned + String(repeating: ".", count: (dotPhase % 3) + 1)
+            return cleaned + dots
         }
         // Truncate at word boundary
         let truncated = String(cleaned.prefix(52))
         if let lastSpace = truncated.lastIndex(of: " ") {
-            return String(truncated[truncated.startIndex..<lastSpace]) + "..." + String(repeating: ".", count: (dotPhase % 3) + 1)
+            return String(truncated[truncated.startIndex..<lastSpace]) + "..." + dots
         }
-        return truncated + "..." + String(repeating: ".", count: (dotPhase % 3) + 1)
+        return truncated + "..." + dots
     }
     
     var body: some View {
@@ -305,6 +354,10 @@ struct ThinkingBubble: View {
         }
         .onReceive(timer) { _ in
             dotPhase += 1
+            // Cycle placeholder every 2 ticks (~1 second)
+            if dotPhase % 4 == 0 {
+                placeholderIndex += 1
+            }
         }
     }
 }
@@ -614,6 +667,7 @@ class AIAssistantViewModel: ObservableObject {
     @Published var webSearchEnabled = true
     @Published var trailerMessages: [String: (trailerKey: String, trailerTitle: String)] = [:]
     @Published var scrollTrigger = 0
+    @Published var currentUserQuery = ""
     
     private let modelKey = "chron_selected_model"
     
@@ -636,6 +690,7 @@ class AIAssistantViewModel: ObservableObject {
         isLoading = true
         isThinking = true
         currentThinkingText = ""
+        currentUserQuery = userMessage
         
         UserDefaults.standard.set(selectedModel.rawValue, forKey: modelKey)
         
@@ -742,6 +797,7 @@ class AIAssistantViewModel: ObservableObject {
         messages = []
         trailerMessages = [:]
         currentThinkingText = ""
+        currentUserQuery = ""
         isThinking = false
         streamingMessageId = nil
     }
