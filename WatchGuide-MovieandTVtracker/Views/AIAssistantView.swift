@@ -153,7 +153,7 @@ private struct AIAssistantBody: View {
     }
 }
 
-/// Isolated clear-button — only observes messageCount via a simple count
+/// Isolated clear-button — observes only messageCount to avoid full re-render
 private struct ClearButton: View {
     @ObservedObject var viewModel: AIAssistantViewModel
     
@@ -164,7 +164,7 @@ private struct ClearButton: View {
             Image(systemName: "arrow.counterclockwise")
                 .font(.subheadline)
         }
-        .disabled(viewModel.messages.isEmpty)
+        .disabled(viewModel.messageCount == 0)
     }
 }
 
@@ -194,7 +194,7 @@ private struct AIMessageListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 14) {
-                    if viewModel.messages.isEmpty {
+                    if viewModel.messageCount == 0 {
                         WelcomeView(onSuggestion: { text in
                             viewModel.inputState.inputText = text
                             Task { await viewModel.sendMessage() }
@@ -232,7 +232,7 @@ private struct AIMessageListView: View {
                 }
             }
             .simultaneousGesture(
-                DragGesture().onChanged { _ in dismissKeyboard() }
+                DragGesture(minimumDistance: 20).onChanged { _ in dismissKeyboard() }
             )
         }
     }
@@ -983,6 +983,7 @@ class AIInputState: ObservableObject {
 @MainActor
 class AIAssistantViewModel: ObservableObject {
     @Published var messages: [AIService.ChatMessage] = []
+    @Published var messageCount: Int = 0 // Lightweight counter for conditional checks
     @Published var isThinking = false
     @Published var currentThinkingText = ""
     @Published var streamingMessageId: String? = nil
@@ -995,8 +996,8 @@ class AIAssistantViewModel: ObservableObject {
     
     // Aggressive throttle: buffer content and only push to UI periodically
     private var lastPublishTime: CFAbsoluteTime = 0
-    private static let publishInterval: CFAbsoluteTime = 0.08 // ~12fps max for content updates
-    private static let charThreshold = 30 // minimum chars between UI pushes
+    private static let publishInterval: CFAbsoluteTime = 0.12 // ~8fps for content updates
+    private static let charThreshold = 40 // minimum chars between UI pushes
     private var lastPublishedLength = 0
     private var pendingFlushTask: Task<Void, Never>?
     
@@ -1006,6 +1007,7 @@ class AIAssistantViewModel: ObservableObject {
         
         let userChatMessage = AIService.ChatMessage(role: "user", content: userMessage)
         messages.append(userChatMessage)
+        messageCount = messages.count
         inputState.inputText = ""
         scrollTrigger += 1
         
@@ -1037,6 +1039,7 @@ class AIAssistantViewModel: ObservableObject {
                 isThinking = false
                 let assistantMessage = AIService.ChatMessage(role: "assistant", content: response)
                 messages.append(assistantMessage)
+                messageCount = messages.count
                 
                 if let trailer = trailerResponse {
                     trailerMessages[assistantMessage.id] = (trailer.trailerKey, trailer.trailerTitle)
@@ -1049,6 +1052,7 @@ class AIAssistantViewModel: ObservableObject {
                 isThinking = false
                 let errorMessage = AIService.ChatMessage(role: "assistant", content: "Couldn't look that up — \(error.localizedDescription)")
                 messages.append(errorMessage)
+                messageCount = messages.count
                 inputState.isLoading = false
                 scrollTrigger += 1
                 return
@@ -1060,6 +1064,7 @@ class AIAssistantViewModel: ObservableObject {
         
         let streamingMessage = AIService.ChatMessage(role: "assistant", content: "")
         messages.append(streamingMessage)
+        messageCount = messages.count
         let streamIndex = messages.count - 1
         streamingMessageId = streamingMessage.id
         lastPublishedLength = 0
@@ -1081,9 +1086,9 @@ class AIAssistantViewModel: ObservableObject {
             switch event {
             case .thinking(let text):
                 accumulatedThinking = text
-                // Throttle thinking updates too
+                // Throttle thinking updates aggressively
                 let now = CFAbsoluteTimeGetCurrent()
-                if now - lastPublishTime > 0.15 {
+                if now - lastPublishTime > 0.25 {
                     currentThinkingText = text
                     lastPublishTime = now
                 }
@@ -1110,7 +1115,7 @@ class AIAssistantViewModel: ObservableObject {
                     // Schedule a deferred flush so content doesn't stall
                     let capturedText = text
                     pendingFlushTask = Task { @MainActor [weak self] in
-                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                        try? await Task.sleep(nanoseconds: 150_000_000) // 150ms
                         guard !Task.isCancelled, let self else { return }
                         if streamIndex < self.messages.count {
                             self.messages[streamIndex].content = capturedText
@@ -1155,6 +1160,7 @@ class AIAssistantViewModel: ObservableObject {
     func clearMessages() {
         pendingFlushTask?.cancel()
         messages = []
+        messageCount = 0
         trailerMessages = [:]
         currentThinkingText = ""
         currentUserQuery = ""

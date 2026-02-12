@@ -418,6 +418,93 @@ actor AIService {
         let (response, _) = try await sendMessage(message, conversationHistory: [], likedItems: [])
         return response
     }
+    
+    // MARK: - For You Recommendations
+    /// Round-robin model selection for For You row
+    private static var forYouModelIndex = 0
+    private static let forYouModels: [ChronModel] = [.gemini25Flash, .gemini20Flash, .gpt5Nano]
+    
+    private func nextForYouModel() -> ChronModel {
+        let model = Self.forYouModels[Self.forYouModelIndex % Self.forYouModels.count]
+        Self.forYouModelIndex += 1
+        return model
+    }
+    
+    /// Gets personalized "For You" recommendations based on liked items.
+    /// Returns an array of (title, mediaType) tuples that can be searched on TMDB.
+    func getForYouRecommendations(likedItems: [SavedMediaItem]) async throws -> [(title: String, mediaType: String)] {
+        guard !apiKey.isEmpty else { throw AIError.noApiKey }
+        guard !likedItems.isEmpty else { return [] }
+        
+        let model = nextForYouModel()
+        
+        let likedTitles = likedItems.prefix(15).map { item in
+            "\(item.title) (\(item.mediaType == .movie ? "Movie" : "TV"))"
+        }.joined(separator: ", ")
+        
+        let systemPrompt = """
+        You are a recommendation engine. Given a user's liked titles, suggest exactly 10 titles they would enjoy.
+        Mix movies and TV shows. Focus on lesser-known gems and recent releases they likely haven't seen yet.
+        Do NOT suggest titles the user already likes.
+        
+        RESPOND ONLY with a JSON array. No markdown, no explanation, no code fences. Just raw JSON.
+        Format: [{"title":"Movie or Show Name","type":"movie"},{"title":"Another Title","type":"tv"}]
+        The "type" field must be either "movie" or "tv".
+        """
+        
+        let userMessage = "Liked: \(likedTitles)"
+        
+        let messages: [[String: String]] = [
+            ["role": "system", "content": systemPrompt],
+            ["role": "user", "content": userMessage]
+        ]
+        
+        let requestBody: [String: Any] = [
+            "model": model.modelName,
+            "messages": messages,
+            "max_tokens": 600,
+            "temperature": 0.9,
+            "stream": false
+        ]
+        
+        guard let url = URL(string: baseURL) else { throw AIError.invalidResponse }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        request.timeoutInterval = 30
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw AIError.invalidResponse
+        }
+        
+        let llmResponse = try JSONDecoder().decode(LLMResponse.self, from: data)
+        guard let content = llmResponse.choices.first?.message.content else {
+            throw AIError.noContent
+        }
+        
+        // Parse the JSON array from the response
+        let cleaned = content
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "```json", with: "")
+            .replacingOccurrences(of: "```", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard let jsonData = cleaned.data(using: .utf8) else { return [] }
+        
+        struct Rec: Codable {
+            let title: String
+            let type: String
+        }
+        
+        let recs = (try? JSONDecoder().decode([Rec].self, from: jsonData)) ?? []
+        return recs.map { ($0.title, $0.type) }
+    }
 }
 
 // MARK: - Stream Chunk Model

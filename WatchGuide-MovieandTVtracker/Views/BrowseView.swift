@@ -7,6 +7,7 @@ import SwiftUI
 
 struct BrowseView: View {
     @StateObject private var viewModel = BrowseViewModel()
+    @StateObject private var forYouVM = ForYouViewModel()
     @Binding var selectedItem: MediaItem?
     @State private var selectedNetworkHub: NetworkHub?
     @State private var activeStudioSheet: StudioSheet?
@@ -37,7 +38,7 @@ struct BrowseView: View {
                         .padding(.top, 4)
                     }
                     
-                    // Browse Rows with Studios buttons inserted
+                    // Browse Rows with Studios buttons + For You row inserted
                     ForEach(Array(viewModel.rows.enumerated()), id: \.element.title) { _, row in
                         if !row.people.isEmpty {
                             PeopleRowView(
@@ -67,6 +68,11 @@ struct BrowseView: View {
                                 onUniversalPicturesTap: { activeStudioSheet = .universalPictures },
                                 onSonyPicturesTap: { activeStudioSheet = .sonyPictures }
                             )
+                            
+                            // For You Row (AI-powered, based on likes)
+                            ForYouRow(viewModel: forYouVM) { item in
+                                selectedItem = item
+                            }
                         }
                     }
                     
@@ -77,9 +83,11 @@ struct BrowseView: View {
             }
             .refreshable {
                 await viewModel.refresh()
+                await forYouVM.refresh()
             }
             .task {
                 await viewModel.loadContent()
+                await forYouVM.loadIfNeeded()
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -1401,6 +1409,156 @@ struct BrowseQuickStatsRow: View {
                     }
                     .padding(.horizontal)
                 }
+            }
+        }
+    }
+}
+
+// MARK: - For You View Model
+@MainActor
+class ForYouViewModel: ObservableObject {
+    @Published var items: [MediaItem] = []
+    @Published var isLoading = false
+    @Published var hasLoaded = false
+    
+    private var lastLikedCount: Int = -1
+    
+    func loadIfNeeded() async {
+        let liked = StorageService.shared.liked
+        guard !liked.isEmpty else {
+            items = []
+            hasLoaded = true
+            return
+        }
+        // Only reload if liked list changed or never loaded
+        guard !hasLoaded || liked.count != lastLikedCount else { return }
+        await load(liked: liked)
+    }
+    
+    func refresh() async {
+        let liked = StorageService.shared.liked
+        guard !liked.isEmpty else {
+            items = []
+            hasLoaded = true
+            return
+        }
+        await load(liked: liked)
+    }
+    
+    private func load(liked: [SavedMediaItem]) async {
+        isLoading = true
+        lastLikedCount = liked.count
+        
+        do {
+            let recs = try await AIService.shared.getForYouRecommendations(likedItems: liked)
+            
+            // Resolve each recommendation to a MediaItem via TMDB search
+            var resolved: [(order: Int, item: MediaItem)] = []
+            let likedIds = Set(liked.map { $0.mediaId })
+            
+            await withTaskGroup(of: (Int, MediaItem?).self) { group in
+                for (index, rec) in recs.prefix(10).enumerated() {
+                    group.addTask {
+                        do {
+                            let results = try await TMDBService.shared.searchMulti(query: rec.title)
+                            // Try to match the correct type
+                            let preferred = results.results.first(where: {
+                                let mt = $0.resolvedMediaType
+                                return (rec.mediaType == "movie" && mt == .movie) || (rec.mediaType == "tv" && mt == .tv)
+                            }) ?? results.results.first
+                            
+                            if let item = preferred, !likedIds.contains(item.id) {
+                                return (index, item)
+                            }
+                            return (index, nil)
+                        } catch {
+                            return (index, nil)
+                        }
+                    }
+                }
+                
+                for await (index, item) in group {
+                    if let item = item {
+                        resolved.append((order: index, item: item))
+                    }
+                }
+            }
+            
+            // Sort by original order and deduplicate
+            let sortedItems = resolved.sorted { $0.order < $1.order }.map { $0.item }
+            var seen = Set<Int>()
+            items = sortedItems.filter { item in
+                if seen.contains(item.id) { return false }
+                seen.insert(item.id)
+                return true
+            }
+        } catch {
+            print("For You error: \(error)")
+        }
+        
+        isLoading = false
+        hasLoaded = true
+    }
+}
+
+// MARK: - For You Row
+struct ForYouRow: View {
+    @ObservedObject var viewModel: ForYouViewModel
+    let onItemTap: (MediaItem) -> Void
+    
+    var body: some View {
+        if viewModel.isLoading {
+            ForYouLoadingRow()
+        } else if !viewModel.items.isEmpty {
+            MediaRowView(
+                title: "For You",
+                items: viewModel.items,
+                onItemTap: onItemTap
+            )
+        }
+    }
+}
+
+// MARK: - For You Loading Placeholder
+private struct ForYouLoadingRow: View {
+    @State private var shimmer = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("For You")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                Spacer()
+            }
+            .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(0..<5, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(.systemGray5))
+                            .frame(width: 130, height: 195)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.clear, Color(.systemGray4).opacity(0.4), .clear],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .offset(x: shimmer ? 200 : -200)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+        .onAppear {
+            withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                shimmer = true
             }
         }
     }
