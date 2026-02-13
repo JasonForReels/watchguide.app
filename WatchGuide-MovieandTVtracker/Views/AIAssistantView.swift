@@ -1151,31 +1151,23 @@ struct TrailerPlayerSheet: View {
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Spacer()
-                
-                InAppYouTubePlayer(videoKey: videoKey)
-                    .aspectRatio(16.0/9.0, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal)
-                
-                Spacer()
+        ZStack(alignment: .topLeading) {
+            YouTubeSafariPlayer(videoKey: videoKey)
+                .ignoresSafeArea()
+            
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title2)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, Color.black.opacity(0.55))
+                    .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
             }
-            .background(Color.black)
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        dismiss()
-                    }
-                    .foregroundColor(.white)
-                }
-            }
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .padding(.top, 12)
+            .padding(.leading, 16)
         }
+        .background(Color.black)
     }
 }
 

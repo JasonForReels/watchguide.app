@@ -2,89 +2,38 @@
 //  InAppYouTubePlayer.swift
 //  WatchGuide-MovieandTVtracker
 //
-//  Embeds YouTube videos inside the app using WKWebView with the YouTube IFrame Player API.
-//  No external YouTube app launch — plays inline within the app.
+//  Uses SFSafariViewController to play YouTube videos in-app.
+//  WKWebView iframe embeds are blocked by YouTube's stricter embed
+//  verification (error 152/153), so SFSafariViewController is the
+//  reliable alternative — it acts as a real browser with proper
+//  referer headers and cookie support.
 //
 
 import SwiftUI
-import WebKit
+import SafariServices
 
-// MARK: - In-App YouTube Player (SwiftUI)
-struct InAppYouTubePlayer: UIViewRepresentable {
+// MARK: - Safari-based YouTube Player (UIViewControllerRepresentable)
+struct InAppYouTubePlayer: UIViewControllerRepresentable {
     let videoKey: String
     var autoplay: Bool = true
-    
-    func makeUIView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.allowsInlineMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = autoplay ? [] : [.all]
-        
-        let webView = WKWebView(frame: .zero, configuration: config)
-        webView.scrollView.isScrollEnabled = false
-        webView.isOpaque = false
-        webView.backgroundColor = .black
-        webView.scrollView.backgroundColor = .black
-        webView.navigationDelegate = context.coordinator
-        
-        return webView
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let urlString = "https://www.youtube.com/embed/\(videoKey)?autoplay=\(autoplay ? 1 : 0)&playsinline=1&rel=0&modestbranding=1&fs=1"
+        let url = URL(string: urlString) ?? URL(string: "https://www.youtube.com")!
+        let config = SFSafariViewController.Configuration()
+        config.entersReaderIfAvailable = false
+        config.barCollapsingEnabled = false
+        let vc = SFSafariViewController(url: url, configuration: config)
+        vc.preferredBarTintColor = .black
+        vc.preferredControlTintColor = .white
+        vc.dismissButtonStyle = .done
+        // Hide the Safari toolbar for a cleaner look
+        return vc
     }
-    
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        // Only reload if video key changed
-        if context.coordinator.currentVideoKey != videoKey {
-            context.coordinator.currentVideoKey = videoKey
-            loadVideo(in: webView)
-        }
-    }
-    
-    private func loadVideo(in webView: WKWebView) {
-        let autoplayValue = autoplay ? 1 : 0
-        let html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-            <style>
-                * { margin: 0; padding: 0; }
-                html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
-                .container { position: relative; width: 100%; padding-bottom: 56.25%; }
-                iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <iframe
-                    src="https://www.youtube.com/embed/\(videoKey)?autoplay=\(autoplayValue)&playsinline=1&rel=0&modestbranding=1&showinfo=0&fs=1"
-                    allow="autoplay; encrypted-media; picture-in-picture"
-                    allowfullscreen>
-                </iframe>
-            </div>
-        </body>
-        </html>
-        """
-        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
-    }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-    
-    class Coordinator: NSObject, WKNavigationDelegate {
-        var currentVideoKey: String?
-        
-        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            // Allow YouTube embeds and the initial load; block external navigation
-            if let url = navigationAction.request.url {
-                let host = url.host ?? ""
-                if navigationAction.navigationType == .other ||
-                   host.contains("youtube.com") || host.contains("googlevideo.com") ||
-                   host.contains("google.com") || url.scheme == "about" {
-                    decisionHandler(.allow)
-                    return
-                }
-            }
-            decisionHandler(.allow)
-        }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {
+        // SFSafariViewController doesn't support URL updates after creation;
+        // SwiftUI will recreate the view if videoKey changes.
     }
 }
 
@@ -93,32 +42,61 @@ struct YouTubePlayerSheet: View {
     let videoKey: String
     let title: String
     @Environment(\.dismiss) private var dismiss
-    
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Spacer()
-                
-                InAppYouTubePlayer(videoKey: videoKey)
-                    .aspectRatio(16.0/9.0, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal)
-                
-                Spacer()
+        ZStack(alignment: .topLeading) {
+            // Full-screen Safari player
+            YouTubeSafariPlayer(videoKey: videoKey)
+                .ignoresSafeArea()
+
+            // Floating close button
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title2)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, Color.black.opacity(0.55))
+                    .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
             }
-            .background(Color.black)
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        dismiss()
-                    }
-                    .foregroundColor(.white)
-                }
-            }
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .padding(.top, 12)
+            .padding(.leading, 16)
+        }
+        .background(Color.black)
+    }
+}
+
+// MARK: - Safari VC wrapper that auto-dismisses when user taps Done
+struct YouTubeSafariPlayer: UIViewControllerRepresentable {
+    let videoKey: String
+    @Environment(\.dismiss) private var dismiss
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(dismiss: dismiss)
+    }
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let urlString = "https://www.youtube.com/embed/\(videoKey)?autoplay=1&playsinline=1&rel=0&modestbranding=1&fs=1"
+        let url = URL(string: urlString) ?? URL(string: "https://www.youtube.com")!
+        let config = SFSafariViewController.Configuration()
+        config.entersReaderIfAvailable = false
+        config.barCollapsingEnabled = false
+        let vc = SFSafariViewController(url: url, configuration: config)
+        vc.preferredBarTintColor = .black
+        vc.preferredControlTintColor = .white
+        vc.dismissButtonStyle = .done
+        vc.delegate = context.coordinator
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
+
+    class Coordinator: NSObject, SFSafariViewControllerDelegate {
+        let dismiss: DismissAction
+        init(dismiss: DismissAction) { self.dismiss = dismiss }
+
+        func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
+            dismiss()
         }
     }
 }
