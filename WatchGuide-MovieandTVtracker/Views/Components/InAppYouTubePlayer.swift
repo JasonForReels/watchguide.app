@@ -18,7 +18,8 @@ struct InAppYouTubePlayer: UIViewControllerRepresentable {
     var autoplay: Bool = true
 
     func makeUIViewController(context: Context) -> SFSafariViewController {
-        let urlString = "https://www.youtube.com/embed/\(videoKey)?autoplay=\(autoplay ? 1 : 0)&playsinline=1&rel=0&modestbranding=1&fs=1"
+        // Use the standard watch URL — /embed/ URLs fail with error 153 in SFSafariViewController
+        let urlString = "https://www.youtube.com/watch?v=\(videoKey)"
         let url = URL(string: urlString) ?? URL(string: "https://www.youtube.com")!
         let config = SFSafariViewController.Configuration()
         config.entersReaderIfAvailable = false
@@ -76,7 +77,8 @@ struct YouTubeSafariPlayer: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> SFSafariViewController {
-        let urlString = "https://www.youtube.com/embed/\(videoKey)?autoplay=1&playsinline=1&rel=0&modestbranding=1&fs=1"
+        // Use the standard watch URL — /embed/ URLs fail with error 153 in SFSafariViewController
+        let urlString = "https://www.youtube.com/watch?v=\(videoKey)"
         let url = URL(string: urlString) ?? URL(string: "https://www.youtube.com")!
         let config = SFSafariViewController.Configuration()
         config.entersReaderIfAvailable = false
