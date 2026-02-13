@@ -147,17 +147,31 @@ struct HeroCarouselSlide: View {
     private var slideWidth: CGFloat { geometry.size.width }
     private var slideHeight: CGFloat { geometry.size.height }
     
+    /// True when the YouTube player is loaded and ready — backdrop should hide
+    private var trailerIsVisible: Bool {
+        showTrailer && playerVM.isReady
+    }
+    
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // Layer 1: Backdrop image (always present behind the trailer)
-            backdropImage
+            // Layer 0: Black base so there's no flash when backdrop fades
+            Color.black
             
-            // Layer 2: Trailer video (overlays backdrop when playing)
+            // Layer 1: Backdrop image — fades out once the trailer is ready
+            backdropImage
+                .opacity(trailerIsVisible ? 0 : 1)
+                .animation(.easeInOut(duration: 0.6), value: trailerIsVisible)
+            
+            // Layer 2: Trailer video (sits behind the backdrop until backdrop fades)
             if showTrailer, let player = playerVM.player {
                 YouTubePlayerKit.YouTubePlayerView(player)
                     .frame(width: slideWidth, height: slideHeight)
-                    .opacity(playerVM.isReady ? 1 : 0)
-                    .animation(.easeIn(duration: 0.5), value: playerVM.isReady)
+                    .allowsHitTesting(false)
+            }
+            
+            // Layer 2b: Re-draw backdrop on top while trailer loads (crossfade)
+            if showTrailer && !playerVM.isReady {
+                backdropImage
                     .allowsHitTesting(false)
             }
             
@@ -203,13 +217,14 @@ struct HeroCarouselSlide: View {
                         }
                     }
                     
-                    if showTrailer && playerVM.isReady {
+                    if trailerIsVisible {
                         Text("TRAILER")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white.opacity(0.8))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 3)
                             .background(Capsule().fill(.ultraThinMaterial))
+                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     }
                 }
                 .font(.subheadline)
@@ -219,7 +234,7 @@ struct HeroCarouselSlide: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             
             // Layer 5: Mute button (top-right when trailer is playing)
-            if showTrailer && playerVM.isReady {
+            if trailerIsVisible {
                 VStack {
                     HStack {
                         Spacer()
@@ -237,9 +252,11 @@ struct HeroCarouselSlide: View {
                     }
                     Spacer()
                 }
+                .transition(.opacity)
             }
         }
         .frame(width: slideWidth, height: slideHeight)
+        .clipped()
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
         .onChange(of: isActive) { _, active in
@@ -288,7 +305,6 @@ struct HeroCarouselSlide: View {
     
     private func startTrailerIfNeeded() {
         guard let key = trailerKey else { return }
-        // Always autoplay hero carousel trailers; the mute setting controls volume
         showTrailer = true
         playerVM.setup(videoKey: key)
     }
