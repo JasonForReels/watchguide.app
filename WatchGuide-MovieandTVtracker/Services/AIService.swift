@@ -75,6 +75,64 @@ actor AIService {
         let trailerTitle: String
     }
     
+    // MARK: - Fetch Trailer by Title (public, for post-processing)
+    /// Searches TMDB for the given title and returns the best trailer video key + title.
+    func fetchTrailer(for title: String) async -> (key: String, title: String)? {
+        do {
+            let searchResults = try await TMDBService.shared.searchMulti(query: title)
+            guard let bestMatch = searchResults.results.first(where: { $0.resolvedMediaType == .movie || $0.resolvedMediaType == .tv }) else { return nil }
+            
+            let videos: VideosResponse
+            let displayTitle: String
+            
+            if bestMatch.resolvedMediaType == .movie {
+                videos = try await TMDBService.shared.getMovieVideos(id: bestMatch.id)
+                displayTitle = bestMatch.title ?? bestMatch.name ?? title
+            } else {
+                videos = try await TMDBService.shared.getTVShowVideos(id: bestMatch.id)
+                displayTitle = bestMatch.name ?? bestMatch.title ?? title
+            }
+            
+            let trailer = selectBestTrailer(from: videos.results, preferFirst: false)
+            guard let selected = trailer else { return nil }
+            
+            return (selected.key, displayTitle)
+        } catch {
+            print("fetchTrailer failed for '\(title)': \(error)")
+            return nil
+        }
+    }
+    
+    /// Extracts [TRAILER:Title] tags from AI response text.
+    /// Returns array of titles and the cleaned text with tags removed.
+    static func extractTrailerTags(from text: String) -> (cleanedText: String, titles: [String]) {
+        var cleaned = text
+        var titles: [String] = []
+        
+        // Match [TRAILER:Some Title Here]
+        let pattern = "\\[TRAILER:([^\\]]+)\\]"
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let matches = regex.matches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned))
+            for match in matches.reversed() {
+                if let titleRange = Range(match.range(at: 1), in: cleaned),
+                   let fullRange = Range(match.range, in: cleaned) {
+                    let title = String(cleaned[titleRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !title.isEmpty {
+                        titles.insert(title, at: 0)
+                    }
+                    cleaned.replaceSubrange(fullRange, with: "")
+                }
+            }
+        }
+        
+        // Clean up leftover whitespace
+        cleaned = cleaned
+            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        return (cleaned, titles)
+    }
+    
     // MARK: - Stream Callback
     enum StreamEvent {
         case thinking(String)       // Accumulated thinking text
@@ -379,7 +437,8 @@ actor AIService {
         - Use **bold** for titles. No fluff, no disclaimers, no preamble
         - Be casual and fun, like texting a film-buff friend
         - Use bullet points for lists
-        - For trailer requests, tell users to ask "trailer for [title]"
+        - TRAILER EMBEDDING: When discussing a specific movie or TV show and a trailer would be relevant or helpful (e.g., the user asks about a specific title, asks what something looks like, asks if something is good, etc.), include the tag [TRAILER:Exact Title] at the END of your response. This will automatically embed the trailer. Use the exact official title. Only include ONE trailer tag per response. Do NOT mention or explain the tag — just place it at the very end.
+        - If the user explicitly asks for a trailer, ALWAYS include the [TRAILER:Title] tag.
         - NEVER include "Related searches", "Related questions", "People also ask", or similar sections in your response. Only answer the question directly.
         - Always finish your response completely. Never stop mid-sentence or mid-number.
         - CRITICAL: NEVER repeat yourself. State facts exactly ONCE. If you mention box office numbers, dates, or any data, say it ONE time only. Do NOT restate or rephrase the same information a second time. Your response must be concise with zero redundancy.

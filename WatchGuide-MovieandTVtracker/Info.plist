@@ -21,6 +21,23 @@
 		<string>chatgpt</string>
 		<string>googlegemini</string>
 		<string>grok</string>
+		<string>nflx</string>
+		<string>disneyplus</string>
+		<string>hbomax</string>
+		<string>hulu</string>
+		<string>paramountplus</string>
+		<string>peacocktv</string>
+		<string>appletv</string>
+		<string>crunchyroll</string>
+		<string>discoveryplus</string>
+		<string>mubi</string>
+		<string>showmax</string>
+		<string>britbox</string>
+		<string>tubi</string>
+		<string>plutotv</string>
+		<string>vudu</string>
+		<string>shudder</string>
+		<string>starz</string>
 	</array>
 	<key>UIDeviceFamily</key>
 	<array>

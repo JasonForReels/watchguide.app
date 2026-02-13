@@ -749,6 +749,11 @@ private func cleanAIResponse(_ text: String) -> String {
         cleaned = sourcesRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
     }
     
+    // Remove [TRAILER:...] tags from display text
+    if let trailerTagRegex = try? NSRegularExpression(pattern: "\\[TRAILER:[^\\]]*\\]", options: []) {
+        cleaned = trailerTagRegex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+    }
+    
     // --- DEDUPLICATION: Remove repeated blocks of text ---
     cleaned = deduplicateResponse(cleaned)
     
@@ -1308,12 +1313,21 @@ class AIAssistantViewModel: ObservableObject {
                 )
                 
                 isThinking = false
-                let assistantMessage = AIService.ChatMessage(role: "assistant", content: response)
+                
+                // Check for [TRAILER:] tags in the response
+                let (cleanedContent, trailerTitles) = AIService.extractTrailerTags(from: response)
+                let assistantMessage = AIService.ChatMessage(role: "assistant", content: cleanedContent)
                 messages.append(assistantMessage)
                 messageCount = messages.count
                 
+                // Priority: direct trailer response from short-circuit, then tag-based lookup
                 if let trailer = trailerResponse {
                     trailerMessages[assistantMessage.id] = (trailer.trailerKey, trailer.trailerTitle)
+                } else if let firstTitle = trailerTitles.first {
+                    // Fetch trailer from TMDB based on the tag
+                    if let result = await AIService.shared.fetchTrailer(for: firstTitle) {
+                        trailerMessages[assistantMessage.id] = (result.key, result.title)
+                    }
                 }
                 
                 inputState.isLoading = false
@@ -1408,6 +1422,20 @@ class AIAssistantViewModel: ObservableObject {
                 }
                 streamingMessageId = nil
                 isThinking = false
+                
+                // Extract [TRAILER:Title] tags and fetch trailer from TMDB
+                let finalContent = messages[streamIndex].content
+                let (cleanedContent, trailerTitles) = AIService.extractTrailerTags(from: finalContent)
+                if cleanedContent != finalContent {
+                    messages[streamIndex].content = cleanedContent
+                }
+                if let firstTitle = trailerTitles.first {
+                    let msgId = messages[streamIndex].id
+                    if let result = await AIService.shared.fetchTrailer(for: firstTitle) {
+                        trailerMessages[msgId] = (result.key, result.title)
+                    }
+                }
+                
                 inputState.isLoading = false
                 scrollTrigger += 1
                 

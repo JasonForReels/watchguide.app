@@ -52,6 +52,15 @@ struct CountdownCalendarView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
+                        // Featured next-up card
+                        if let nextUp = filteredItems.first {
+                            CountdownFeaturedCard(item: nextUp) {
+                                selectedItem = nextUp.mediaItem
+                            }
+                            .padding(.horizontal)
+                            .padding(.bottom, 12)
+                        }
+                        
                         // Group by month
                         ForEach(groupedByMonth, id: \.month) { group in
                             // Month header
@@ -211,6 +220,73 @@ struct CountdownItem: Identifiable {
     }
 }
 
+// MARK: - Featured Countdown Card
+struct CountdownFeaturedCard: View {
+    let item: CountdownItem
+    let onTap: () -> Void
+    
+    var body: some View {
+        Button(action: onTap) {
+            ZStack(alignment: .bottomLeading) {
+                // Backdrop
+                AsyncImage(url: TMDBService.shared.imageURL(path: item.mediaItem.backdropPath, size: .backdrop)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(16.0/9.0, contentMode: .fill)
+                    default:
+                        Rectangle()
+                            .fill(Color(.systemGray5))
+                            .aspectRatio(16.0/9.0, contentMode: .fill)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                
+                // Dark overlay
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.85)],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                
+                // Content
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("NEXT UP")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .tracking(1)
+                        .foregroundColor(.accentColor)
+                    
+                    Text(item.mediaItem.displayTitle)
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .lineLimit(2)
+                    
+                    HStack(spacing: 12) {
+                        Text(item.releaseDateFormatted)
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.7))
+                        
+                        Text(item.countdownText)
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(item.urgencyColor.opacity(0.2))
+                            .foregroundColor(item.urgencyColor)
+                            .cornerRadius(6)
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - Countdown Row
 struct CountdownRow: View {
     let item: CountdownItem
@@ -232,7 +308,7 @@ struct CountdownRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.mediaItem.displayTitle)
                         .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .fontWeight(.bold)
                         .lineLimit(2)
                         .foregroundColor(.primary)
                     
@@ -250,7 +326,7 @@ struct CountdownRow: View {
                 
                 Spacer()
                 
-                // Countdown
+                // Countdown badge
                 VStack(spacing: 4) {
                     Text(item.countdownText)
                         .font(.subheadline)
