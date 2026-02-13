@@ -180,24 +180,26 @@ actor TMDBService {
         try await request("/movie/now_playing", queryItems: [URLQueryItem(name: "page", value: "\(page)")])
     }
     
-    func getUpcomingMovies(page: Int = 1) async throws -> TMDBResponse<MediaItem> {
-        // Use the dedicated upcoming endpoint first, then fall back to discover
+    func getUpcomingMovies(page: Int = 1, endDate: String? = nil) async throws -> TMDBResponse<MediaItem> {
         let today = Date()
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        let todayString = formatter.string(from: today)
+        // Start from tomorrow to exclude today's releases
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
+        let tomorrowString = formatter.string(from: tomorrow)
         
-        // Get movies releasing in the next 6 months
-        let futureDate = Calendar.current.date(byAdding: .month, value: 6, to: today) ?? today
-        let futureDateString = formatter.string(from: futureDate)
+        // Default to end of current year
+        let endDateString = endDate ?? {
+            let year = Calendar.current.component(.year, from: today)
+            return "\(year)-12-31"
+        }()
         
         let region = await MainActor.run { StorageService.shared.settings.region }
         
-        // Use discover without release_type restriction for broader results
         let queryItems = [
             URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "primary_release_date.gte", value: todayString),
-            URLQueryItem(name: "primary_release_date.lte", value: futureDateString),
+            URLQueryItem(name: "primary_release_date.gte", value: tomorrowString),
+            URLQueryItem(name: "primary_release_date.lte", value: endDateString),
             URLQueryItem(name: "sort_by", value: "popularity.desc"),
             URLQueryItem(name: "region", value: region),
             URLQueryItem(name: "vote_count.gte", value: "0")
@@ -205,12 +207,11 @@ actor TMDBService {
         
         let result: TMDBResponse<MediaItem> = try await request("/discover/movie", queryItems: queryItems)
         
-        // If discover returns no results, try without region filter
         if result.results.isEmpty {
             let fallbackItems = [
                 URLQueryItem(name: "page", value: "\(page)"),
-                URLQueryItem(name: "primary_release_date.gte", value: todayString),
-                URLQueryItem(name: "primary_release_date.lte", value: futureDateString),
+                URLQueryItem(name: "primary_release_date.gte", value: tomorrowString),
+                URLQueryItem(name: "primary_release_date.lte", value: endDateString),
                 URLQueryItem(name: "sort_by", value: "popularity.desc")
             ]
             return try await request("/discover/movie", queryItems: fallbackItems, useCache: false)
@@ -219,19 +220,44 @@ actor TMDBService {
         return result
     }
     
-    func getUpcomingTV(page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+    func getUpcomingTV(page: Int = 1, endDate: String? = nil) async throws -> TMDBResponse<MediaItem> {
+        let today = Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
+        let tomorrowString = formatter.string(from: tomorrow)
+        
+        let endDateString = endDate ?? {
+            let year = Calendar.current.component(.year, from: today)
+            return "\(year)-12-31"
+        }()
+        
+        let queryItems = [
+            URLQueryItem(name: "page", value: "\(page)"),
+            URLQueryItem(name: "first_air_date.gte", value: tomorrowString),
+            URLQueryItem(name: "first_air_date.lte", value: endDateString),
+            URLQueryItem(name: "sort_by", value: "popularity.desc")
+        ]
+        
+        return try await request("/discover/tv", queryItems: queryItems)
+    }
+    
+    /// Fetch on-the-air TV shows that have a next episode airing (for countdown)
+    func getOnTheAirTVForCountdown(page: Int = 1, endDate: String? = nil) async throws -> TMDBResponse<MediaItem> {
         let today = Date()
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         let todayString = formatter.string(from: today)
         
-        let futureDate = Calendar.current.date(byAdding: .month, value: 6, to: today) ?? today
-        let futureDateString = formatter.string(from: futureDate)
+        let endDateString = endDate ?? {
+            let year = Calendar.current.component(.year, from: today)
+            return "\(year)-12-31"
+        }()
         
         let queryItems = [
             URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "first_air_date.gte", value: todayString),
-            URLQueryItem(name: "first_air_date.lte", value: futureDateString),
+            URLQueryItem(name: "air_date.gte", value: todayString),
+            URLQueryItem(name: "air_date.lte", value: endDateString),
             URLQueryItem(name: "sort_by", value: "popularity.desc")
         ]
         
@@ -307,6 +333,11 @@ actor TMDBService {
     
     func getSeasonDetails(tvId: Int, seasonNumber: Int) async throws -> SeasonDetails {
         try await request("/tv/\(tvId)/season/\(seasonNumber)")
+    }
+    
+    /// Lightweight TV details that includes next_episode_to_air for countdown purposes
+    func getTVShowNextEpisode(id: Int) async throws -> TVShowAiringInfo {
+        try await request("/tv/\(id)", queryItems: [])
     }
     
     // MARK: - Search

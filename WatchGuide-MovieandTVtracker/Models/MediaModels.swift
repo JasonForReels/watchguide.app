@@ -639,6 +639,44 @@ struct CollectionDetails: Identifiable, Codable {
     }
 }
 
+// MARK: - TV Show Airing Info (lightweight, for countdown)
+struct TVShowAiringInfo: Codable {
+    let id: Int
+    let name: String?
+    let status: String?
+    let nextEpisodeToAir: NextEpisodeInfo?
+    let inProduction: Bool?
+    let originalLanguage: String?
+    let posterPath: String?
+    let backdropPath: String?
+    let overview: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case id, name, status, overview
+        case nextEpisodeToAir = "next_episode_to_air"
+        case inProduction = "in_production"
+        case originalLanguage = "original_language"
+        case posterPath = "poster_path"
+        case backdropPath = "backdrop_path"
+    }
+}
+
+struct NextEpisodeInfo: Codable {
+    let id: Int
+    let name: String?
+    let airDate: String?
+    let episodeNumber: Int?
+    let seasonNumber: Int?
+    let overview: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case id, name, overview
+        case airDate = "air_date"
+        case episodeNumber = "episode_number"
+        case seasonNumber = "season_number"
+    }
+}
+
 // MARK: - TMDB List Response
 struct TMDBListResponse: Codable {
     let id: String?
