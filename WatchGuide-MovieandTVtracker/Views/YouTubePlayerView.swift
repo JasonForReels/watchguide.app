@@ -6,7 +6,7 @@
 
 import SwiftUI
 
-struct YouTubePlayerView: View {
+struct LegacyYouTubePlayerView: View {
     let videoKey: String
     var autoPlay: Bool = false
     var isMuted: Bool = false
@@ -21,9 +21,10 @@ struct YouTubePlayerView: View {
 
 #if DEBUG
 #Preview {
-    YouTubePlayerView(videoKey: "dQw4w9WgXcQ", autoPlay: true, isMuted: true)
+    LegacyYouTubePlayerView(videoKey: "dQw4w9WgXcQ", autoPlay: true, isMuted: true)
         .frame(height: 240)
         .padding()
 }
 #endif
+
 
