@@ -149,7 +149,18 @@ class CarouselTimerManager: ObservableObject {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             DispatchQueue.main.async {
-                self?.shouldAdvance = true
+                guard let self = self else { return }
+                if self.isTrailerPlaying {
+                    // Transition the indicator back to dots first
+                    self.isTrailerPlaying = false
+                    self.stopDisplayLink()
+                    // Wait for the morph animation to complete before advancing
+                    DispatchQueue.main.asyncAfter(deadline: .now() + CarouselTimerManager.morphGracePeriod) {
+                        self.shouldAdvance = true
+                    }
+                } else {
+                    self.shouldAdvance = true
+                }
             }
         }
     }
@@ -182,6 +193,10 @@ class CarouselTimerManager: ObservableObject {
             stopDisplayLink()
         }
     }
+    
+    /// Extra grace period (seconds) after trailer ends to allow the
+    /// progress-bar → dots morph to complete before the slide advances.
+    static let morphGracePeriod: TimeInterval = 1.2
     
     deinit {
         timer?.invalidate()
@@ -582,30 +597,58 @@ struct CarouselPageIndicator: View {
     private let barHeight: CGFloat = 4
     private let barWidth: CGFloat = 200
     
+    // Transition timing
+    private let morphAnimation: Animation = .spring(response: 0.9, dampingFraction: 0.82, blendDuration: 0.3)
+    private let morphInDelay: Double = 0.35
+    private let morphOutDelay: Double = 0.15
+    
     var body: some View {
         ZStack {
             // Dots mode
             if !showingBar {
                 dotsView
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity
+                                .combined(with: .scale(scale: 0.7))
+                                .animation(.easeOut(duration: 0.7)),
+                            removal: .opacity
+                                .combined(with: .scale(scale: 0.85))
+                                .animation(.easeIn(duration: 0.5))
+                        )
+                    )
             }
             
             // Progress bar mode
             if showingBar {
                 progressBarView
-                    .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .center)))
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity
+                                .combined(with: .scale(scale: 0.6, anchor: .center))
+                                .animation(.easeOut(duration: 0.7)),
+                            removal: .opacity
+                                .combined(with: .scale(scale: 0.75, anchor: .center))
+                                .animation(.easeIn(duration: 0.5))
+                        )
+                    )
             }
         }
-        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: showingBar)
+        .animation(morphAnimation, value: showingBar)
         .onChange(of: isTrailerPlaying) { _, playing in
             if playing {
-                // Slight delay before morphing to bar so it feels intentional
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                    showingBar = true
+                // Deliberate delay before morphing to bar — feels intentional
+                DispatchQueue.main.asyncAfter(deadline: .now() + morphInDelay) {
+                    withAnimation(morphAnimation) {
+                        showingBar = true
+                    }
                 }
             } else {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                    showingBar = false
+                // Slight delay before morphing back to dots
+                DispatchQueue.main.asyncAfter(deadline: .now() + morphOutDelay) {
+                    withAnimation(morphAnimation) {
+                        showingBar = false
+                    }
                 }
             }
         }
@@ -623,7 +666,7 @@ struct CarouselPageIndicator: View {
                     )
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: currentPage)
+        .animation(.spring(response: 0.45, dampingFraction: 0.75), value: currentPage)
     }
     
     // MARK: - Progress Bar
