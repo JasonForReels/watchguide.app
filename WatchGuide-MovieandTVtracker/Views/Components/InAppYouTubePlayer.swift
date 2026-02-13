@@ -4,8 +4,10 @@
 //
 //  Custom embedded YouTube player using WKWebView + YouTube IFrame Player API.
 //  Autoplays muted with a native SwiftUI unmute button overlay.
-//  Uses direct YouTube embed URL navigation (not loadHTMLString) to send
-//  proper HTTP Referer headers and avoid YouTube Error 153.
+//
+//  Uses loadHTMLString with an https:// baseURL so WKWebView sends
+//  a proper HTTP Referer header (required by YouTube since July 2025
+//  to avoid Error 153 / "embedder.identity.missing.referrer").
 //
 
 import SwiftUI
@@ -19,7 +21,7 @@ class YouTubePlayerState: ObservableObject {
     @Published var hasError: Bool = false
 }
 
-// MARK: - WKWebView YouTube Embed Player (navigates to embed URL directly)
+// MARK: - WKWebView YouTube Embed Player
 struct YouTubeEmbedPlayer: UIViewRepresentable {
     let videoKey: String
     @ObservedObject var playerState: YouTubePlayerState
@@ -34,7 +36,7 @@ struct YouTubeEmbedPlayer: UIViewRepresentable {
         config.mediaTypesRequiringUserActionForPlayback = []
 
         let contentController = WKUserContentController()
-        contentController.add(context.coordinator, name: "playerEvent")
+        contentController.add(context.coordinator, name: "ytEvent")
         config.userContentController = contentController
 
         let webView = WKWebView(frame: .zero, configuration: config)
@@ -44,31 +46,13 @@ struct YouTubeEmbedPlayer: UIViewRepresentable {
         webView.backgroundColor = .black
         webView.scrollView.backgroundColor = .black
         webView.navigationDelegate = context.coordinator
-        // Allow YouTube inspecting back navigation
         webView.allowsBackForwardNavigationGestures = false
 
-        // Build the embed URL with all required params
-        var components = URLComponents(string: "https://www.youtube.com/embed/\(videoKey)")!
-        components.queryItems = [
-            URLQueryItem(name: "autoplay", value: "1"),
-            URLQueryItem(name: "mute", value: "1"),
-            URLQueryItem(name: "controls", value: "0"),
-            URLQueryItem(name: "showinfo", value: "0"),
-            URLQueryItem(name: "rel", value: "0"),
-            URLQueryItem(name: "modestbranding", value: "1"),
-            URLQueryItem(name: "playsinline", value: "1"),
-            URLQueryItem(name: "iv_load_policy", value: "3"),
-            URLQueryItem(name: "fs", value: "0"),
-            URLQueryItem(name: "disablekb", value: "1"),
-            URLQueryItem(name: "enablejsapi", value: "1"),
-            URLQueryItem(name: "origin", value: "https://www.youtube.com"),
-            URLQueryItem(name: "widget_referrer", value: "https://www.youtube.com"),
-        ]
-
-        if let url = components.url {
-            let request = URLRequest(url: url)
-            webView.load(request)
-        }
+        // Key fix: loadHTMLString with an https baseURL makes WKWebView
+        // send a valid Referer header on the iframe sub-request, which is
+        // what YouTube checks to allow embed playback.
+        let html = Self.buildHTML(videoKey: videoKey)
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
 
         context.coordinator.webView = webView
         return webView
@@ -78,27 +62,100 @@ struct YouTubeEmbedPlayer: UIViewRepresentable {
         context.coordinator.syncMuteState(playerState.isMuted)
     }
 
+    // MARK: - HTML Builder (YouTube IFrame Player API)
+    private static func buildHTML(videoKey: String) -> String {
+        // We use the official YouTube IFrame Player API so we get proper
+        // onReady / onStateChange / onError callbacks.  The page has
+        // referrerpolicy="strict-origin-when-cross-origin" both as a
+        // <meta> tag and on the <iframe> element itself.
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+        <meta name="referrer" content="strict-origin-when-cross-origin">
+        <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        html,body{width:100%;height:100%;overflow:hidden;background:#000}
+        #player{position:absolute;top:0;left:0;width:100%;height:100%}
+        </style>
+        </head>
+        <body>
+        <div id="player"></div>
+        <script>
+        var tag=document.createElement('script');
+        tag.src='https://www.youtube.com/iframe_api';
+        var fs=document.getElementsByTagName('script')[0];
+        fs.parentNode.insertBefore(tag,fs);
+
+        var ytPlayer;
+        function onYouTubeIframeAPIReady(){
+            ytPlayer=new YT.Player('player',{
+                videoId:'\(videoKey)',
+                playerVars:{
+                    autoplay:1,
+                    mute:1,
+                    controls:0,
+                    showinfo:0,
+                    rel:0,
+                    modestbranding:1,
+                    playsinline:1,
+                    iv_load_policy:3,
+                    fs:0,
+                    disablekb:1,
+                    origin:'https://www.youtube.com'
+                },
+                events:{
+                    onReady:function(e){
+                        window.webkit.messageHandlers.ytEvent.postMessage({event:'ready'});
+                        e.target.playVideo();
+                    },
+                    onStateChange:function(e){
+                        var s=e.data;
+                        if(s===1){
+                            window.webkit.messageHandlers.ytEvent.postMessage({event:'playing'});
+                        }else if(s===2){
+                            window.webkit.messageHandlers.ytEvent.postMessage({event:'paused'});
+                        }else if(s===0){
+                            ytPlayer.seekTo(0);
+                            ytPlayer.playVideo();
+                        }
+                    },
+                    onError:function(e){
+                        window.webkit.messageHandlers.ytEvent.postMessage({event:'error',code:e.data});
+                    }
+                }
+            });
+        }
+
+        function mutePlayer(){if(ytPlayer&&ytPlayer.mute)ytPlayer.mute();}
+        function unmutePlayer(){if(ytPlayer&&ytPlayer.unMute)ytPlayer.unMute();}
+        </script>
+        </body>
+        </html>
+        """
+    }
+
+    // MARK: - Coordinator
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var playerState: YouTubePlayerState
         weak var webView: WKWebView?
         private var lastSentMuteState: Bool? = nil
-        private var injectedAPI = false
-        private var readyCheckTimer: Timer?
+        private var readyTimeoutTimer: Timer?
 
         init(playerState: YouTubePlayerState) {
             self.playerState = playerState
         }
 
         deinit {
-            readyCheckTimer?.invalidate()
+            readyTimeoutTimer?.invalidate()
         }
 
         func syncMuteState(_ isMuted: Bool) {
             guard lastSentMuteState != isMuted else { return }
             lastSentMuteState = isMuted
-            let js = isMuted
-                ? "try { document.querySelector('video').muted = true; } catch(e) {}"
-                : "try { document.querySelector('video').muted = false; } catch(e) {}"
+            let js = isMuted ? "mutePlayer();" : "unmutePlayer();"
             webView?.evaluateJavaScript(js, completionHandler: nil)
         }
 
@@ -111,15 +168,18 @@ struct YouTubeEmbedPlayer: UIViewRepresentable {
                 switch event {
                 case "ready":
                     self?.playerState.isReady = true
+                    self?.readyTimeoutTimer?.invalidate()
                 case "playing":
                     self?.playerState.isPlaying = true
                     if !(self?.playerState.isReady ?? false) {
                         self?.playerState.isReady = true
+                        self?.readyTimeoutTimer?.invalidate()
                     }
                 case "paused":
                     self?.playerState.isPlaying = false
                 case "error":
                     self?.playerState.hasError = true
+                    self?.readyTimeoutTimer?.invalidate()
                 default:
                     break
                 }
@@ -128,64 +188,37 @@ struct YouTubeEmbedPlayer: UIViewRepresentable {
 
         // MARK: WKNavigationDelegate
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            guard !injectedAPI else { return }
-            injectedAPI = true
-
-            // Inject a script that listens to the HTML5 <video> element events
-            // and reports them back to native via messageHandler.
-            let js = """
-            (function() {
-                function setup() {
-                    var video = document.querySelector('video');
-                    if (!video) return false;
-                    video.addEventListener('playing', function() {
-                        window.webkit.messageHandlers.playerEvent.postMessage({event: 'playing'});
-                    });
-                    video.addEventListener('pause', function() {
-                        window.webkit.messageHandlers.playerEvent.postMessage({event: 'paused'});
-                    });
-                    video.addEventListener('ended', function() {
-                        video.currentTime = 0;
-                        video.play();
-                    });
-                    video.addEventListener('error', function() {
-                        window.webkit.messageHandlers.playerEvent.postMessage({event: 'error'});
-                    });
-                    window.webkit.messageHandlers.playerEvent.postMessage({event: 'ready'});
-                    return true;
+            // Start a timeout — if the YT API never fires onReady, mark error
+            readyTimeoutTimer?.invalidate()
+            readyTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if !self.playerState.isReady {
+                        self.playerState.hasError = true
+                    }
                 }
-                if (!setup()) {
-                    var observer = new MutationObserver(function(mutations, obs) {
-                        if (setup()) { obs.disconnect(); }
-                    });
-                    observer.observe(document.body, {childList: true, subtree: true});
-                    setTimeout(function() { observer.disconnect(); }, 15000);
-                }
-            })();
-            """
-            webView.evaluateJavaScript(js, completionHandler: nil)
-
-            // Also start a timer to poll for the video element as a backup
-            startReadyCheck()
+            }
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            let url = navigationAction.request.url
-            // Allow the initial embed URL and YouTube internal navigations
-            if let host = url?.host?.lowercased(),
-               (host.contains("youtube.com") || host.contains("youtube-nocookie.com") ||
-                host.contains("ytimg.com") || host.contains("google.com") ||
-                host.contains("googleapis.com") || host.contains("googlevideo.com") ||
-                host.contains("gstatic.com") || host.contains("ggpht.com")) {
-                decisionHandler(.allow)
-                return
+            // The initial load is about:blank → loadHTMLString, then the
+            // iframe navigates to youtube.com.  Allow all YouTube-related
+            // domains plus about/data schemes.
+            if let url = navigationAction.request.url {
+                let scheme = url.scheme?.lowercased() ?? ""
+                if scheme == "about" || scheme == "data" {
+                    decisionHandler(.allow)
+                    return
+                }
+                if let host = url.host?.lowercased(),
+                   host.contains("youtube.com") || host.contains("youtube-nocookie.com") ||
+                   host.contains("ytimg.com") || host.contains("google.com") ||
+                   host.contains("googleapis.com") || host.contains("googlevideo.com") ||
+                   host.contains("gstatic.com") || host.contains("ggpht.com") {
+                    decisionHandler(.allow)
+                    return
+                }
             }
-            // Allow about:blank and data URLs
-            if let scheme = url?.scheme, (scheme == "about" || scheme == "data") {
-                decisionHandler(.allow)
-                return
-            }
-            // Block everything else (user-initiated external navigations)
             decisionHandler(.cancel)
         }
 
@@ -196,49 +229,11 @@ struct YouTubeEmbedPlayer: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            // Don't treat cancellation (e.g. blocked external nav) as fatal
+            let nsError = error as NSError
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
             DispatchQueue.main.async { [weak self] in
                 self?.playerState.hasError = true
-            }
-        }
-
-        private func startReadyCheck() {
-            var attempts = 0
-            readyCheckTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
-                attempts += 1
-                guard let self, let wv = self.webView else {
-                    timer.invalidate()
-                    return
-                }
-                if self.playerState.isReady {
-                    timer.invalidate()
-                    return
-                }
-                if attempts > 10 {
-                    timer.invalidate()
-                    // After 10 seconds, if no video found, mark as error
-                    if !self.playerState.isReady {
-                        DispatchQueue.main.async {
-                            self.playerState.hasError = true
-                        }
-                    }
-                    return
-                }
-                // Check if a video element exists and is playing
-                let checkJS = """
-                (function() {
-                    var v = document.querySelector('video');
-                    if (v && v.readyState >= 2) return 'ready';
-                    return 'waiting';
-                })();
-                """
-                wv.evaluateJavaScript(checkJS) { result, _ in
-                    if let status = result as? String, status == "ready" {
-                        DispatchQueue.main.async {
-                            self.playerState.isReady = true
-                        }
-                        timer.invalidate()
-                    }
-                }
             }
         }
     }
@@ -258,7 +253,7 @@ struct EmbeddedTrailerPlayer: View {
             // Black background while loading
             Color.black
 
-            // YouTube Embed Player (loads embed URL directly for proper Referer)
+            // YouTube Embed Player
             YouTubeEmbedPlayer(videoKey: videoKey, playerState: playerState)
                 .opacity(playerState.isReady ? 1 : 0)
                 .animation(.easeIn(duration: 0.3), value: playerState.isReady)
@@ -384,12 +379,11 @@ struct EmbeddedTrailerPlayer: View {
     }
 }
 
-// MARK: - Error Fallback (thumbnail with play button, opens sheet)
+// MARK: - Error Fallback (thumbnail with play button, opens YouTube app/Safari)
 private struct TrailerErrorFallback: View {
     let videoKey: String
     let title: String
     var compact: Bool = false
-    @State private var showPlayer = false
 
     var body: some View {
         ZStack {
@@ -405,7 +399,10 @@ private struct TrailerErrorFallback: View {
             Color.black.opacity(0.35)
 
             Button {
-                showPlayer = true
+                // Open in YouTube app or Safari as last resort
+                if let url = URL(string: "https://www.youtube.com/watch?v=\(videoKey)") {
+                    UIApplication.shared.open(url)
+                }
             } label: {
                 ZStack {
                     Circle()
@@ -417,9 +414,6 @@ private struct TrailerErrorFallback: View {
                         .foregroundColor(.white)
                         .offset(x: 2)
                 }
-            }
-            .sheet(isPresented: $showPlayer) {
-                YouTubePlayerSheet(videoKey: videoKey, title: title)
             }
         }
     }
@@ -438,7 +432,6 @@ struct YouTubePlayerSheet: View {
 
                 VStack {
                     Spacer()
-                    // Use the same embed player (it gets a fresh WKWebView instance)
                     EmbeddedTrailerPlayer(
                         videoKey: videoKey,
                         title: title
