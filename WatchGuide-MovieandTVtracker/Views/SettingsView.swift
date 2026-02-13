@@ -92,7 +92,7 @@ struct SettingsView: View {
                 Toggle("Compact Mode", isOn: $settings.compactMode)
                 Toggle("Ambient Mode", isOn: $settings.ambientModeEnabled)
                 Toggle("Auto-play Trailers", isOn: $settings.autoPlayTrailers)
-                Toggle("Autoplay Trailers Muted", isOn: $settings.autoPlayTrailersMuted)
+                Toggle("Mute Trailers on Autoplay", isOn: $settings.autoPlayTrailersMuted)
                 Toggle("Include Adult Content", isOn: $settings.includeAdult)
                 
                 Picker("Hero Carousel", selection: $settings.heroCarouselSource) {

@@ -15,23 +15,29 @@ struct EmbeddedTrailerPlayer: View {
     let videoKey: String
     let title: String
     var compact: Bool = false
+    var autoPlay: Bool = true
 
     @StateObject private var player: YouTubePlayer
 
-    @State private var isMuted = true
+    @State private var isMuted: Bool
     @State private var showControls = true
     @State private var controlsTimer: Timer?
     @State private var isReady = false
     @State private var hasError = false
 
-    init(videoKey: String, title: String, compact: Bool = false) {
+    init(videoKey: String, title: String, compact: Bool = false, autoPlay: Bool = true) {
         self.videoKey = videoKey
         self.title = title
         self.compact = compact
+        self.autoPlay = autoPlay
+        
+        let startMuted = StorageService.shared.settings.autoPlayTrailersMuted
+        _isMuted = State(initialValue: startMuted)
+        
         _player = StateObject(wrappedValue: YouTubePlayer(
             source: .video(id: videoKey),
             parameters: .init(
-                autoPlay: true,
+                autoPlay: autoPlay,
                 loopEnabled: true,
                 showControls: false,
                 showFullscreenButton: false,
@@ -75,8 +81,15 @@ struct EmbeddedTrailerPlayer: View {
             case .ready:
                 isReady = true
                 hasError = false
-                // Mute on start
-                Task { try? await player.mute() }
+                // Apply mute preference on start
+                let shouldMute = StorageService.shared.settings.autoPlayTrailersMuted
+                Task {
+                    if shouldMute {
+                        try? await player.mute()
+                    } else {
+                        try? await player.unmute()
+                    }
+                }
             case .error:
                 hasError = true
             default:

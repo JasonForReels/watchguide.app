@@ -49,16 +49,76 @@ struct VideoRowView: View {
 
 struct VideoCard: View {
     let video: Video
+    @State private var isPlaying = false
+    @State private var showSheet = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Inline embedded player (autoplay muted)
-            EmbeddedTrailerPlayer(
-                videoKey: video.key,
-                title: video.name,
-                compact: true
-            )
-            .frame(width: 240, height: 135)
+            if isPlaying {
+                // Inline embedded player (user tapped play)
+                EmbeddedTrailerPlayer(
+                    videoKey: video.key,
+                    title: video.name,
+                    compact: true,
+                    autoPlay: true
+                )
+                .frame(width: 240, height: 135)
+            } else {
+                // Thumbnail with play button — does NOT auto-play
+                ZStack {
+                    AsyncImage(url: URL(string: "https://img.youtube.com/vi/\(video.key)/mqdefault.jpg")) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(16.0/9.0, contentMode: .fill)
+                        default:
+                            Rectangle()
+                                .fill(Color(.systemGray5))
+                        }
+                    }
+                    .frame(width: 240, height: 135)
+                    .clipped()
+                    
+                    // Dark overlay
+                    Color.black.opacity(0.3)
+                    
+                    // Play button
+                    ZStack {
+                        Circle()
+                            .fill(.black.opacity(0.5))
+                            .frame(width: 44, height: 44)
+                        
+                        Image(systemName: "play.fill")
+                            .font(.body)
+                            .foregroundColor(.white)
+                            .offset(x: 2)
+                    }
+                    
+                    // Type badge
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Text(video.type.uppercased())
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(.white.opacity(0.85))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(.ultraThinMaterial))
+                                .padding(6)
+                        }
+                    }
+                }
+                .frame(width: 240, height: 135)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.easeIn(duration: 0.2)) {
+                        isPlaying = true
+                    }
+                }
+            }
             
             // Title
             Text(video.name)

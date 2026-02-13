@@ -11,17 +11,23 @@ struct HeroCarouselView: View {
     
     @State private var currentIndex = 0
     @State private var autoScrollTimer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()
+    @Environment(\.colorScheme) private var colorScheme
+    
+    private var fadeColor: Color {
+        colorScheme == .dark ? Color(UIColor.systemBackground) : Color(UIColor.systemBackground)
+    }
     
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Main carousel
+            // Main carousel — edge-to-edge, no clip/round
             TabView(selection: $currentIndex) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     GeometryReader { geometry in
                         HeroCarouselSlide(
                             item: item,
                             onTap: { onItemTap(item) },
-                            geometry: geometry
+                            geometry: geometry,
+                            fadeColor: fadeColor
                         )
                     }
                     .tag(index)
@@ -29,7 +35,7 @@ struct HeroCarouselView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             
-            // Page indicators
+            // Page indicators — overlaid at bottom
             HStack(spacing: 8) {
                 ForEach(0..<min(items.count, 10), id: \.self) { index in
                     Capsule()
@@ -38,27 +44,9 @@ struct HeroCarouselView: View {
                         .animation(.spring(response: 0.3), value: currentIndex)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
+            .padding(.bottom, 24)
         }
-        .aspectRatio(16.0/9.0, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.4),
-                            Color.white.opacity(0.3),
-                            Color.white.opacity(0.15),
-                            Color.white.opacity(0.0)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
-        )
+        .aspectRatio(16.0/10.0, contentMode: .fit)
         .onReceive(autoScrollTimer) { _ in
             guard items.count > 1 else { return }
             withAnimation(.easeInOut(duration: 0.9)) {
@@ -72,8 +60,6 @@ struct HeroCarouselView: View {
                 currentIndex = 0
             }
         }
-        .padding(.horizontal)
-        .padding(.bottom, 12)
     }
 }
 
@@ -82,13 +68,14 @@ struct HeroCarouselSlide: View {
     let item: MediaItem
     let onTap: () -> Void
     let geometry: GeometryProxy
+    let fadeColor: Color
     
     private var slideWidth: CGFloat { geometry.size.width }
     private var slideHeight: CGFloat { geometry.size.height }
     
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // Backdrop image
+            // Backdrop image — fills entire slide
             AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
                 switch phase {
                 case .empty:
@@ -114,12 +101,22 @@ struct HeroCarouselSlide: View {
             .frame(width: slideWidth, height: slideHeight)
             .clipped()
             
-            // Gradient overlay
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.7), .black.opacity(0.9)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            // Bottom fade into page background
+            VStack(spacing: 0) {
+                Spacer()
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black.opacity(0.3), location: 0.3),
+                        .init(color: .black.opacity(0.65), location: 0.6),
+                        .init(color: fadeColor.opacity(0.85), location: 0.85),
+                        .init(color: fadeColor, location: 1.0),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: slideHeight * 0.55)
+            }
             .allowsHitTesting(false)
             
             // Content overlay
@@ -146,7 +143,8 @@ struct HeroCarouselSlide: View {
                 }
                 .font(.subheadline)
             }
-            .padding(24)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 44)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(width: slideWidth, height: slideHeight)

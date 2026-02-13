@@ -26,19 +26,20 @@ struct BrowseView: View {
                     // Scout AI Banner
                     ScoutPromoBanner()
                     
-                    // Hero Carousel
+                    // Hero Carousel — edge-to-edge, fades into page
                     if !viewModel.heroItems.isEmpty {
                         HeroCarouselView(items: viewModel.heroItems) { item in
                             selectedItem = item
                         }
+                        .padding(.top, -12)
                     }
                     
-                    // Networks Section (Streaming Services)
+                    // Networks Section (Streaming Services) — tight below hero fade
                     if !viewModel.networkHubs.isEmpty {
                         NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
                             selectedNetworkHub = hub
                         }
-                        .padding(.top, 4)
+                        .padding(.top, -12)
                     }
                     
                     // Browse Rows with Studios buttons + For You row inserted
