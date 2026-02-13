@@ -130,17 +130,20 @@ struct CountdownCalendarView: View {
     private func loadUpcoming() async {
         isLoading = true
         
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let today = Calendar.current.startOfDay(for: Date())
+        
+        var items: [CountdownItem] = []
+        
+        // Load upcoming movies (pages 1 & 2 for more results)
         do {
-            // Load upcoming movies
-            let movies = try await TMDBService.shared.getUpcomingMovies()
+            async let moviesPage1 = TMDBService.shared.getUpcomingMovies(page: 1)
+            async let moviesPage2 = TMDBService.shared.getUpcomingMovies(page: 2)
             
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            let today = Date()
+            let allMovieResults = try await (moviesPage1.results + moviesPage2.results)
             
-            var items: [CountdownItem] = []
-            
-            for movie in movies.results {
+            for movie in allMovieResults {
                 if let dateString = movie.releaseDate,
                    let date = formatter.date(from: dateString),
                    date >= today {
@@ -171,12 +174,58 @@ struct CountdownCalendarView: View {
                     items.append(item)
                 }
             }
-            
-            upcomingItems = items.sorted { $0.releaseDate < $1.releaseDate }
         } catch {
-            print("Error loading upcoming: \(error)")
+            print("Error loading upcoming movies: \(error)")
         }
         
+        // Load upcoming TV shows
+        do {
+            async let tvPage1 = TMDBService.shared.getUpcomingTV(page: 1)
+            async let tvPage2 = TMDBService.shared.getUpcomingTV(page: 2)
+            
+            let allTVResults = try await (tvPage1.results + tvPage2.results)
+            
+            for show in allTVResults {
+                let dateString = show.firstAirDate ?? show.releaseDate
+                if let dateStr = dateString,
+                   let date = formatter.date(from: dateStr),
+                   date >= today {
+                    let item = CountdownItem(
+                        id: "tv-\(show.id)",
+                        mediaItem: MediaItem(
+                            id: show.id,
+                            title: show.title,
+                            name: show.name,
+                            originalTitle: show.originalTitle,
+                            originalName: show.originalName,
+                            overview: show.overview,
+                            posterPath: show.posterPath,
+                            backdropPath: show.backdropPath,
+                            releaseDate: show.releaseDate,
+                            firstAirDate: show.firstAirDate,
+                            voteAverage: show.voteAverage,
+                            voteCount: show.voteCount,
+                            popularity: show.popularity,
+                            genreIds: show.genreIds,
+                            mediaType: "tv",
+                            adult: show.adult,
+                            originalLanguage: show.originalLanguage
+                        ),
+                        releaseDate: date,
+                        mediaType: .tv
+                    )
+                    items.append(item)
+                }
+            }
+        } catch {
+            print("Error loading upcoming TV: \(error)")
+        }
+        
+        // Deduplicate by id, sort by release date
+        var seen = Set<String>()
+        items = items.filter { seen.insert($0.id).inserted }
+        
+        upcomingItems = items.sorted { $0.releaseDate < $1.releaseDate }
         isLoading = false
     }
 }
@@ -312,9 +361,20 @@ struct CountdownRow: View {
                         .lineLimit(2)
                         .foregroundColor(.primary)
                     
-                    Text(item.releaseDateFormatted)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    HStack(spacing: 6) {
+                        Text(item.mediaType == .movie ? "Movie" : "TV")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(item.mediaType == .movie ? Color.blue.opacity(0.15) : Color.purple.opacity(0.15))
+                            .foregroundColor(item.mediaType == .movie ? .blue : .purple)
+                            .cornerRadius(4)
+                        
+                        Text(item.releaseDateFormatted)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                     
                     if let overview = item.mediaItem.overview, !overview.isEmpty {
                         Text(overview)
