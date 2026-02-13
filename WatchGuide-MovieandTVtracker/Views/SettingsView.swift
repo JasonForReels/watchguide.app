@@ -21,6 +21,13 @@ struct SettingsView: View {
     
     var body: some View {
         Form {
+            // Scout AI Banner (in a plain section)
+            Section {
+                ScoutPromoBanner()
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
+            
             // Account Section
             Section {
                 if authService.isAuthenticated {

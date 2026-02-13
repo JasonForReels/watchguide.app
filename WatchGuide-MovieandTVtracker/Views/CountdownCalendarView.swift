@@ -52,19 +52,11 @@ struct CountdownCalendarView: View {
     @State private var selectedTab = 0
     @State private var showLanguageFilter = false
     @State private var selectedLanguage: LanguageOption = .all
-    @State private var showScoutBanner = true
     
     var body: some View {
         VStack(spacing: 0) {
             // Scout AI banner
-            if showScoutBanner {
-                ScoutCountdownBanner {
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        showScoutBanner = false
-                    }
-                }
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
+            ScoutPromoBanner()
             
             // Tab selector
             Picker("Source", selection: $selectedTab) {
@@ -725,56 +717,6 @@ struct CountdownLanguageFilterSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-    }
-}
-
-// MARK: - Scout AI Banner
-struct ScoutCountdownBanner: View {
-    let onDismiss: () -> Void
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "sparkles")
-                .font(.body)
-                .foregroundColor(.accentColor)
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Ask Scout")
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
-                Text("Get personalized recommendations from our AI assistant")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-            }
-            
-            Spacer()
-            
-            Button {
-                onDismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.secondary)
-                    .padding(6)
-                    .background(Color(.systemGray5))
-                    .clipShape(Circle())
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(.systemGray6))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(.systemGray4).opacity(0.3), lineWidth: 0.5)
-        )
-        .padding(.horizontal)
-        .padding(.top, 8)
     }
 }
 

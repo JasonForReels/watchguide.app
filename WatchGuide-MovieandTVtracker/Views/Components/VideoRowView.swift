@@ -50,78 +50,78 @@ struct VideoRowView: View {
 struct VideoCard: View {
     let video: Video
     @State private var isHovered = false
+    @State private var showPlayer = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Thumbnail
-            ZStack {
-                AsyncImage(url: video.thumbnailUrl) { phase in
-                    switch phase {
-                    case .empty:
-                        Rectangle()
-                            .fill(Color(.systemGray5))
-                            .overlay {
-                                ProgressView()
-                            }
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    case .failure:
-                        Rectangle()
-                            .fill(Color(.systemGray5))
-                            .overlay {
-                                Image(systemName: "play.rectangle")
-                                    .font(.title)
-                                    .foregroundColor(.secondary)
-                            }
-                    @unknown default:
-                        Rectangle()
-                            .fill(Color(.systemGray5))
+            Button {
+                showPlayer = true
+            } label: {
+                ZStack {
+                    AsyncImage(url: video.thumbnailUrl) { phase in
+                        switch phase {
+                        case .empty:
+                            Rectangle()
+                                .fill(Color(.systemGray5))
+                                .overlay {
+                                    ProgressView()
+                                }
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        case .failure:
+                            Rectangle()
+                                .fill(Color(.systemGray5))
+                                .overlay {
+                                    Image(systemName: "play.rectangle")
+                                        .font(.title)
+                                        .foregroundColor(.secondary)
+                                }
+                        @unknown default:
+                            Rectangle()
+                                .fill(Color(.systemGray5))
+                        }
                     }
-                }
-                .frame(width: 240, height: 135)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                
-                // Play overlay
-                Circle()
-                    .fill(.black.opacity(0.6))
-                    .frame(width: 50, height: 50)
-                    .overlay {
-                        Image(systemName: "play.fill")
-                            .font(.title3)
-                            .foregroundColor(.white)
-                            .offset(x: 2)
-                    }
-                    .opacity(isHovered ? 1 : 0.8)
-                
-                // Type badge
-                VStack {
-                    HStack {
+                    .frame(width: 240, height: 135)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    
+                    // Play overlay
+                    Circle()
+                        .fill(.black.opacity(0.6))
+                        .frame(width: 50, height: 50)
+                        .overlay {
+                            Image(systemName: "play.fill")
+                                .font(.title3)
+                                .foregroundColor(.white)
+                                .offset(x: 2)
+                        }
+                        .opacity(isHovered ? 1 : 0.8)
+                    
+                    // Type badge
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Text(video.type)
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.ultraThinMaterial)
+                                .cornerRadius(4)
+                        }
                         Spacer()
-                        Text(video.type)
-                            .font(.caption2)
-                            .fontWeight(.medium)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.ultraThinMaterial)
-                            .cornerRadius(4)
                     }
-                    Spacer()
+                    .padding(8)
                 }
-                .padding(8)
             }
+            .buttonStyle(.plain)
             .shadow(color: .black.opacity(0.2), radius: isHovered ? 10 : 4, y: isHovered ? 6 : 2)
             .scaleEffect(isHovered ? 1.03 : 1.0)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
-            .onTapGesture {
-                if let url = video.youtubeUrl {
-                    #if os(iOS)
-                    UIApplication.shared.open(url)
-                    #else
-                    NSWorkspace.shared.open(url)
-                    #endif
-                }
+            .sheet(isPresented: $showPlayer) {
+                YouTubePlayerSheet(videoKey: video.key, title: video.name)
             }
             
             // Title

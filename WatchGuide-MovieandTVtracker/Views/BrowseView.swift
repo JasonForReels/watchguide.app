@@ -23,6 +23,9 @@ struct BrowseView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 24) {
+                    // Scout AI Banner
+                    ScoutPromoBanner()
+                    
                     // Hero Carousel
                     if !viewModel.heroItems.isEmpty {
                         HeroCarouselView(items: viewModel.heroItems) { item in

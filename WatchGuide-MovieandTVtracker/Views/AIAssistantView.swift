@@ -1150,77 +1150,19 @@ struct TrailerPlayerSheet: View {
     let title: String
     @Environment(\.dismiss) private var dismiss
     
-    private var thumbnailURL: URL? {
-        URL(string: "https://img.youtube.com/vi/\(videoKey)/maxresdefault.jpg")
-    }
-    
-    private var youtubeURL: URL? {
-        URL(string: "https://www.youtube.com/watch?v=\(videoKey)")
-    }
-    
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
+            VStack(spacing: 0) {
                 Spacer()
                 
-                ZStack {
-                    AsyncImage(url: thumbnailURL) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(16.0/9.0, contentMode: .fit)
-                        case .failure, .empty:
-                            Rectangle()
-                                .fill(Color(.systemGray5))
-                                .aspectRatio(16.0/9.0, contentMode: .fit)
-                                .overlay {
-                                    Image(systemName: "play.rectangle")
-                                        .font(.largeTitle)
-                                        .foregroundColor(.secondary)
-                                }
-                        @unknown default:
-                            Rectangle()
-                                .fill(Color(.systemGray5))
-                                .aspectRatio(16.0/9.0, contentMode: .fit)
-                        }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    
-                    ZStack {
-                        Circle()
-                            .fill(.black.opacity(0.5))
-                            .frame(width: 64, height: 64)
-                        Image(systemName: "play.fill")
-                            .font(.title)
-                            .foregroundColor(.white)
-                            .offset(x: 2)
-                    }
-                }
-                .onTapGesture {
-                    if let url = youtubeURL {
-                        UIApplication.shared.open(url)
-                    }
-                }
-                .padding(.horizontal)
-                
-                Button {
-                    if let url = youtubeURL {
-                        UIApplication.shared.open(url)
-                    }
-                } label: {
-                    Label("Watch on YouTube", systemImage: "play.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.red)
-                        .foregroundColor(.white)
-                        .cornerRadius(14)
-                }
-                .padding(.horizontal)
+                InAppYouTubePlayer(videoKey: videoKey)
+                    .aspectRatio(16.0/9.0, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal)
                 
                 Spacer()
             }
+            .background(Color.black)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1228,8 +1170,11 @@ struct TrailerPlayerSheet: View {
                     Button("Close") {
                         dismiss()
                     }
+                    .foregroundColor(.white)
                 }
             }
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
         }
     }
 }

@@ -7,11 +7,26 @@
 
 import SwiftUI
 
+// MARK: - Scout Banner Manager
+/// Manages the Scout AI banner visibility across all tabs.
+/// Uses in-memory state so it resets every time the app is force-quit.
+class ScoutBannerManager: ObservableObject {
+    static let shared = ScoutBannerManager()
+    @Published var isBannerVisible = true
+    
+    func dismiss() {
+        withAnimation(.easeOut(duration: 0.25)) {
+            isBannerVisible = false
+        }
+    }
+}
+
 struct ContentView: View {
     @AppStorage("onboardingComplete") private var onboardingComplete = false
     @State private var selectedTab: Tab = .browse
     @State private var selectedMediaItem: MediaItem?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @StateObject private var scoutBannerManager = ScoutBannerManager.shared
     
     // Track which tabs have been visited so we only create their views once
     @State private var visitedTabs: Set<Tab> = [.browse]
@@ -53,6 +68,7 @@ struct ContentView: View {
             Group {
                 iPhoneLayout
             }
+            .environmentObject(scoutBannerManager)
             .sheet(item: $selectedMediaItem) { item in
                 MediaDetailView(item: item)
             }
@@ -132,6 +148,59 @@ extension ContentView.Tab {
                 Label(self.label, systemImage: self.iconName)
             }
             .tag(self)
+    }
+}
+
+// MARK: - Shared Scout Promo Banner
+struct ScoutPromoBanner: View {
+    @EnvironmentObject private var bannerManager: ScoutBannerManager
+    
+    var body: some View {
+        if bannerManager.isBannerVisible {
+            HStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.body)
+                    .foregroundColor(.accentColor)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ask Scout")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                    Text("Get personalized recommendations from our AI assistant")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+                
+                Spacer()
+                
+                Button {
+                    bannerManager.dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.secondary)
+                        .padding(6)
+                        .background(Color(.systemGray5))
+                        .clipShape(Circle())
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(.systemGray6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(.systemGray4).opacity(0.3), lineWidth: 0.5)
+            )
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 }
 
