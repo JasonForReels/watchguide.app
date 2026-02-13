@@ -28,10 +28,21 @@ struct BrowseView: View {
                     
                     // Hero Carousel — edge-to-edge, fades into page
                     if !viewModel.heroItems.isEmpty {
-                        HeroCarouselView(items: viewModel.heroItems) { item in
+                        HeroCarouselView(items: viewModel.heroItems, onItemTap: { item in
                             selectedItem = item
-                        }
+                        })
                         .padding(.top, -12)
+                        .overlay(
+                            // Top fade to blend hero into the app chrome
+                            LinearGradient(
+                                gradient: Gradient(colors: [Color(.systemBackground), Color(.systemBackground).opacity(0.0)]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: 80)
+                            .allowsHitTesting(false)
+                            , alignment: .top
+                        )
                     }
                     
                     // Networks Section (Streaming Services) — tight below hero fade
