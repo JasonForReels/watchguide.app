@@ -1144,30 +1144,42 @@ private struct AnyShapeStyle: ShapeStyle {
     }
 }
 
-// MARK: - Trailer Player Sheet
+// MARK: - Trailer Player Sheet (uses embedded player with autoplay muted)
 struct TrailerPlayerSheet: View {
     let videoKey: String
     let title: String
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            YouTubeSafariPlayer(videoKey: videoKey)
-                .ignoresSafeArea()
-            
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title2)
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, Color.black.opacity(0.55))
-                    .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                VStack {
+                    Spacer()
+                    EmbeddedTrailerPlayer(
+                        videoKey: videoKey,
+                        title: title
+                    )
+                    .padding(.horizontal)
+                    Spacer()
+                }
             }
-            .padding(.top, 12)
-            .padding(.leading, 16)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color.white.opacity(0.25))
+                    }
+                }
+            }
+            .toolbarBackground(.hidden, for: .navigationBar)
         }
-        .background(Color.black)
     }
 }
 

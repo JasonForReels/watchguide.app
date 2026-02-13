@@ -22,6 +22,7 @@ struct MediaDetailView: View {
 
     @State private var selectedTrailer: Video?
     @State private var safariItem: SafariItem?
+    @State private var showInlineTrailer = false
 
     init(item: MediaItem) {
         self.item = item
@@ -46,12 +47,42 @@ struct MediaDetailView: View {
                             )
                             .padding(.horizontal)
                             
-                            if let trailer = viewModel.preferredTrailer,
-                               let url = trailer.youtubeUrl {
-                                PlayTrailerButton {
-                                    safariItem = SafariItem(url: url)
+                            if let trailer = viewModel.preferredTrailer {
+                                if showInlineTrailer {
+                                    // Inline embedded trailer player (autoplay muted)
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        EmbeddedTrailerPlayer(
+                                            videoKey: trailer.key,
+                                            title: trailer.name
+                                        )
+                                        .padding(.horizontal)
+                                        
+                                        Button {
+                                            withAnimation(.easeOut(duration: 0.25)) {
+                                                showInlineTrailer = false
+                                            }
+                                        } label: {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "xmark")
+                                                    .font(.caption2.weight(.bold))
+                                                Text("Hide Trailer")
+                                                    .font(.caption)
+                                                    .fontWeight(.medium)
+                                            }
+                                            .foregroundColor(.secondary)
+                                            .padding(.horizontal)
+                                        }
+                                    }
+                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                                } else {
+                                    PlayTrailerButton {
+                                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                            showInlineTrailer = true
+                                        }
+                                    }
+                                    .padding(.horizontal)
+                                    .transition(.opacity)
                                 }
-                                .padding(.horizontal)
                             }
                         }
                         
