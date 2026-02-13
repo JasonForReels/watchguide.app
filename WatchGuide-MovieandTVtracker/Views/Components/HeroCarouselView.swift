@@ -62,6 +62,21 @@ struct HeroCarouselView: View {
         }
         .aspectRatio(16.0/10.0, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(colorScheme == .dark ? 0.25 : 0.5),
+                            Color.white.opacity(colorScheme == .dark ? 0.08 : 0.15),
+                            Color.clear
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.75
+                )
+        )
         .padding(.horizontal, 12)
         .onReceive(timerManager.$shouldAdvance) { advance in
             guard advance, items.count > 1 else { return }
