@@ -49,15 +49,13 @@ struct HeroCarouselView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             
-            // Page indicators
-            HStack(spacing: 8) {
-                ForEach(0..<min(items.count, 10), id: \.self) { index in
-                    Capsule()
-                        .fill(index == currentIndex ? Color.white : Color.white.opacity(0.4))
-                        .frame(width: index == currentIndex ? 24 : 8, height: 8)
-                        .animation(.spring(response: 0.3), value: currentIndex)
-                }
-            }
+            // Page indicators / progress bar
+            CarouselPageIndicator(
+                totalPages: min(items.count, 10),
+                currentPage: currentIndex,
+                progress: timerManager.progress,
+                isTrailerPlaying: timerManager.isTrailerPlaying
+            )
             .padding(.bottom, 16)
         }
         .aspectRatio(16.0/10.0, contentMode: .fit)
@@ -107,22 +105,39 @@ struct HeroCarouselView: View {
 @MainActor
 class CarouselTimerManager: ObservableObject {
     @Published var shouldAdvance = false
+    /// Current progress 0…1 for the active slide (used for progress bar)
+    @Published var progress: CGFloat = 0
+    /// Whether a trailer is actively playing (controls dots vs progress bar)
+    @Published var isTrailerPlaying = false
+    
     private var timer: Timer?
     private var isPaused = false
+    private var displayLink: CADisplayLink?
+    private var startTime: CFTimeInterval = 0
+    private var duration: TimeInterval = 8
     
     func reset(defaultDuration: TimeInterval) {
         timer?.invalidate()
+        stopDisplayLink()
         isPaused = false
         shouldAdvance = false
+        progress = 0
+        isTrailerPlaying = false
+        duration = defaultDuration
         startTimer(interval: defaultDuration)
     }
     
     func setDuration(_ duration: TimeInterval) {
         timer?.invalidate()
+        stopDisplayLink()
         isPaused = false
         // Use trailer duration but clamp between 15s and 180s
         let clamped = min(max(duration, 15), 180)
+        self.duration = clamped
+        isTrailerPlaying = true
+        startTime = CACurrentMediaTime()
         startTimer(interval: clamped)
+        startDisplayLink()
     }
     
     func pause() {
@@ -139,9 +154,46 @@ class CarouselTimerManager: ObservableObject {
         }
     }
     
+    // MARK: - Display Link for smooth progress
+    private func startDisplayLink() {
+        stopDisplayLink()
+        startTime = CACurrentMediaTime()
+        let link = CADisplayLink(target: DisplayLinkTarget { [weak self] in
+            self?.updateProgress()
+        }, selector: #selector(DisplayLinkTarget.tick))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+    
+    private func stopDisplayLink() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+    
+    private func updateProgress() {
+        guard isTrailerPlaying else {
+            stopDisplayLink()
+            return
+        }
+        let elapsed = CACurrentMediaTime() - startTime
+        let newProgress = min(CGFloat(elapsed / duration), 1.0)
+        progress = newProgress
+        if newProgress >= 1.0 {
+            stopDisplayLink()
+        }
+    }
+    
     deinit {
         timer?.invalidate()
+        displayLink?.invalidate()
     }
+}
+
+/// Helper target for CADisplayLink (avoids retain cycles)
+private class DisplayLinkTarget {
+    let callback: () -> Void
+    init(_ callback: @escaping () -> Void) { self.callback = callback }
+    @objc func tick() { callback() }
 }
 
 // MARK: - Trailer Loader
@@ -507,6 +559,86 @@ class HeroPlayerViewModel: ObservableObject {
             } else {
                 try? await p.unmute()
             }
+        }
+    }
+}
+
+// MARK: - Carousel Page Indicator (Dots ↔ Progress Bar)
+/// Seamlessly morphs between page dots and a continuous progress bar
+/// when a trailer is playing. The transition mimics Apple's indicator style.
+struct CarouselPageIndicator: View {
+    let totalPages: Int
+    let currentPage: Int
+    let progress: CGFloat
+    let isTrailerPlaying: Bool
+    
+    /// Whether we're showing the progress bar (lags slightly for smooth transition)
+    @State private var showingBar = false
+    
+    // Layout constants
+    private let dotSize: CGFloat = 8
+    private let activeDotWidth: CGFloat = 24
+    private let dotSpacing: CGFloat = 8
+    private let barHeight: CGFloat = 4
+    private let barWidth: CGFloat = 200
+    
+    var body: some View {
+        ZStack {
+            // Dots mode
+            if !showingBar {
+                dotsView
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
+            
+            // Progress bar mode
+            if showingBar {
+                progressBarView
+                    .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .center)))
+            }
+        }
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: showingBar)
+        .onChange(of: isTrailerPlaying) { _, playing in
+            if playing {
+                // Slight delay before morphing to bar so it feels intentional
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                    showingBar = true
+                }
+            } else {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                    showingBar = false
+                }
+            }
+        }
+    }
+    
+    // MARK: - Dots
+    private var dotsView: some View {
+        HStack(spacing: dotSpacing) {
+            ForEach(0..<totalPages, id: \.self) { index in
+                Capsule()
+                    .fill(index == currentPage ? Color.white : Color.white.opacity(0.35))
+                    .frame(
+                        width: index == currentPage ? activeDotWidth : dotSize,
+                        height: dotSize
+                    )
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: currentPage)
+    }
+    
+    // MARK: - Progress Bar
+    private var progressBarView: some View {
+        ZStack(alignment: .leading) {
+            // Track
+            Capsule()
+                .fill(Color.white.opacity(0.2))
+                .frame(width: barWidth, height: barHeight)
+            
+            // Fill
+            Capsule()
+                .fill(Color.white.opacity(0.9))
+                .frame(width: max(barHeight, barWidth * progress), height: barHeight)
+                .animation(.linear(duration: 0.05), value: progress)
         }
     }
 }
