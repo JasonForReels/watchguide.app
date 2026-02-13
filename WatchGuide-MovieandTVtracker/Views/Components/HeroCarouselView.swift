@@ -12,8 +12,8 @@ struct HeroCarouselView: View {
     let onItemTap: (MediaItem) -> Void
     
     @State private var currentIndex = 0
-    @State private var autoScrollTimer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()
     @StateObject private var trailerLoader = HeroTrailerLoader()
+    @StateObject private var timerManager = CarouselTimerManager()
     @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
@@ -28,7 +28,20 @@ struct HeroCarouselView: View {
                             trailerKey: trailerLoader.trailerKeys[item.id],
                             onTap: { onItemTap(item) },
                             geometry: geometry,
-                            colorScheme: colorScheme
+                            colorScheme: colorScheme,
+                            onTrailerDurationKnown: { duration in
+                                // When the active slide reports its trailer duration,
+                                // update the timer to match
+                                if index == currentIndex {
+                                    timerManager.setDuration(duration)
+                                }
+                            },
+                            onTrailerReady: {
+                                // Pause auto-scroll timer until duration is known
+                                if index == currentIndex {
+                                    timerManager.pause()
+                                }
+                            }
                         )
                     }
                     .tag(index)
@@ -66,19 +79,69 @@ struct HeroCarouselView: View {
             .padding(.bottom, 16)
         }
         .aspectRatio(16.0/10.0, contentMode: .fit)
-        .onReceive(autoScrollTimer) { _ in
-            guard items.count > 1 else { return }
+        .onReceive(timerManager.$shouldAdvance) { advance in
+            guard advance, items.count > 1 else { return }
+            timerManager.shouldAdvance = false
             withAnimation(.easeInOut(duration: 0.9)) {
                 currentIndex = (currentIndex + 1) % items.count
             }
+        }
+        .onChange(of: currentIndex) { _, _ in
+            // Reset timer for new slide — default 8s, will update if trailer reports duration
+            timerManager.reset(defaultDuration: 8)
         }
         .onChange(of: items.count) { _, newCount in
             if newCount == 0 { currentIndex = 0 }
             else if currentIndex >= newCount { currentIndex = 0 }
         }
+        .onAppear {
+            timerManager.reset(defaultDuration: 8)
+        }
         .task {
             await trailerLoader.loadTrailers(for: items)
         }
+    }
+}
+
+// MARK: - Carousel Timer Manager
+/// Manages the auto-scroll timer with dynamic duration based on trailer length
+@MainActor
+class CarouselTimerManager: ObservableObject {
+    @Published var shouldAdvance = false
+    private var timer: Timer?
+    private var isPaused = false
+    
+    func reset(defaultDuration: TimeInterval) {
+        timer?.invalidate()
+        isPaused = false
+        shouldAdvance = false
+        startTimer(interval: defaultDuration)
+    }
+    
+    func setDuration(_ duration: TimeInterval) {
+        timer?.invalidate()
+        isPaused = false
+        // Use trailer duration but clamp between 15s and 180s
+        let clamped = min(max(duration, 15), 180)
+        startTimer(interval: clamped)
+    }
+    
+    func pause() {
+        timer?.invalidate()
+        isPaused = true
+    }
+    
+    private func startTimer(interval: TimeInterval) {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.shouldAdvance = true
+            }
+        }
+    }
+    
+    deinit {
+        timer?.invalidate()
     }
 }
 
@@ -113,22 +176,46 @@ class HeroTrailerLoader: ObservableObject {
         }
     }
     
+    /// Picks the best trailer key from a list of videos.
+    /// Broadened logic: accepts official trailers first, then teasers, then any YouTube video.
     nonisolated static func pickTrailerKey(from videos: [Video]) -> String? {
         let yt = videos.filter { $0.site.lowercased() == "youtube" }
-        let trailers = yt.filter { v in
-            let type = v.type.lowercased()
+        guard !yt.isEmpty else { return nil }
+        
+        // Priority 1: Official trailer (not a "final" one to avoid spoilers)
+        let officialTrailers = yt.filter { v in
+            v.type.lowercased() == "trailer" && v.official == true
+        }
+        let nonFinalOfficialTrailers = officialTrailers.filter { v in
             let name = v.name.lowercased()
-            let isTrailer = type == "trailer" || type == "teaser"
-            let isFinal = name.contains("final trailer") || name.contains("final teaser") || name.contains("final")
-            return isTrailer && !isFinal
+            return !name.contains("final trailer") && !name.contains("final teaser")
         }
-        if let official = trailers.first(where: { $0.type.lowercased() == "trailer" && $0.official == true }) {
-            return official.key
+        if let pick = nonFinalOfficialTrailers.first ?? officialTrailers.first {
+            return pick.key
         }
-        if let officialTeaser = trailers.first(where: { $0.type.lowercased() == "teaser" && $0.official == true }) {
-            return officialTeaser.key
+        
+        // Priority 2: Any trailer (official or not)
+        let anyTrailers = yt.filter { $0.type.lowercased() == "trailer" }
+        if let pick = anyTrailers.first {
+            return pick.key
         }
-        return trailers.first?.key
+        
+        // Priority 3: Official teaser
+        let officialTeasers = yt.filter { v in
+            v.type.lowercased() == "teaser" && v.official == true
+        }
+        if let pick = officialTeasers.first {
+            return pick.key
+        }
+        
+        // Priority 4: Any teaser
+        let anyTeasers = yt.filter { $0.type.lowercased() == "teaser" }
+        if let pick = anyTeasers.first {
+            return pick.key
+        }
+        
+        // Priority 5: Any YouTube clip/featurette as last resort
+        return yt.first?.key
     }
 }
 
@@ -140,6 +227,8 @@ struct HeroCarouselSlide: View {
     let onTap: () -> Void
     let geometry: GeometryProxy
     let colorScheme: ColorScheme
+    var onTrailerDurationKnown: ((TimeInterval) -> Void)?
+    var onTrailerReady: (() -> Void)?
     
     @State private var showTrailer = false
     @StateObject private var playerVM = HeroPlayerViewModel()
@@ -157,23 +246,18 @@ struct HeroCarouselSlide: View {
             // Layer 0: Black base so there's no flash when backdrop fades
             Color.black
             
-            // Layer 1: Backdrop image — fades out once the trailer is ready
-            backdropImage
-                .opacity(trailerIsVisible ? 0 : 1)
-                .animation(.easeInOut(duration: 0.6), value: trailerIsVisible)
-            
-            // Layer 2: Trailer video (sits behind the backdrop until backdrop fades)
+            // Layer 1: Trailer video (rendered first / bottom of stack)
             if showTrailer, let player = playerVM.player {
                 YouTubePlayerKit.YouTubePlayerView(player)
                     .frame(width: slideWidth, height: slideHeight)
                     .allowsHitTesting(false)
             }
             
-            // Layer 2b: Re-draw backdrop on top while trailer loads (crossfade)
-            if showTrailer && !playerVM.isReady {
-                backdropImage
-                    .allowsHitTesting(false)
-            }
+            // Layer 2: Backdrop image — fades out once the trailer is ready
+            backdropImage
+                .opacity(trailerIsVisible ? 0 : 1)
+                .animation(.easeInOut(duration: 0.6), value: trailerIsVisible)
+                .allowsHitTesting(false)
             
             // Layer 3: Bottom vignette / scrim for text legibility
             VStack(spacing: 0) {
@@ -188,53 +272,48 @@ struct HeroCarouselSlide: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(height: slideHeight * 0.6)
+                .frame(height: slideHeight * 0.55)
             }
             .allowsHitTesting(false)
             
             // Layer 4: Content overlay — title, meta, controls
-            VStack(alignment: .leading, spacing: 8) {
-                Spacer()
-                
-                Text(item.displayTitle)
-                    .font(.title)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .lineLimit(2)
-                    .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
-                
-                HStack(spacing: 12) {
-                    if let year = item.year {
-                        Text(year)
-                            .foregroundColor(.white.opacity(0.85))
-                    }
-                    if let rating = item.voteAverage, rating > 0 {
-                        HStack(spacing: 4) {
-                            Image(systemName: "star.fill")
-                                .foregroundColor(.yellow)
-                            Text(String(format: "%.1f", rating))
-                                .foregroundColor(.white)
+            // Hidden when trailer is actively playing to show clean video
+            if !trailerIsVisible {
+                VStack(alignment: .leading, spacing: 8) {
+                    Spacer()
+                    
+                    Text(item.displayTitle)
+                        .font(.title)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .lineLimit(2)
+                        .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+                    
+                    HStack(spacing: 12) {
+                        if let year = item.year {
+                            Text(year)
+                                .foregroundColor(.white.opacity(0.85))
+                        }
+                        if let rating = item.voteAverage, rating > 0 {
+                            HStack(spacing: 4) {
+                                Image(systemName: "star.fill")
+                                    .foregroundColor(.yellow)
+                                Text(String(format: "%.1f", rating))
+                                    .foregroundColor(.white)
+                            }
                         }
                     }
-                    
-                    if trailerIsVisible {
-                        Text("TRAILER")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.white.opacity(0.8))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Capsule().fill(.ultraThinMaterial))
-                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                    }
+                    .font(.subheadline)
                 }
-                .font(.subheadline)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 50)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.opacity)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 50)
-            .frame(maxWidth: .infinity, alignment: .leading)
             
-            // Layer 5: Mute button (top-right when trailer is playing)
+            // Layer 5: Trailer-playing overlay — mute button + TRAILER badge
             if trailerIsVisible {
+                // Mute button (top-right)
                 VStack {
                     HStack {
                         Spacer()
@@ -253,6 +332,30 @@ struct HeroCarouselSlide: View {
                     Spacer()
                 }
                 .transition(.opacity)
+                
+                // Bottom-left: small title + TRAILER badge
+                VStack(alignment: .leading, spacing: 6) {
+                    Spacer()
+                    HStack(spacing: 10) {
+                        Text(item.displayTitle)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                            .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
+                        
+                        Text("TRAILER")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white.opacity(0.8))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(.ultraThinMaterial))
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 50)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.opacity)
             }
         }
         .frame(width: slideWidth, height: slideHeight)
@@ -264,6 +367,22 @@ struct HeroCarouselSlide: View {
                 startTrailerIfNeeded()
             } else {
                 stopTrailer()
+            }
+        }
+        .onChange(of: playerVM.isReady) { _, ready in
+            if ready && isActive {
+                onTrailerReady?()
+                // Fetch the video duration and report it to the carousel timer
+                if let p = playerVM.player {
+                    Task {
+                        if let duration = try? await p.getDuration() {
+                            let seconds = duration.converted(to: .seconds).value
+                            if seconds > 0 {
+                                onTrailerDurationKnown?(seconds)
+                            }
+                        }
+                    }
+                }
             }
         }
         .onAppear {
@@ -321,7 +440,7 @@ class HeroPlayerViewModel: ObservableObject {
     @Published var isReady = false
     @Published var isMuted = true
     
-    private var cancellable: AnyCancellable?
+    private var stateCancellable: AnyCancellable?
     
     @MainActor
     func setup(videoKey: String) {
@@ -334,7 +453,7 @@ class HeroPlayerViewModel: ObservableObject {
             source: .video(id: videoKey),
             parameters: .init(
                 autoPlay: true,
-                loopEnabled: true,
+                loopEnabled: false,
                 showControls: false,
                 showFullscreenButton: false,
                 keyboardControlsDisabled: true,
@@ -347,7 +466,7 @@ class HeroPlayerViewModel: ObservableObject {
         
         player = ytPlayer
         
-        cancellable = ytPlayer.statePublisher.sink { [weak self] state in
+        stateCancellable = ytPlayer.statePublisher.sink { [weak self] state in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 switch state {
@@ -359,6 +478,8 @@ class HeroPlayerViewModel: ObservableObject {
                         } else {
                             try? await ytPlayer.unmute()
                         }
+                        // Ensure playback starts
+                        try? await ytPlayer.play()
                     }
                 default:
                     break
@@ -374,7 +495,7 @@ class HeroPlayerViewModel: ObservableObject {
             }
             player = nil
             isReady = false
-            cancellable = nil
+            stateCancellable = nil
         }
     }
     
