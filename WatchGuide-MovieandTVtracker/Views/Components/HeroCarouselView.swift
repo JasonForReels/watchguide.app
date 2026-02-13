@@ -49,24 +49,6 @@ struct HeroCarouselView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             
-            // Bottom fade overlay that blends into the page background
-            VStack(spacing: 0) {
-                Spacer()
-                LinearGradient(
-                    stops: [
-                        .init(color: Color(UIColor.systemBackground).opacity(0), location: 0),
-                        .init(color: Color(UIColor.systemBackground).opacity(0.4), location: 0.3),
-                        .init(color: Color(UIColor.systemBackground).opacity(0.75), location: 0.55),
-                        .init(color: Color(UIColor.systemBackground).opacity(0.92), location: 0.75),
-                        .init(color: Color(UIColor.systemBackground), location: 1.0),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 120)
-                .allowsHitTesting(false)
-            }
-            
             // Page indicators
             HStack(spacing: 8) {
                 ForEach(0..<min(items.count, 10), id: \.self) { index in
@@ -79,6 +61,8 @@ struct HeroCarouselView: View {
             .padding(.bottom, 16)
         }
         .aspectRatio(16.0/10.0, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 12)
         .onReceive(timerManager.$shouldAdvance) { advance in
             guard advance, items.count > 1 else { return }
             timerManager.shouldAdvance = false
