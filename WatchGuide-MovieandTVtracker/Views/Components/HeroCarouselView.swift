@@ -4,6 +4,8 @@
 //
 
 import SwiftUI
+import Combine
+import YouTubePlayerKit
 
 struct HeroCarouselView: View {
     let items: [MediaItem]
@@ -11,23 +13,22 @@ struct HeroCarouselView: View {
     
     @State private var currentIndex = 0
     @State private var autoScrollTimer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()
+    @StateObject private var trailerLoader = HeroTrailerLoader()
     @Environment(\.colorScheme) private var colorScheme
-    
-    private var fadeColor: Color {
-        colorScheme == .dark ? Color(UIColor.systemBackground) : Color(UIColor.systemBackground)
-    }
     
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Main carousel — edge-to-edge, no clip/round
+            // Main carousel — edge-to-edge
             TabView(selection: $currentIndex) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     GeometryReader { geometry in
                         HeroCarouselSlide(
                             item: item,
+                            isActive: index == currentIndex,
+                            trailerKey: trailerLoader.trailerKeys[item.id],
                             onTap: { onItemTap(item) },
                             geometry: geometry,
-                            fadeColor: fadeColor
+                            colorScheme: colorScheme
                         )
                     }
                     .tag(index)
@@ -35,7 +36,25 @@ struct HeroCarouselView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             
-            // Page indicators — overlaid at bottom
+            // Bottom fade overlay that blends into the page background
+            VStack(spacing: 0) {
+                Spacer()
+                LinearGradient(
+                    stops: [
+                        .init(color: Color(UIColor.systemBackground).opacity(0), location: 0),
+                        .init(color: Color(UIColor.systemBackground).opacity(0.4), location: 0.3),
+                        .init(color: Color(UIColor.systemBackground).opacity(0.75), location: 0.55),
+                        .init(color: Color(UIColor.systemBackground).opacity(0.92), location: 0.75),
+                        .init(color: Color(UIColor.systemBackground), location: 1.0),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 120)
+                .allowsHitTesting(false)
+            }
+            
+            // Page indicators
             HStack(spacing: 8) {
                 ForEach(0..<min(items.count, 10), id: \.self) { index in
                     Capsule()
@@ -44,7 +63,7 @@ struct HeroCarouselView: View {
                         .animation(.spring(response: 0.3), value: currentIndex)
                 }
             }
-            .padding(.bottom, 24)
+            .padding(.bottom, 16)
         }
         .aspectRatio(16.0/10.0, contentMode: .fit)
         .onReceive(autoScrollTimer) { _ in
@@ -54,79 +73,122 @@ struct HeroCarouselView: View {
             }
         }
         .onChange(of: items.count) { _, newCount in
-            if newCount == 0 {
-                currentIndex = 0
-            } else if currentIndex >= newCount {
-                currentIndex = 0
+            if newCount == 0 { currentIndex = 0 }
+            else if currentIndex >= newCount { currentIndex = 0 }
+        }
+        .task {
+            await trailerLoader.loadTrailers(for: items)
+        }
+    }
+}
+
+// MARK: - Trailer Loader
+@MainActor
+class HeroTrailerLoader: ObservableObject {
+    @Published var trailerKeys: [Int: String] = [:]
+    
+    func loadTrailers(for items: [MediaItem]) async {
+        await withTaskGroup(of: (Int, String?).self) { group in
+            for item in items.prefix(10) {
+                group.addTask {
+                    do {
+                        let videos: VideosResponse
+                        if item.resolvedMediaType == .movie {
+                            videos = try await TMDBService.shared.getMovieVideos(id: item.id)
+                        } else {
+                            videos = try await TMDBService.shared.getTVShowVideos(id: item.id)
+                        }
+                        let key = HeroTrailerLoader.pickTrailerKey(from: videos.results)
+                        return (item.id, key)
+                    } catch {
+                        return (item.id, nil)
+                    }
+                }
+            }
+            for await (id, key) in group {
+                if let key = key {
+                    trailerKeys[id] = key
+                }
             }
         }
+    }
+    
+    nonisolated static func pickTrailerKey(from videos: [Video]) -> String? {
+        let yt = videos.filter { $0.site.lowercased() == "youtube" }
+        let trailers = yt.filter { v in
+            let type = v.type.lowercased()
+            let name = v.name.lowercased()
+            let isTrailer = type == "trailer" || type == "teaser"
+            let isFinal = name.contains("final trailer") || name.contains("final teaser") || name.contains("final")
+            return isTrailer && !isFinal
+        }
+        if let official = trailers.first(where: { $0.type.lowercased() == "trailer" && $0.official == true }) {
+            return official.key
+        }
+        if let officialTeaser = trailers.first(where: { $0.type.lowercased() == "teaser" && $0.official == true }) {
+            return officialTeaser.key
+        }
+        return trailers.first?.key
     }
 }
 
 // MARK: - Hero Carousel Slide
 struct HeroCarouselSlide: View {
     let item: MediaItem
+    let isActive: Bool
+    let trailerKey: String?
     let onTap: () -> Void
     let geometry: GeometryProxy
-    let fadeColor: Color
+    let colorScheme: ColorScheme
+    
+    @State private var showTrailer = false
+    @StateObject private var playerVM = HeroPlayerViewModel()
     
     private var slideWidth: CGFloat { geometry.size.width }
     private var slideHeight: CGFloat { geometry.size.height }
     
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // Backdrop image — fills entire slide
-            AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
-                switch phase {
-                case .empty:
-                    Rectangle()
-                        .fill(Color(.systemGray5))
-                        .overlay { ProgressView() }
-                case .success(let image):
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                case .failure:
-                    Rectangle()
-                        .fill(Color(.systemGray5))
-                        .overlay {
-                            Image(systemName: "film")
-                                .font(.largeTitle)
-                                .foregroundColor(.secondary)
-                        }
-                @unknown default:
-                    Rectangle().fill(Color(.systemGray5))
-                }
-            }
-            .frame(width: slideWidth, height: slideHeight)
-            .clipped()
+            // Layer 1: Backdrop image (always present behind the trailer)
+            backdropImage
             
-            // Bottom fade into page background
+            // Layer 2: Trailer video (overlays backdrop when playing)
+            if showTrailer, let player = playerVM.player {
+                YouTubePlayerKit.YouTubePlayerView(player)
+                    .frame(width: slideWidth, height: slideHeight)
+                    .opacity(playerVM.isReady ? 1 : 0)
+                    .animation(.easeIn(duration: 0.5), value: playerVM.isReady)
+                    .allowsHitTesting(false)
+            }
+            
+            // Layer 3: Bottom vignette / scrim for text legibility
             VStack(spacing: 0) {
                 Spacer()
                 LinearGradient(
                     stops: [
                         .init(color: .clear, location: 0),
-                        .init(color: .black.opacity(0.3), location: 0.3),
-                        .init(color: .black.opacity(0.65), location: 0.6),
-                        .init(color: fadeColor.opacity(0.85), location: 0.85),
-                        .init(color: fadeColor, location: 1.0),
+                        .init(color: .black.opacity(0.25), location: 0.25),
+                        .init(color: .black.opacity(0.6), location: 0.55),
+                        .init(color: .black.opacity(0.85), location: 1.0),
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(height: slideHeight * 0.55)
+                .frame(height: slideHeight * 0.6)
             }
             .allowsHitTesting(false)
             
-            // Content overlay
+            // Layer 4: Content overlay — title, meta, controls
             VStack(alignment: .leading, spacing: 8) {
                 Spacer()
+                
                 Text(item.displayTitle)
                     .font(.title)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
                     .lineLimit(2)
+                    .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+                
                 HStack(spacing: 12) {
                     if let year = item.year {
                         Text(year)
@@ -140,16 +202,176 @@ struct HeroCarouselSlide: View {
                                 .foregroundColor(.white)
                         }
                     }
+                    
+                    if showTrailer && playerVM.isReady {
+                        Text("TRAILER")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white.opacity(0.8))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(.ultraThinMaterial))
+                    }
                 }
                 .font(.subheadline)
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 44)
+            .padding(.bottom, 50)
             .frame(maxWidth: .infinity, alignment: .leading)
+            
+            // Layer 5: Mute button (top-right when trailer is playing)
+            if showTrailer && playerVM.isReady {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button {
+                            playerVM.toggleMute()
+                        } label: {
+                            Image(systemName: playerVM.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 34, height: 34)
+                                .background(Circle().fill(.black.opacity(0.5)))
+                        }
+                        .padding(.top, 52)
+                        .padding(.trailing, 16)
+                    }
+                    Spacer()
+                }
+            }
         }
         .frame(width: slideWidth, height: slideHeight)
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
+        .onChange(of: isActive) { _, active in
+            if active {
+                startTrailerIfNeeded()
+            } else {
+                stopTrailer()
+            }
+        }
+        .onAppear {
+            if isActive {
+                startTrailerIfNeeded()
+            }
+        }
+        .onDisappear {
+            stopTrailer()
+        }
+    }
+    
+    private var backdropImage: some View {
+        AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
+            switch phase {
+            case .empty:
+                Rectangle()
+                    .fill(Color(.systemGray5))
+                    .overlay { ProgressView() }
+            case .success(let image):
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            case .failure:
+                Rectangle()
+                    .fill(Color(.systemGray5))
+                    .overlay {
+                        Image(systemName: "film")
+                            .font(.largeTitle)
+                            .foregroundColor(.secondary)
+                    }
+            @unknown default:
+                Rectangle().fill(Color(.systemGray5))
+            }
+        }
+        .frame(width: slideWidth, height: slideHeight)
+        .clipped()
+    }
+    
+    private func startTrailerIfNeeded() {
+        guard let key = trailerKey else { return }
+        // Always autoplay hero carousel trailers; the mute setting controls volume
+        showTrailer = true
+        playerVM.setup(videoKey: key)
+    }
+    
+    private func stopTrailer() {
+        showTrailer = false
+        playerVM.teardown()
+    }
+}
+
+// MARK: - Hero Player ViewModel
+class HeroPlayerViewModel: ObservableObject {
+    @Published var player: YouTubePlayer?
+    @Published var isReady = false
+    @Published var isMuted = true
+    
+    private var cancellable: AnyCancellable?
+    
+    @MainActor
+    func setup(videoKey: String) {
+        guard player == nil else { return }
+        
+        let startMuted = StorageService.shared.settings.autoPlayTrailersMuted
+        isMuted = startMuted
+        
+        let ytPlayer = YouTubePlayer(
+            source: .video(id: videoKey),
+            parameters: .init(
+                autoPlay: true,
+                loopEnabled: true,
+                showControls: false,
+                showFullscreenButton: false,
+                keyboardControlsDisabled: true,
+                restrictRelatedVideosToSameChannel: true
+            ),
+            configuration: .init(
+                allowsInlineMediaPlayback: true
+            )
+        )
+        
+        player = ytPlayer
+        
+        cancellable = ytPlayer.statePublisher.sink { [weak self] state in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                switch state {
+                case .ready:
+                    self.isReady = true
+                    Task {
+                        if self.isMuted {
+                            try? await ytPlayer.mute()
+                        } else {
+                            try? await ytPlayer.unmute()
+                        }
+                    }
+                default:
+                    break
+                }
+            }
+        }
+    }
+    
+    func teardown() {
+        Task { @MainActor in
+            if let p = player {
+                try? await p.pause()
+            }
+            player = nil
+            isReady = false
+            cancellable = nil
+        }
+    }
+    
+    func toggleMute() {
+        isMuted.toggle()
+        guard let p = player else { return }
+        Task {
+            if isMuted {
+                try? await p.mute()
+            } else {
+                try? await p.unmute()
+            }
+        }
     }
 }
 
