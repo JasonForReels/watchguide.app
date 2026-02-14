@@ -27,6 +27,7 @@ struct ContentView: View {
     @State private var selectedMediaItem: MediaItem?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var scoutBannerManager = ScoutBannerManager.shared
+    @ObservedObject private var authService = AuthService.shared
     
     // Track which tabs have been visited so we only create their views once
     @State private var visitedTabs: Set<Tab> = [.browse]
@@ -75,6 +76,12 @@ struct ContentView: View {
             .onChange(of: selectedMediaItem) { _, newValue in
                 HeroCarouselMuteManager.shared.isExternallyMuted = (newValue != nil)
             }
+            .onChange(of: authService.isAuthenticated) { _, isAuth in
+                // If user logs out while on Lists tab, redirect to Browse
+                if !isAuth && selectedTab == .lists {
+                    selectedTab = .browse
+                }
+            }
         }
     }
     
@@ -105,9 +112,11 @@ struct ContentView: View {
                 }
             }
             
-            Tab.lists.tab {
-                LazyTabContent(tab: .lists, visitedTabs: $visitedTabs) {
-                    ListsView()
+            if authService.isAuthenticated {
+                Tab.lists.tab {
+                    LazyTabContent(tab: .lists, visitedTabs: $visitedTabs) {
+                        ListsView()
+                    }
                 }
             }
             

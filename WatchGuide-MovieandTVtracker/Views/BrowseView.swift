@@ -13,6 +13,7 @@ struct BrowseView: View {
     @State private var activeStudioSheet: StudioSheet?
     @State private var showCustomizeSheet = false
     @State private var selectedPerson: Person?
+    @ObservedObject private var authService = AuthService.shared
     
     enum StudioSheet: String, Identifiable {
         case twentiethCentury, warnerBros, dreamWorks, dcStudios, universalPictures, sonyPictures
@@ -71,9 +72,11 @@ struct BrowseView: View {
                                 onSonyPicturesTap: { activeStudioSheet = .sonyPictures }
                             )
                             
-                            // For You Row (AI-powered, based on likes)
-                            ForYouRow(viewModel: forYouVM) { item in
-                                selectedItem = item
+                            // For You Row (AI-powered, based on likes) — only for signed-in users
+                            if authService.isAuthenticated {
+                                ForYouRow(viewModel: forYouVM) { item in
+                                    selectedItem = item
+                                }
                             }
                         }
                     }

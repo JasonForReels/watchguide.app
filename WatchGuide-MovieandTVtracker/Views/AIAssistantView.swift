@@ -115,15 +115,43 @@ private func domainDisplayName(from url: URL) -> String {
 // MARK: - Top-level shell (owns the StateObject, body is trivially cheap)
 struct AIAssistantView: View {
     @StateObject private var viewModel = AIAssistantViewModel()
+    @StateObject private var ageGate = ScoutAgeGateManager.shared
+    @ObservedObject private var authService = AuthService.shared
+    @State private var showAgeVerification = false
+    @State private var showPrivacySheet = false
     
     var body: some View {
         NavigationStack {
-            AIAssistantBody(viewModel: viewModel)
+            AIAssistantBody(viewModel: viewModel,
+                            showPrivacySheet: $showPrivacySheet)
                 .navigationTitle("Scout")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
-                        ClearButton(viewModel: viewModel)
+                        HStack(spacing: 12) {
+                            // Privacy lock icon
+                            Button {
+                                showPrivacySheet = true
+                            } label: {
+                                Image(systemName: ageGate.isUnrestricted ? "lock.open.fill" : "lock.fill")
+                                    .font(.subheadline)
+                                    .foregroundColor(ageGate.isUnrestricted ? .green : .secondary)
+                            }
+                            
+                            ClearButton(viewModel: viewModel)
+                        }
+                    }
+                }
+                .sheet(isPresented: $showPrivacySheet) {
+                    ScoutPrivacySheet(showAgeVerification: $showAgeVerification)
+                }
+                .sheet(isPresented: $showAgeVerification) {
+                    ScoutAgeVerificationSheet()
+                }
+                .onAppear {
+                    // Reset age verification every time Scout page appears
+                    if !authService.isAuthenticated {
+                        ageGate.resetVerification()
                     }
                 }
         }
@@ -133,6 +161,7 @@ struct AIAssistantView: View {
 // MARK: - Body (layout only — no observation, just passes references)
 private struct AIAssistantBody: View {
     let viewModel: AIAssistantViewModel
+    @Binding var showPrivacySheet: Bool
     @FocusState private var isInputFocused: Bool
     
     var body: some View {
@@ -165,6 +194,407 @@ private struct ClearButton: View {
                 .font(.subheadline)
         }
         .disabled(viewModel.messageCount == 0)
+    }
+}
+
+// MARK: - Scout Privacy Sheet
+struct ScoutPrivacySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var ageGate = ScoutAgeGateManager.shared
+    @ObservedObject private var authService = AuthService.shared
+    @Binding var showAgeVerification: Bool
+    
+    // Animation states
+    @State private var lockScale: CGFloat = 0.85
+    @State private var lockOpacity: Double = 0.3
+    @State private var lockOffset: CGFloat = -12
+    @State private var shackleOffset: CGFloat = 0
+    @State private var glowOpacity: Double = 0
+    @State private var checkmarkScale: CGFloat = 0
+    @State private var checkmarkOpacity: Double = 0
+    @State private var headlineOpacity: Double = 0
+    @State private var bullet1Opacity: Double = 0
+    @State private var bullet1Offset: CGFloat = 15
+    @State private var bullet2Opacity: Double = 0
+    @State private var bullet2Offset: CGFloat = 15
+    @State private var bullet3Opacity: Double = 0
+    @State private var bullet3Offset: CGFloat = 15
+    @State private var finalGlowOpacity: Double = 0
+    @State private var animationCompleted = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 28) {
+                    Spacer().frame(height: 20)
+                    
+                    // Animated lock icon
+                    ZStack {
+                        // Radial glow behind lock
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [Color.blue.opacity(0.15), Color.clear],
+                                    center: .center,
+                                    startRadius: 10,
+                                    endRadius: 60
+                                )
+                            )
+                            .frame(width: 120, height: 120)
+                            .opacity(glowOpacity)
+                        
+                        // Final confirmation glow pulse
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [Color.green.opacity(0.1), Color.clear],
+                                    center: .center,
+                                    startRadius: 20,
+                                    endRadius: 80
+                                )
+                            )
+                            .frame(width: 160, height: 160)
+                            .opacity(finalGlowOpacity)
+                        
+                        // Lock icon
+                        ZStack {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 48))
+                                .foregroundColor(.accentColor)
+                                .offset(y: shackleOffset)
+                            
+                            // Green checkmark badge
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(.green)
+                                .scaleEffect(checkmarkScale)
+                                .opacity(checkmarkOpacity)
+                                .offset(x: 24, y: 20)
+                        }
+                        .scaleEffect(lockScale)
+                        .opacity(lockOpacity)
+                        .offset(y: lockOffset)
+                    }
+                    .frame(height: 120)
+                    .accessibilityLabel("Privacy confirmation")
+                    
+                    // Text content
+                    VStack(spacing: 16) {
+                        Text("Scout Privacy")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .opacity(headlineOpacity)
+                        
+                        VStack(alignment: .leading, spacing: 14) {
+                            privacyBullet(
+                                icon: "shield.checkered",
+                                color: .blue,
+                                text: "No conversations or data are ever sent to third-party AI providers beyond what is needed to generate your response.",
+                                opacity: bullet1Opacity,
+                                offset: bullet1Offset
+                            )
+                            
+                            privacyBullet(
+                                icon: "eye.slash.fill",
+                                color: .purple,
+                                text: "Your chat history is stored only on your device and is never uploaded or shared.",
+                                opacity: bullet2Opacity,
+                                offset: bullet2Offset
+                            )
+                            
+                            privacyBullet(
+                                icon: "person.badge.shield.checkmark.fill",
+                                color: .green,
+                                text: "Mature suggestions are only available to verified 18+ users for safety.",
+                                opacity: bullet3Opacity,
+                                offset: bullet3Offset
+                            )
+                        }
+                        .padding(.horizontal, 4)
+                    }
+                    
+                    // Age verification status & action
+                    VStack(spacing: 12) {
+                        if ageGate.isUnrestricted {
+                            HStack(spacing: 8) {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .foregroundColor(.green)
+                                Text("Age verified — unrestricted mode active")
+                                    .font(.subheadline)
+                                    .foregroundColor(.green)
+                            }
+                            .padding()
+                            .background(Color.green.opacity(0.1))
+                            .cornerRadius(12)
+                        } else if authService.isAuthenticated {
+                            Button {
+                                dismiss()
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                    showAgeVerification = true
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: "person.badge.clock")
+                                    Text("Verify Age (18+)")
+                                }
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.accentColor)
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
+                            }
+                            
+                            Text("Unlock mature content recommendations by verifying your age.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        } else {
+                            HStack(spacing: 8) {
+                                Image(systemName: "lock.fill")
+                                    .foregroundColor(.orange)
+                                Text("Sign in and verify your age to unlock mature content")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding()
+                            .background(Color.orange.opacity(0.08))
+                            .cornerRadius(12)
+                        }
+                    }
+                    
+                    Spacer(minLength: 40)
+                }
+                .padding(.horizontal, 24)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .onAppear {
+            if reduceMotion {
+                // Simple fade for reduce motion
+                lockScale = 1.0
+                lockOpacity = 1.0
+                lockOffset = 0
+                glowOpacity = 0.5
+                checkmarkScale = 1.0
+                checkmarkOpacity = 1.0
+                headlineOpacity = 1.0
+                bullet1Opacity = 1.0; bullet1Offset = 0
+                bullet2Opacity = 1.0; bullet2Offset = 0
+                bullet3Opacity = 1.0; bullet3Offset = 0
+                animationCompleted = true
+            } else {
+                runAnimation()
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func privacyBullet(icon: String, color: Color, text: String, opacity: Double, offset: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.body)
+                .foregroundColor(color)
+                .frame(width: 24)
+            
+            Text(text)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .opacity(opacity)
+        .offset(y: offset)
+    }
+    
+    private func runAnimation() {
+        // Phase 1: Entry / Page Appear (0–300ms)
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+            lockScale = 1.03
+            lockOpacity = 1.0
+            lockOffset = 0
+        }
+        
+        // Settle overshoot
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+                lockScale = 1.0
+            }
+        }
+        
+        // Phase 2: Confirmation Pulse (300–600ms)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // Shackle lift
+            withAnimation(.easeOut(duration: 0.15)) {
+                shackleOffset = -4
+            }
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Shackle snap down + glow
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.75)) {
+                shackleOffset = 0
+            }
+            withAnimation(.easeOut(duration: 0.15)) {
+                glowOpacity = 0.6
+            }
+            // Haptic
+            let impact = UIImpactFeedbackGenerator(style: .light)
+            impact.impactOccurred()
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            // Checkmark appear
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                checkmarkScale = 1.1
+                checkmarkOpacity = 1.0
+            }
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) {
+            withAnimation(.spring(response: 0.15, dampingFraction: 0.85)) {
+                checkmarkScale = 1.0
+            }
+            withAnimation(.easeOut(duration: 0.3)) {
+                glowOpacity = 0.3
+            }
+        }
+        
+        // Phase 3: Text Reveal (600–900ms)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                headlineOpacity = 1.0
+            }
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                bullet1Opacity = 1.0
+                bullet1Offset = 0
+            }
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                bullet2Opacity = 1.0
+                bullet2Offset = 0
+            }
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                bullet3Opacity = 1.0
+                bullet3Offset = 0
+            }
+        }
+        
+        // Final radial pulse
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) {
+            withAnimation(.easeOut(duration: 0.4)) {
+                finalGlowOpacity = 0.3
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.35) {
+            withAnimation(.easeIn(duration: 0.5)) {
+                finalGlowOpacity = 0
+            }
+            animationCompleted = true
+        }
+    }
+}
+
+// MARK: - Scout Age Verification Sheet
+struct ScoutAgeVerificationSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var ageGate = ScoutAgeGateManager.shared
+    @State private var selectedDate = Calendar.current.date(byAdding: .year, value: -18, to: Date()) ?? Date()
+    @State private var verificationFailed = false
+    
+    private let dateRange: ClosedRange<Date> = {
+        let calendar = Calendar.current
+        let oldest = calendar.date(byAdding: .year, value: -120, to: Date()) ?? Date()
+        let now = Date()
+        return oldest...now
+    }()
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Spacer().frame(height: 20)
+                
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.12))
+                        .frame(width: 72, height: 72)
+                    Image(systemName: "person.badge.clock")
+                        .font(.system(size: 32))
+                        .foregroundColor(.accentColor)
+                }
+                
+                VStack(spacing: 8) {
+                    Text("Age Verification")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    Text("Please enter your date of birth to unlock unrestricted Scout recommendations. You must be 18 or older.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                
+                DatePicker("Date of Birth", selection: $selectedDate, in: dateRange, displayedComponents: .date)
+                    .datePickerStyle(.wheel)
+                    .labelsHidden()
+                    .padding(.horizontal)
+                
+                if verificationFailed {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("You must be 18 or older to unlock unrestricted content.")
+                            .font(.subheadline)
+                            .foregroundColor(.orange)
+                    }
+                    .padding()
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                }
+                
+                Button {
+                    let success = ageGate.verify(birthDate: selectedDate)
+                    if success {
+                        dismiss()
+                    } else {
+                        verificationFailed = true
+                    }
+                } label: {
+                    Text("Verify")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
     }
 }
 
@@ -1226,9 +1656,32 @@ class AIAssistantViewModel: ObservableObject {
     private var lastPublishedLength = 0
     private var pendingFlushTask: Task<Void, Never>?
     
+    /// Whether Scout should operate in content-restricted mode
+    private var isRestrictedMode: Bool {
+        !ScoutAgeGateManager.shared.isUnrestricted
+    }
+    
     func sendMessage() async {
         let userMessage = inputState.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !userMessage.isEmpty else { return }
+        
+        // In restricted mode, block user input that contains explicit content
+        if isRestrictedMode && ContentFilterService.shared.containsBlockedContent(userMessage) {
+            let blockedMsg = AIService.ChatMessage(role: "user", content: userMessage)
+            messages.append(blockedMsg)
+            messageCount = messages.count
+            inputState.inputText = ""
+            scrollTrigger += 1
+            
+            let refusalMsg = AIService.ChatMessage(
+                role: "assistant",
+                content: "I keep recommendations appropriate for all audiences. How about some great action, comedy, or family-friendly films instead?"
+            )
+            messages.append(refusalMsg)
+            messageCount = messages.count
+            scrollTrigger += 1
+            return
+        }
         
         let userChatMessage = AIService.ChatMessage(role: "user", content: userMessage)
         messages.append(userChatMessage)
@@ -1244,6 +1697,7 @@ class AIAssistantViewModel: ObservableObject {
         inputState.saveModel()
         
         let selectedModel = inputState.selectedModel
+        let restricted = isRestrictedMode
         
         // Check for trailer short-circuit first (non-streaming)
         let lowercased = userMessage.lowercased()
@@ -1258,13 +1712,15 @@ class AIAssistantViewModel: ObservableObject {
                     conversationHistory: messages,
                     likedItems: likedItems,
                     webSearchEnabled: webSearchEnabled,
-                    model: selectedModel
+                    model: selectedModel,
+                    restrictedMode: restricted
                 )
                 
                 isThinking = false
                 
                 // Check for [TRAILER:] tags in the response
-                let (cleanedContent, trailerTitles) = AIService.extractTrailerTags(from: response)
+                let (rawCleanedContent, trailerTitles) = AIService.extractTrailerTags(from: response)
+                let cleanedContent = restricted ? ContentFilterService.shared.filterOutput(rawCleanedContent) : rawCleanedContent
                 let assistantMessage = AIService.ChatMessage(role: "assistant", content: cleanedContent)
                 messages.append(assistantMessage)
                 messageCount = messages.count
@@ -1313,7 +1769,8 @@ class AIAssistantViewModel: ObservableObject {
             conversationHistory: Array(messages.dropLast()),
             likedItems: likedItems,
             webSearchEnabled: webSearchEnabled,
-            model: selectedModel
+            model: selectedModel,
+            restrictedMode: restricted
         )
         
         for await event in stream {
@@ -1332,7 +1789,9 @@ class AIAssistantViewModel: ObservableObject {
                     isThinking = false
                     currentThinkingText = accumulatedThinking
                 }
-                pendingContent = text
+                // Apply content filter for restricted mode
+                let filteredText = restricted ? ContentFilterService.shared.filterOutput(text) : text
+                pendingContent = filteredText
                 
                 // Time + char based throttle — only push when enough time AND content has elapsed
                 let now = CFAbsoluteTimeGetCurrent()
@@ -1371,6 +1830,11 @@ class AIAssistantViewModel: ObservableObject {
                 }
                 streamingMessageId = nil
                 isThinking = false
+                
+                // Final pass: filter content in restricted mode
+                if restricted {
+                    messages[streamIndex].content = ContentFilterService.shared.filterOutput(messages[streamIndex].content)
+                }
                 
                 // Extract [TRAILER:Title] tags and fetch trailer from TMDB
                 let finalContent = messages[streamIndex].content

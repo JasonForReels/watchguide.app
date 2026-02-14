@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		184F591A2E6ACF2000FBE038 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -30,7 +34,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		187AF0F92E828D1000505E98 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		187AF0F92E828D1000505E98 /* Exceptions for "WatchGuide-MovieandTVtracker" folder in "WatchGuide-MovieandTVtracker" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -43,7 +47,7 @@
 		184F590E2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				187AF0F92E828D1000505E98 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+				187AF0F92E828D1000505E98 /* Exceptions for "WatchGuide-MovieandTVtracker" folder in "WatchGuide-MovieandTVtracker" target */,
 			);
 			path = "WatchGuide-MovieandTVtracker";
 			sourceTree = "<group>";
@@ -65,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -604,11 +609,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		0EAC4673451C0F4192C4778A /* YouTubePlayerKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 33069E29849577834425E2AD /* XCRemoteSwiftPackageReference "YouTubePlayerKit" */;
-			productName = YouTubePlayerKit;
-		};
 		B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 33069E29849577834425E2AD /* XCRemoteSwiftPackageReference "YouTubePlayerKit" */;

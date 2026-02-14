@@ -147,7 +147,8 @@ actor AIService {
         conversationHistory: [ChatMessage],
         likedItems: [SavedMediaItem],
         webSearchEnabled: Bool = true,
-        model: ChronModel = .gemini25Flash
+        model: ChronModel = .gemini25Flash,
+        restrictedMode: Bool = false
     ) async throws -> (String, TrailerResponse?) {
         guard !apiKey.isEmpty else {
             throw AIError.noApiKey
@@ -159,7 +160,7 @@ actor AIService {
         }
         
         var fullContent = ""
-        for await event in streamMessage(message, conversationHistory: conversationHistory, likedItems: likedItems, webSearchEnabled: webSearchEnabled, model: model) {
+        for await event in streamMessage(message, conversationHistory: conversationHistory, likedItems: likedItems, webSearchEnabled: webSearchEnabled, model: model, restrictedMode: restrictedMode) {
             switch event {
             case .content(let text):
                 fullContent = text
@@ -181,7 +182,8 @@ actor AIService {
         conversationHistory: [ChatMessage],
         likedItems: [SavedMediaItem],
         webSearchEnabled: Bool = true,
-        model: ChronModel = .gemini25Flash
+        model: ChronModel = .gemini25Flash,
+        restrictedMode: Bool = false
     ) -> AsyncStream<StreamEvent> {
         AsyncStream { continuation in
             Task {
@@ -192,6 +194,7 @@ actor AIService {
                         likedItems: likedItems,
                         webSearchEnabled: webSearchEnabled,
                         model: model,
+                        restrictedMode: restrictedMode,
                         continuation: continuation
                     )
                 } catch {
@@ -209,13 +212,14 @@ actor AIService {
         likedItems: [SavedMediaItem],
         webSearchEnabled: Bool,
         model: ChronModel,
+        restrictedMode: Bool,
         continuation: AsyncStream<StreamEvent>.Continuation
     ) async throws {
         guard !apiKey.isEmpty else {
             throw AIError.noApiKey
         }
         
-        let systemPrompt = buildSystemPrompt(likedItems: likedItems, webSearchEnabled: webSearchEnabled)
+        let systemPrompt = buildSystemPrompt(likedItems: likedItems, webSearchEnabled: webSearchEnabled, restrictedMode: restrictedMode)
         
         var messages: [[String: String]] = [
             ["role": "system", "content": systemPrompt]
@@ -427,7 +431,7 @@ actor AIService {
     }
     
     // MARK: - Build System Prompt
-    private func buildSystemPrompt(likedItems: [SavedMediaItem], webSearchEnabled: Bool) -> String {
+    private func buildSystemPrompt(likedItems: [SavedMediaItem], webSearchEnabled: Bool, restrictedMode: Bool = false) -> String {
         var prompt = """
         You are Scout, an AI movie & TV assistant. Concise but complete — never cut off mid-sentence.
 
@@ -443,6 +447,11 @@ actor AIService {
         - Always finish your response completely. Never stop mid-sentence or mid-number.
         - CRITICAL: NEVER repeat yourself. State facts exactly ONCE. If you mention box office numbers, dates, or any data, say it ONE time only. Do NOT restate or rephrase the same information a second time. Your response must be concise with zero redundancy.
         """
+        
+        // Add content restriction for unverified users
+        if restrictedMode {
+            prompt += ContentFilterService.shared.restrictedModeSystemPrompt
+        }
         
         if webSearchEnabled {
             prompt += """
