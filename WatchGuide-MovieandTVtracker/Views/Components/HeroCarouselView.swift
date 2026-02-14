@@ -12,23 +12,37 @@ struct HeroCarouselView: View {
     let onItemTap: (MediaItem) -> Void
     
     @State private var currentIndex = 0
+    @State private var dragOffset: CGFloat = 0
+    @State private var isDragging = false
     @StateObject private var trailerLoader = HeroTrailerLoader()
     @StateObject private var timerManager = CarouselTimerManager()
     @Environment(\.colorScheme) private var colorScheme
     
+    // Transition animation — Apple-style spring
+    private let slideSpring: Animation = .interpolatingSpring(
+        mass: 1.0, stiffness: 170, damping: 24, initialVelocity: 0
+    )
+    
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // Main carousel — edge-to-edge
-            TabView(selection: $currentIndex) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    GeometryReader { geometry in
+        GeometryReader { outerGeo in
+            let width = outerGeo.size.width
+            let height = outerGeo.size.height
+            
+            ZStack(alignment: .bottom) {
+                // Carousel slides
+                ZStack {
+                    ForEach(Array(items.prefix(10).enumerated()), id: \.element.id) { index, item in
+                        let offset = slideOffset(for: index, containerWidth: width)
+                        let scaleVal = slideScale(for: index, containerWidth: width)
+                        let opacityVal = slideOpacity(for: index, containerWidth: width)
+                        
                         HeroCarouselSlide(
                             item: item,
-                            isActive: index == currentIndex,
+                            isActive: index == currentIndex && !isDragging,
                             trailerKey: trailerLoader.trailerKeys[item.id],
                             logoPath: trailerLoader.logoURLs[item.id],
                             onTap: { onItemTap(item) },
-                            geometry: geometry,
+                            slideSize: CGSize(width: width, height: height),
                             colorScheme: colorScheme,
                             trailerPhase: timerManager.trailerPhase,
                             onTrailerDurationKnown: { duration in
@@ -42,20 +56,55 @@ struct HeroCarouselView: View {
                                 }
                             }
                         )
+                        .frame(width: width, height: height)
+                        .scaleEffect(scaleVal, anchor: .center)
+                        .opacity(opacityVal)
+                        .offset(x: offset)
+                        .zIndex(index == currentIndex ? 1 : 0)
                     }
-                    .tag(index)
                 }
+                .gesture(
+                    DragGesture(minimumDistance: 15)
+                        .onChanged { value in
+                            // Don't allow swipe during trailer
+                            guard !timerManager.isTrailerPlaying else { return }
+                            isDragging = true
+                            dragOffset = value.translation.width
+                        }
+                        .onEnded { value in
+                            guard !timerManager.isTrailerPlaying else {
+                                isDragging = false
+                                dragOffset = 0
+                                return
+                            }
+                            isDragging = false
+                            let threshold: CGFloat = width * 0.15
+                            let velocity = value.predictedEndTranslation.width - value.translation.width
+                            
+                            if value.translation.width < -threshold || velocity < -150 {
+                                // Swipe left → next
+                                advanceTo(index: (currentIndex + 1) % items.count)
+                            } else if value.translation.width > threshold || velocity > 150 {
+                                // Swipe right → previous
+                                advanceTo(index: (currentIndex - 1 + items.count) % items.count)
+                            } else {
+                                // Snap back
+                                withAnimation(slideSpring) {
+                                    dragOffset = 0
+                                }
+                            }
+                        }
+                )
+                
+                // Page indicators / progress bar
+                CarouselPageIndicator(
+                    totalPages: min(items.count, 10),
+                    currentPage: currentIndex,
+                    progress: timerManager.progress,
+                    isTrailerPlaying: timerManager.isTrailerPlaying
+                )
+                .padding(.bottom, 16)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            
-            // Page indicators / progress bar
-            CarouselPageIndicator(
-                totalPages: min(items.count, 10),
-                currentPage: currentIndex,
-                progress: timerManager.progress,
-                isTrailerPlaying: timerManager.isTrailerPlaying
-            )
-            .padding(.bottom, 16)
         }
         .aspectRatio(16.0/10.0, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -78,12 +127,7 @@ struct HeroCarouselView: View {
         .onReceive(timerManager.$shouldAdvance) { advance in
             guard advance, items.count > 1 else { return }
             timerManager.shouldAdvance = false
-            withAnimation(.easeInOut(duration: 0.9)) {
-                currentIndex = (currentIndex + 1) % items.count
-            }
-        }
-        .onChange(of: currentIndex) { _, _ in
-            timerManager.reset(defaultDuration: 8)
+            advanceTo(index: (currentIndex + 1) % items.count)
         }
         .onChange(of: items.count) { _, newCount in
             if newCount == 0 { currentIndex = 0 }
@@ -95,6 +139,44 @@ struct HeroCarouselView: View {
         .task {
             await trailerLoader.loadTrailers(for: items)
         }
+    }
+    
+    // MARK: - Slide Positioning
+    
+    /// Computes the horizontal offset for a slide based on its position relative to currentIndex
+    private func slideOffset(for index: Int, containerWidth: CGFloat) -> CGFloat {
+        let diff = CGFloat(index - currentIndex)
+        let base = diff * containerWidth
+        return base + dragOffset
+    }
+    
+    /// Scale effect: current slide is 1.0, adjacent slides are slightly scaled down
+    private func slideScale(for index: Int, containerWidth: CGFloat) -> CGFloat {
+        let diff = CGFloat(index - currentIndex)
+        let normalizedDrag = containerWidth > 0 ? dragOffset / containerWidth : 0
+        let effectiveDiff = abs(diff + normalizedDrag)
+        // Current slide: 1.0, neighboring: 0.92, further: smaller
+        let scale = 1.0 - min(effectiveDiff * 0.08, 0.2)
+        return max(scale, 0.8)
+    }
+    
+    /// Opacity: current slide is 1.0, adjacent are slightly faded
+    private func slideOpacity(for index: Int, containerWidth: CGFloat) -> Double {
+        let diff = CGFloat(index - currentIndex)
+        let normalizedDrag = containerWidth > 0 ? dragOffset / containerWidth : 0
+        let effectiveDiff = abs(diff + normalizedDrag)
+        let opacity = 1.0 - min(Double(effectiveDiff) * 0.4, 0.8)
+        return max(opacity, 0.2)
+    }
+    
+    // MARK: - Navigation
+    
+    private func advanceTo(index: Int) {
+        withAnimation(slideSpring) {
+            currentIndex = index
+            dragOffset = 0
+        }
+        timerManager.reset(defaultDuration: 8)
     }
 }
 
@@ -331,7 +413,7 @@ struct HeroCarouselSlide: View {
     let trailerKey: String?
     let logoPath: String?
     let onTap: () -> Void
-    let geometry: GeometryProxy
+    let slideSize: CGSize
     let colorScheme: ColorScheme
     let trailerPhase: TrailerPhase
     var onTrailerDurationKnown: ((TimeInterval) -> Void)?
@@ -340,8 +422,8 @@ struct HeroCarouselSlide: View {
     @State private var showTrailer = false
     @StateObject private var playerVM = HeroPlayerViewModel()
     
-    private var slideWidth: CGFloat { geometry.size.width }
-    private var slideHeight: CGFloat { geometry.size.height }
+    private var slideWidth: CGFloat { slideSize.width }
+    private var slideHeight: CGFloat { slideSize.height }
     
     /// True when the YouTube player is loaded and ready — backdrop should hide
     private var trailerIsVisible: Bool {
