@@ -115,8 +115,6 @@ private func domainDisplayName(from url: URL) -> String {
 // MARK: - Top-level shell (owns the StateObject, body is trivially cheap)
 struct AIAssistantView: View {
     @StateObject private var viewModel = AIAssistantViewModel()
-    @StateObject private var ageGate = ScoutAgeGateManager.shared
-    @ObservedObject private var authService = AuthService.shared
     
     var body: some View {
         NavigationStack {
@@ -128,114 +126,6 @@ struct AIAssistantView: View {
                         ClearButton(viewModel: viewModel)
                     }
                 }
-                .sheet(isPresented: $ageGate.showDOBPrompt) {
-                    ScoutDOBPromptSheet()
-                }
-                .onAppear {
-                    ageGate.promptIfNeeded()
-                }
-        }
-    }
-}
-
-// MARK: - DOB Prompt Sheet
-struct ScoutDOBPromptSheet: View {
-    @ObservedObject private var ageGate = ScoutAgeGateManager.shared
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedDate = Calendar.current.date(byAdding: .year, value: -18, to: Date()) ?? Date()
-    @State private var showResult = false
-    @State private var verified = false
-    
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                Spacer().frame(height: 16)
-                
-                ZStack {
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.12))
-                        .frame(width: 64, height: 64)
-                    
-                    Image(systemName: "calendar.badge.clock")
-                        .font(.system(size: 28))
-                        .foregroundColor(.accentColor)
-                }
-                
-                VStack(spacing: 8) {
-                    Text("Date of Birth")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    
-                    Text("Please enter your date of birth to continue using Scout. This is not stored anywhere and is only used for this session.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                }
-                
-                DatePicker(
-                    "Date of Birth",
-                    selection: $selectedDate,
-                    in: ...Date(),
-                    displayedComponents: .date
-                )
-                .datePickerStyle(.wheel)
-                .labelsHidden()
-                .padding(.horizontal)
-                
-                if showResult {
-                    if verified {
-                        HStack(spacing: 8) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                            Text("Verified — enjoy Scout!")
-                                .font(.subheadline)
-                                .foregroundColor(.green)
-                        }
-                        .padding()
-                        .background(Color.green.opacity(0.1))
-                        .cornerRadius(12)
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                    } else {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
-                            Text("You must be 18 or older for unrestricted access.")
-                                .font(.subheadline)
-                                .foregroundColor(.orange)
-                        }
-                        .padding()
-                        .background(Color.orange.opacity(0.1))
-                        .cornerRadius(12)
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                    }
-                }
-                
-                Button {
-                    let result = ageGate.verify(birthDate: selectedDate)
-                    verified = result
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        showResult = true
-                    }
-                    // Auto-dismiss after a short delay
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        dismiss()
-                    }
-                } label: {
-                    Text("Continue")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(14)
-                }
-                .padding(.horizontal, 24)
-                
-                Spacer()
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .interactiveDismissDisabled()
         }
     }
 }
@@ -282,26 +172,6 @@ private struct ClearButton: View {
 struct ScoutPrivacySheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var ageGate = ScoutAgeGateManager.shared
-    @ObservedObject private var authService = AuthService.shared
-    
-    // Animation states
-    @State private var lockScale: CGFloat = 0.85
-    @State private var lockOpacity: Double = 0.3
-    @State private var lockOffset: CGFloat = -12
-    @State private var shackleOffset: CGFloat = 0
-    @State private var glowOpacity: Double = 0
-    @State private var checkmarkScale: CGFloat = 0
-    @State private var checkmarkOpacity: Double = 0
-    @State private var headlineOpacity: Double = 0
-    @State private var bullet1Opacity: Double = 0
-    @State private var bullet1Offset: CGFloat = 15
-    @State private var bullet2Opacity: Double = 0
-    @State private var bullet2Offset: CGFloat = 15
-    @State private var bullet3Opacity: Double = 0
-    @State private var bullet3Offset: CGFloat = 15
-    @State private var finalGlowOpacity: Double = 0
-    @State private var animationCompleted = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
     var body: some View {
         NavigationStack {
@@ -309,9 +179,8 @@ struct ScoutPrivacySheet: View {
                 VStack(spacing: 28) {
                     Spacer().frame(height: 20)
                     
-                    // Animated lock icon
+                    // Icon
                     ZStack {
-                        // Radial glow behind lock
                         Circle()
                             .fill(
                                 RadialGradient(
@@ -322,126 +191,51 @@ struct ScoutPrivacySheet: View {
                                 )
                             )
                             .frame(width: 120, height: 120)
-                            .opacity(glowOpacity)
                         
-                        // Final confirmation glow pulse
-                        Circle()
-                            .fill(
-                                RadialGradient(
-                                    colors: [Color.green.opacity(0.1), Color.clear],
-                                    center: .center,
-                                    startRadius: 20,
-                                    endRadius: 80
-                                )
-                            )
-                            .frame(width: 160, height: 160)
-                            .opacity(finalGlowOpacity)
-                        
-                        // Lock icon
-                        ZStack {
-                            Image(systemName: authService.isAuthenticated ? "lock.open.fill" : "lock.fill")
-                                .font(.system(size: 48))
-                                .foregroundColor(.accentColor)
-                                .offset(y: shackleOffset)
-                            
-                            // Green checkmark badge
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 18))
-                                .foregroundColor(.green)
-                                .scaleEffect(checkmarkScale)
-                                .opacity(checkmarkOpacity)
-                                .offset(x: 24, y: 20)
-                        }
-                        .scaleEffect(lockScale)
-                        .opacity(lockOpacity)
-                        .offset(y: lockOffset)
+                        Image(systemName: ageGate.isUnrestricted ? "lock.open.fill" : "lock.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.accentColor)
                     }
                     .frame(height: 120)
-                    .accessibilityLabel("Privacy confirmation")
                     
-                    // Text content
                     VStack(spacing: 16) {
                         Text("Scout Privacy")
                             .font(.title2)
                             .fontWeight(.bold)
-                            .opacity(headlineOpacity)
                         
                         VStack(alignment: .leading, spacing: 14) {
                             privacyBullet(
                                 icon: "shield.checkered",
                                 color: .blue,
-                                text: "No conversations or data are ever sent to third-party AI providers beyond what is needed to generate your response.",
-                                opacity: bullet1Opacity,
-                                offset: bullet1Offset
+                                text: "No conversations or data are ever sent to third-party AI providers beyond what is needed to generate your response."
                             )
                             
                             privacyBullet(
                                 icon: "eye.slash.fill",
                                 color: .purple,
-                                text: "Your chat history is stored only on your device and is never uploaded or shared.",
-                                opacity: bullet2Opacity,
-                                offset: bullet2Offset
+                                text: "Your chat history is stored only on your device and is never uploaded or shared."
                             )
                             
                             privacyBullet(
                                 icon: "person.badge.shield.checkmark.fill",
                                 color: .green,
-                                text: "Content filtering is active for guests. Sign in for full Scout access.",
-                                opacity: bullet3Opacity,
-                                offset: bullet3Offset
+                                text: "Toggle \"Include Adult Content\" in Settings to control content filtering."
                             )
                         }
                         .padding(.horizontal, 4)
                     }
                     
-                    // Auth status section
-                    VStack(spacing: 12) {
-                        if authService.isAuthenticated && ageGate.isUnrestricted {
-                            HStack(spacing: 8) {
-                                Image(systemName: "checkmark.seal.fill")
-                                    .foregroundColor(.green)
-                                Text("Signed in — unrestricted mode active")
-                                    .font(.subheadline)
-                                    .foregroundColor(.green)
-                            }
-                            .padding()
-                            .background(Color.green.opacity(0.1))
-                            .cornerRadius(12)
-                        } else if authService.isAuthenticated && ageGate.isUnder18 {
-                            HStack(spacing: 8) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.orange)
-                                Text("Signed in — restricted mode (under 18)")
-                                    .font(.subheadline)
-                                    .foregroundColor(.orange)
-                            }
-                            .padding()
-                            .background(Color.orange.opacity(0.1))
-                            .cornerRadius(12)
-                        } else if authService.isAuthenticated {
-                            HStack(spacing: 8) {
-                                Image(systemName: "calendar.badge.clock")
-                                    .foregroundColor(.blue)
-                                Text("Signed in — verify your age to unlock Scout")
-                                    .font(.subheadline)
-                                    .foregroundColor(.blue)
-                            }
-                            .padding()
-                            .background(Color.blue.opacity(0.08))
-                            .cornerRadius(12)
-                        } else {
-                            HStack(spacing: 8) {
-                                Image(systemName: "lock.fill")
-                                    .foregroundColor(.orange)
-                                Text("Sign in to unlock unrestricted Scout")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding()
-                            .background(Color.orange.opacity(0.08))
-                            .cornerRadius(12)
-                        }
+                    // Current mode indicator
+                    HStack(spacing: 8) {
+                        Image(systemName: ageGate.isUnrestricted ? "checkmark.seal.fill" : "shield.fill")
+                            .foregroundColor(ageGate.isUnrestricted ? .green : .blue)
+                        Text(ageGate.modeLabel)
+                            .font(.subheadline)
+                            .foregroundColor(ageGate.isUnrestricted ? .green : .blue)
                     }
+                    .padding()
+                    .background((ageGate.isUnrestricted ? Color.green : Color.blue).opacity(0.1))
+                    .cornerRadius(12)
                     
                     Spacer(minLength: 40)
                 }
@@ -454,28 +248,10 @@ struct ScoutPrivacySheet: View {
                 }
             }
         }
-        .onAppear {
-            if reduceMotion {
-                // Simple fade for reduce motion
-                lockScale = 1.0
-                lockOpacity = 1.0
-                lockOffset = 0
-                glowOpacity = 0.5
-                checkmarkScale = 1.0
-                checkmarkOpacity = 1.0
-                headlineOpacity = 1.0
-                bullet1Opacity = 1.0; bullet1Offset = 0
-                bullet2Opacity = 1.0; bullet2Offset = 0
-                bullet3Opacity = 1.0; bullet3Offset = 0
-                animationCompleted = true
-            } else {
-                runAnimation()
-            }
-        }
     }
     
     @ViewBuilder
-    private func privacyBullet(icon: String, color: Color, text: String, opacity: Double, offset: CGFloat) -> some View {
+    private func privacyBullet(icon: String, color: Color, text: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
                 .font(.body)
@@ -486,103 +262,6 @@ struct ScoutPrivacySheet: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-        }
-        .opacity(opacity)
-        .offset(y: offset)
-    }
-    
-    private func runAnimation() {
-        // Phase 1: Entry / Page Appear (0–300ms)
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-            lockScale = 1.03
-            lockOpacity = 1.0
-            lockOffset = 0
-        }
-        
-        // Settle overshoot
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
-                lockScale = 1.0
-            }
-        }
-        
-        // Phase 2: Confirmation Pulse (300–600ms)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            // Shackle lift
-            withAnimation(.easeOut(duration: 0.15)) {
-                shackleOffset = -4
-            }
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            // Shackle snap down + glow
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.75)) {
-                shackleOffset = 0
-            }
-            withAnimation(.easeOut(duration: 0.15)) {
-                glowOpacity = 0.6
-            }
-            // Haptic
-            let impact = UIImpactFeedbackGenerator(style: .light)
-            impact.impactOccurred()
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-            // Checkmark appear
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                checkmarkScale = 1.1
-                checkmarkOpacity = 1.0
-            }
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) {
-            withAnimation(.spring(response: 0.15, dampingFraction: 0.85)) {
-                checkmarkScale = 1.0
-            }
-            withAnimation(.easeOut(duration: 0.3)) {
-                glowOpacity = 0.3
-            }
-        }
-        
-        // Phase 3: Text Reveal (600–900ms)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                headlineOpacity = 1.0
-            }
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                bullet1Opacity = 1.0
-                bullet1Offset = 0
-            }
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                bullet2Opacity = 1.0
-                bullet2Offset = 0
-            }
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                bullet3Opacity = 1.0
-                bullet3Offset = 0
-            }
-        }
-        
-        // Final radial pulse
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) {
-            withAnimation(.easeOut(duration: 0.4)) {
-                finalGlowOpacity = 0.3
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.35) {
-            withAnimation(.easeIn(duration: 0.5)) {
-                finalGlowOpacity = 0
-            }
-            animationCompleted = true
         }
     }
 }
@@ -856,38 +535,13 @@ private struct WelcomeView: View {
 struct ScoutPrivacyBanner: View {
     @Binding var isVisible: Bool
     @ObservedObject private var ageGate = ScoutAgeGateManager.shared
-    @ObservedObject private var authService = AuthService.shared
-    
-    private var statusText: String {
-        if authService.isAuthenticated && ageGate.isUnrestricted {
-            return "Signed in — unrestricted mode"
-        } else if authService.isAuthenticated && ageGate.isUnder18 {
-            return "Signed in — restricted mode (under 18)"
-        } else if authService.isAuthenticated {
-            return "Signed in — verify age to unlock"
-        } else {
-            return "Content filtering is active for guests"
-        }
-    }
     
     private var statusColor: Color {
-        if authService.isAuthenticated && ageGate.isUnrestricted {
-            return .green
-        } else if authService.isAuthenticated && ageGate.isUnder18 {
-            return .orange
-        } else {
-            return .blue
-        }
+        ageGate.isUnrestricted ? .green : .blue
     }
     
     private var statusIcon: String {
-        if authService.isAuthenticated && ageGate.isUnrestricted {
-            return "lock.open.fill"
-        } else if authService.isAuthenticated && ageGate.isUnder18 {
-            return "exclamationmark.triangle.fill"
-        } else {
-            return "shield.checkered"
-        }
+        ageGate.isUnrestricted ? "lock.open.fill" : "shield.checkered"
     }
     
     var body: some View {
@@ -897,12 +551,12 @@ struct ScoutPrivacyBanner: View {
                 .foregroundColor(statusColor)
             
             VStack(alignment: .leading, spacing: 2) {
-                Text("Scout Privacy")
+                Text("Content Mode")
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                 
-                Text(statusText)
+                Text(ageGate.modeLabel)
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .lineLimit(2)
@@ -1740,39 +1394,16 @@ class AIAssistantViewModel: ObservableObject {
     private var pendingFlushTask: Task<Void, Never>?
     
     /// Whether Scout should operate in content-restricted mode.
-    /// Restricted if: not signed in, OR signed in but not yet verified, OR signed in but under 18.
+    /// Restricted when "Include Adult Content" toggle is OFF in Settings.
     private var isRestrictedMode: Bool {
-        !ScoutAgeGateManager.shared.isUnrestricted
-    }
-    
-    /// True when a signed-in user verified as under 18 — they get blanket refusal on everything.
-    private var isUnder18Blanket: Bool {
-        ScoutAgeGateManager.shared.isUnder18Restricted
+        ScoutAgeGateManager.shared.isRestricted
     }
     
     func sendMessage() async {
         let userMessage = inputState.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !userMessage.isEmpty else { return }
         
-        // Under-18 signed-in users get blanket refusal on ALL messages
-        if isUnder18Blanket {
-            let blockedMsg = AIService.ChatMessage(role: "user", content: userMessage)
-            messages.append(blockedMsg)
-            messageCount = messages.count
-            inputState.inputText = ""
-            scrollTrigger += 1
-            
-            let refusalMsg = AIService.ChatMessage(
-                role: "assistant",
-                content: "Can't help you with that, try something else."
-            )
-            messages.append(refusalMsg)
-            messageCount = messages.count
-            scrollTrigger += 1
-            return
-        }
-        
-        // Guest users: block only when explicit content is detected
+        // When "Include Adult Content" is OFF, block messages with explicit content
         if isRestrictedMode && ContentFilterService.shared.containsBlockedContent(userMessage) {
             let blockedMsg = AIService.ChatMessage(role: "user", content: userMessage)
             messages.append(blockedMsg)

@@ -340,21 +340,30 @@ actor TMDBService {
         try await request("/tv/\(id)", queryItems: [])
     }
     
+    // MARK: - Adult Content Setting Helper
+    /// Reads the "Include Adult Content" toggle from Settings on the main actor.
+    private func includeAdultValue() async -> String {
+        let include = await MainActor.run { StorageService.shared.settings.includeAdult }
+        return include ? "true" : "false"
+    }
+    
     // MARK: - Search
     func searchMulti(query: String, page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+        let adult = await includeAdultValue()
         let queryItems = [
             URLQueryItem(name: "query", value: query),
             URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "include_adult", value: "false")
+            URLQueryItem(name: "include_adult", value: adult)
         ]
         return try await request("/search/multi", queryItems: queryItems)
     }
     
     func searchMovies(query: String, year: Int? = nil, page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+        let adult = await includeAdultValue()
         var queryItems = [
             URLQueryItem(name: "query", value: query),
             URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "include_adult", value: "false")
+            URLQueryItem(name: "include_adult", value: adult)
         ]
         if let year = year {
             queryItems.append(URLQueryItem(name: "year", value: "\(year)"))
@@ -363,10 +372,11 @@ actor TMDBService {
     }
     
     func searchTV(query: String, year: Int? = nil, page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+        let adult = await includeAdultValue()
         var queryItems = [
             URLQueryItem(name: "query", value: query),
             URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "include_adult", value: "false")
+            URLQueryItem(name: "include_adult", value: adult)
         ]
         if let year = year {
             queryItems.append(URLQueryItem(name: "first_air_date_year", value: "\(year)"))
@@ -375,20 +385,22 @@ actor TMDBService {
     }
     
     func searchPerson(query: String, page: Int = 1) async throws -> TMDBResponse<Person> {
+        let adult = await includeAdultValue()
         let queryItems = [
             URLQueryItem(name: "query", value: query),
             URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "include_adult", value: "false")
+            URLQueryItem(name: "include_adult", value: adult)
         ]
         return try await request("/search/person", queryItems: queryItems)
     }
     
     // MARK: - Discover
     func discoverMovies(genres: [Int]? = nil, year: Int? = nil, sortBy: String = "popularity.desc", page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+        let adult = await includeAdultValue()
         var queryItems = [
             URLQueryItem(name: "sort_by", value: sortBy),
             URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "include_adult", value: "false")
+            URLQueryItem(name: "include_adult", value: adult)
         ]
         if let genres = genres, !genres.isEmpty {
             queryItems.append(URLQueryItem(name: "with_genres", value: genres.map { "\($0)" }.joined(separator: ",")))
@@ -400,10 +412,11 @@ actor TMDBService {
     }
     
     func discoverTV(genres: [Int]? = nil, year: Int? = nil, sortBy: String = "popularity.desc", page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+        let adult = await includeAdultValue()
         var queryItems = [
             URLQueryItem(name: "sort_by", value: sortBy),
             URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "include_adult", value: "false")
+            URLQueryItem(name: "include_adult", value: adult)
         ]
         if let genres = genres, !genres.isEmpty {
             queryItems.append(URLQueryItem(name: "with_genres", value: genres.map { "\($0)" }.joined(separator: ",")))

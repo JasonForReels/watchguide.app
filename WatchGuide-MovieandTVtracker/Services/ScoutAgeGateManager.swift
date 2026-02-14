@@ -2,10 +2,9 @@
 //  ScoutAgeGateManager.swift
 //  WatchGuide-MovieandTVtracker
 //
-//  Manages Scout age verification state.
-//  Logged-in users must verify DOB once per session.
-//  Guest users get content filtering on explicit words.
-//  Under-18 users (logged-in but failed DOB) get full restriction.
+//  Manages content restriction state based on the "Include Adult Content" toggle in Settings.
+//  Toggle OFF = restricted mode (family-friendly, 16 and under).
+//  Toggle ON = unrestricted mode (18+).
 //
 
 import Foundation
@@ -15,58 +14,20 @@ import SwiftUI
 class ScoutAgeGateManager: ObservableObject {
     static let shared = ScoutAgeGateManager()
     
-    /// Whether the logged-in user has completed DOB verification this session
-    @Published var isAgeVerified: Bool = false
-    
-    /// Whether the logged-in user was verified as under 18
-    @Published var isUnder18: Bool = false
-    
-    /// Whether the DOB popup should be shown
-    @Published var showDOBPrompt: Bool = false
-    
     private init() {}
     
-    /// True if the user should have NO content restrictions at all.
-    /// Only true if signed in AND verified 18+.
+    /// True when "Include Adult Content" toggle is ON — no content restrictions.
     var isUnrestricted: Bool {
-        AuthService.shared.isAuthenticated && isAgeVerified && !isUnder18
+        StorageService.shared.settings.includeAdult
     }
     
-    /// True if the user is signed in but verified under 18 —
-    /// they should get the refusal for ALL messages (not just explicit ones).
-    var isUnder18Restricted: Bool {
-        AuthService.shared.isAuthenticated && isAgeVerified && isUnder18
+    /// True when "Include Adult Content" toggle is OFF — restricted / family-friendly mode.
+    var isRestricted: Bool {
+        !StorageService.shared.settings.includeAdult
     }
     
-    /// Verify age from a birth date. Returns true if 18+.
-    func verify(birthDate: Date) -> Bool {
-        let calendar = Calendar.current
-        let now = Date()
-        let ageComponents = calendar.dateComponents([.year], from: birthDate, to: now)
-        let age = ageComponents.year ?? 0
-        
-        isAgeVerified = true
-        
-        if age >= 18 {
-            isUnder18 = false
-            return true
-        }
-        
-        isUnder18 = true
-        return false
-    }
-    
-    /// Trigger DOB prompt for a logged-in user who hasn't verified yet
-    func promptIfNeeded() {
-        if AuthService.shared.isAuthenticated && !isAgeVerified {
-            showDOBPrompt = true
-        }
-    }
-    
-    /// Reset verification (e.g., on sign out)
-    func resetVerification() {
-        isAgeVerified = false
-        isUnder18 = false
-        showDOBPrompt = false
+    /// Human-readable label for the current mode.
+    var modeLabel: String {
+        isUnrestricted ? "Unrestricted mode (18+)" : "Restricted mode (16 and under)"
     }
 }
