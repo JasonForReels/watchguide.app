@@ -81,12 +81,17 @@ struct EmbeddedTrailerPlayer: View {
             case .ready:
                 isReady = true
                 hasError = false
-                // Apply mute preference on start
+                // Apply mute preference then explicitly start playback.
+                // On real devices WebKit blocks autoplay unless we mute first
+                // and then call play() explicitly after the player is ready.
                 let shouldMute = StorageService.shared.settings.autoPlayTrailersMuted
                 Task {
-                    if shouldMute {
-                        try? await player.mute()
-                    } else {
+                    // Always mute first to satisfy iOS autoplay policy
+                    try? await player.mute()
+                    // Explicitly start playback (autoPlay param alone is unreliable on real devices)
+                    try? await player.play()
+                    // Then apply the user's actual mute preference
+                    if !shouldMute {
                         try? await player.unmute()
                     }
                 }
