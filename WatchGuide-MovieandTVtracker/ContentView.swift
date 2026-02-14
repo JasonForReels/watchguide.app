@@ -81,6 +81,9 @@ struct ContentView: View {
                 if !isAuth && selectedTab == .lists {
                     selectedTab = .browse
                 }
+                // Make sure the current tab is marked as visited after auth change
+                // since .id() forces a TabView rebuild
+                visitedTabs.insert(selectedTab)
             }
         }
     }
@@ -90,48 +93,60 @@ struct ContentView: View {
         return false
     }
     
+    // Stable list of visible tabs based on auth state
+    private var visibleTabs: [Tab] {
+        if authService.isAuthenticated {
+            return Tab.allCases
+        } else {
+            return Tab.allCases.filter { $0 != .lists }
+        }
+    }
+    
     // MARK: - iPhone Layout (TabView)
     private var iPhoneLayout: some View {
         TabView(selection: $selectedTab) {
-            Tab.browse.tab {
-                BrowseView(selectedItem: $selectedMediaItem)
-            }
-            
-            Tab.search.tab {
-                LazyTabContent(tab: .search, visitedTabs: $visitedTabs) {
-                    NavigationStack {
-                        SearchView(selectedItem: $selectedMediaItem)
-                            .navigationTitle("Search")
+            ForEach(visibleTabs) { tab in
+                tabContent(for: tab)
+                    .tabItem {
+                        Label(tab.label, systemImage: tab.iconName)
                     }
-                }
-            }
-            
-            Tab.ai.tab {
-                LazyTabContent(tab: .ai, visitedTabs: $visitedTabs) {
-                    AIAssistantView()
-                }
-            }
-            
-            if authService.isAuthenticated {
-                Tab.lists.tab {
-                    LazyTabContent(tab: .lists, visitedTabs: $visitedTabs) {
-                        ListsView()
-                    }
-                }
-            }
-            
-            Tab.settings.tab {
-                LazyTabContent(tab: .settings, visitedTabs: $visitedTabs) {
-                    NavigationStack {
-                        SettingsView()
-                            .navigationTitle("Settings")
-                    }
-                }
+                    .tag(tab)
             }
         }
         .tint(.accentColor)
         .onChange(of: selectedTab) { _, newTab in
             visitedTabs.insert(newTab)
+        }
+        .id(authService.isAuthenticated)
+    }
+    
+    @ViewBuilder
+    private func tabContent(for tab: Tab) -> some View {
+        switch tab {
+        case .browse:
+            BrowseView(selectedItem: $selectedMediaItem)
+        case .search:
+            LazyTabContent(tab: .search, visitedTabs: $visitedTabs) {
+                NavigationStack {
+                    SearchView(selectedItem: $selectedMediaItem)
+                        .navigationTitle("Search")
+                }
+            }
+        case .ai:
+            LazyTabContent(tab: .ai, visitedTabs: $visitedTabs) {
+                AIAssistantView()
+            }
+        case .lists:
+            LazyTabContent(tab: .lists, visitedTabs: $visitedTabs) {
+                ListsView()
+            }
+        case .settings:
+            LazyTabContent(tab: .settings, visitedTabs: $visitedTabs) {
+                NavigationStack {
+                    SettingsView()
+                        .navigationTitle("Settings")
+                }
+            }
         }
     }
 }
@@ -148,18 +163,6 @@ struct LazyTabContent<Content: View>: View {
         } else {
             Color.clear
         }
-    }
-}
-
-// MARK: - Tab Extension for building tab items
-extension ContentView.Tab {
-    @ViewBuilder
-    func tab<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .tabItem {
-                Label(self.label, systemImage: self.iconName)
-            }
-            .tag(self)
     }
 }
 
