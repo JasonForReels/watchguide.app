@@ -1339,29 +1339,6 @@ struct BrowseDiscoverSection: View {
             // Quick Stats Row — only observes storage here
             BrowseQuickStatsRow()
             
-            // Collections
-            if !PopularTMDBCollection.popular.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Collections")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .padding(.horizontal)
-                    
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(PopularTMDBCollection.popular) { collection in
-                                NavigationLink(destination: TMDBCollectionSheet(collection: collection)) {
-                                    TMDBCollectionTile(collection: collection)
-                                        .frame(width: 180)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
-                }
-            }
-            
             Spacer(minLength: 40)
         }
         .padding(.top, 8)
