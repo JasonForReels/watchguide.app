@@ -80,6 +80,68 @@ actor MDBListService {
         return items
     }
     
+    // MARK: - Ratings Lookup
+    
+    /// Fetch ratings from MDBList by TMDB ID.
+    /// Returns aggregated scores from IMDb, Rotten Tomatoes, Metacritic, Letterboxd, Trakt, etc.
+    func getRatings(tmdbId: Int, mediaType: MediaType) async throws -> MDBListMediaInfo {
+        guard !apiKey.isEmpty else { throw MDBListError.notConfigured }
+        
+        // Check in-memory cache
+        let cacheKey = "ratings-\(mediaType.rawValue)-\(tmdbId)"
+        if let cached = ratingsCache[cacheKey],
+           Date().timeIntervalSince(cached.timestamp) < cacheTTL {
+            return cached.info
+        }
+        
+        var urlString = "\(baseURL)/api/?apikey=\(apiKey)&tm=\(tmdbId)"
+        if mediaType == .tv {
+            urlString += "&m=show"
+        }
+        
+        guard let url = URL(string: urlString) else {
+            throw MDBListError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw MDBListError.networkError
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw MDBListError.apiError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let info = try decoder.decode(MDBListMediaInfo.self, from: data)
+        
+        // Cache the result
+        ratingsCache[cacheKey] = (info: info, timestamp: Date())
+        
+        return info
+    }
+    
+    /// Convenience: get a RatingsSummary from MDBList for the detail page.
+    /// Falls back to nil on any error so the view model can try OMDb.
+    func getRatingsSummary(tmdbId: Int, mediaType: MediaType) async -> RatingsSummary? {
+        do {
+            let info = try await getRatings(tmdbId: tmdbId, mediaType: mediaType)
+            return RatingsSummary(from: info)
+        } catch {
+            print("MDBList ratings error: \(error)")
+            return nil
+        }
+    }
+    
+    // In-memory cache for ratings
+    private var ratingsCache: [String: (info: MDBListMediaInfo, timestamp: Date)] = [:]
+    
     // MARK: - Convenience Methods
     
     /// Fetch list items and convert to app's SavedMediaItem format
@@ -182,6 +244,59 @@ struct MDBListItem: Codable, Identifiable {
         
         return SavedMediaItem(from: mediaItem)
     }
+}
+
+// MARK: - MDBList Media Info (ratings response)
+
+struct MDBListMediaInfo: Codable {
+    let title: String?
+    let year: Int?
+    let imdbid: String?
+    let traktid: Int?
+    let tmdbid: Int?
+    let score: Int?
+    let ratings: [MDBListRating]?
+    
+    enum CodingKeys: String, CodingKey {
+        case title, year, imdbid, traktid, tmdbid, score, ratings
+    }
+}
+
+struct MDBListRating: Codable {
+    let source: String
+    let value: Double?
+    let score: Int?
+    let votes: Int?
+    let url: String?
+}
+
+// MARK: - RatingsSummary from MDBList
+
+extension RatingsSummary {
+    /// Build a RatingsSummary from MDBList media-info ratings array.
+    init?(from info: MDBListMediaInfo) {
+        guard let ratings = info.ratings, !ratings.isEmpty else { return nil }
+        
+        // IMDb
+        let imdb = ratings.first { $0.source == "imdb" }
+        self.imdbRating = imdb.flatMap { r in r.value.map { String(format: "%.1f", $0) } }
+        self.imdbVotes = imdb.flatMap { r in r.votes.map { formatVotes($0) } }
+        
+        // Rotten Tomatoes (critics)
+        let rt = ratings.first { $0.source == "tomatoes" }
+        self.rottenTomatoesScore = rt.flatMap { r in r.score.map { "\($0)%" } }
+        
+        // Metacritic
+        let meta = ratings.first { $0.source == "metacritic" }
+        self.metacriticScore = meta.flatMap { r in r.score.map { "\($0)/100" } }
+    }
+}
+
+/// Format vote counts to a human-readable string (e.g., 12345 → "12,345")
+private func formatVotes(_ votes: Int) -> String {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    return formatter.string(from: NSNumber(value: votes)) ?? "\(votes)"
 }
 
 // MARK: - Errors

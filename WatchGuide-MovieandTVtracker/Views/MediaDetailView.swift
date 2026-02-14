@@ -282,12 +282,33 @@ struct MediaDetailView: View {
                         .foregroundColor(.white)
                         .cornerRadius(4)
                     
-                    // Title
-                    Text(item.displayTitle)
-                        .font(isCompact ? .title3 : .title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .lineLimit(isCompact ? 2 : 3)
+                    // Logo or Title — show logo when available, text fallback otherwise
+                    if let logoURL = resolvedDetailLogoURL(width: width, height: height) {
+                        AsyncImage(url: logoURL) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .renderingMode(.original)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(maxWidth: min(width * 0.55, 280), maxHeight: isCompact ? 50 : 65)
+                                    .shadow(color: .black.opacity(0.45), radius: 6, x: 0, y: 3)
+                            default:
+                                // Fallback to text while loading / on failure
+                                Text(item.displayTitle)
+                                    .font(isCompact ? .title3 : .title2)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white)
+                                    .lineLimit(isCompact ? 2 : 3)
+                            }
+                        }
+                    } else {
+                        Text(item.displayTitle)
+                            .font(isCompact ? .title3 : .title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .lineLimit(isCompact ? 2 : 3)
+                    }
                     
                     // Meta info
                     HStack(spacing: 12) {
@@ -322,9 +343,6 @@ struct MediaDetailView: View {
                 .padding(.bottom, isCompact ? 4 : 8)
             }
             .frame(width: width, height: height)
-            .overlay(alignment: .leading) {
-                logoOverlay(width: width, height: height)
-            }
         }
         .aspectRatio(16.0/9.0, contentMode: .fit)
     }
@@ -344,38 +362,11 @@ struct MediaDetailView: View {
         }
     }
     
-    @ViewBuilder
-    private func logoOverlay(width: CGFloat, height: CGFloat) -> some View {
-        // Resolve logo URL: FanArt.tv full URL first, TMDB path second
-        let resolvedLogoURL: URL? = {
-            if let fullStr = viewModel.logoFullURL, let url = URL(string: fullStr) { return url }
-            if let path = viewModel.logoPath { return TMDBService.shared.imageURL(path: path, size: .logo) }
-            return nil
-        }()
-        
-        if let url = resolvedLogoURL {
-            let maxWidth = min(width * 0.32, 220)
-            let maxHeight = min(height * 0.18, 70)
-            
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .renderingMode(.original)
-                        .resizable()
-                        .scaledToFit()
-                default:
-                    EmptyView()
-                }
-            }
-            .frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: .leading)
-            .frame(width: width, height: height, alignment: .leading)
-            .padding(.leading, 16)
-            .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 3)
-            .allowsHitTesting(false)
-        } else {
-            EmptyView()
-        }
+    /// Resolves the logo URL for the detail header: FanArt.tv full URL first, TMDB path second
+    private func resolvedDetailLogoURL(width: CGFloat, height: CGFloat) -> URL? {
+        if let fullStr = viewModel.logoFullURL, let url = URL(string: fullStr) { return url }
+        if let path = viewModel.logoPath { return TMDBService.shared.imageURL(path: path, size: .logo) }
+        return nil
     }
     
     // MARK: - Seasons Section
@@ -801,6 +792,24 @@ class MediaDetailViewModel: ObservableObject {
                     print("Error loading recommendations: \(error)")
                 }
             }
+            
+            // Ratings — MDBList primary (has RT, IMDb, Meta, etc.), OMDb fallback
+            group.addTask { @MainActor in
+                // Try MDBList first
+                if let mdbRatings = await MDBListService.shared.getRatingsSummary(tmdbId: movieId, mediaType: .movie) {
+                    self.ratings = mdbRatings
+                } else {
+                    // OMDb fallback (needs IMDb ID from TMDB details)
+                    do {
+                        let movieDetails = try await TMDBService.shared.getMovieDetails(id: movieId)
+                        if let imdbId = movieDetails.imdbId {
+                            self.ratings = await OMDbService.shared.getRatingsSummary(imdbId: imdbId)
+                        }
+                    } catch {
+                        print("Error loading movie ratings fallback: \(error)")
+                    }
+                }
+            }
         }
     }
     
@@ -904,6 +913,24 @@ class MediaDetailViewModel: ObservableObject {
                     self.recommendations = recsResponse.results
                 } catch {
                     print("Error loading recommendations: \(error)")
+                }
+            }
+            
+            // Ratings — MDBList primary (has RT, IMDb, Meta, etc.), OMDb fallback
+            group.addTask { @MainActor in
+                // Try MDBList first
+                if let mdbRatings = await MDBListService.shared.getRatingsSummary(tmdbId: tvId, mediaType: .tv) {
+                    self.ratings = mdbRatings
+                } else {
+                    // OMDb fallback (needs IMDb ID via external IDs)
+                    do {
+                        let details = try await TMDBService.shared.getTVShowDetails(id: tvId)
+                        if let imdbId = details.externalIds?.imdbId {
+                            self.ratings = await OMDbService.shared.getRatingsSummary(imdbId: imdbId)
+                        }
+                    } catch {
+                        print("Error loading TV ratings: \(error)")
+                    }
                 }
             }
         }

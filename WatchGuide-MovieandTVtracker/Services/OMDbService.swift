@@ -83,10 +83,18 @@ actor OMDbService {
 
 // MARK: - Ratings Summary
 struct RatingsSummary {
-    let imdbRating: String?
-    let imdbVotes: String?
-    let rottenTomatoesScore: String?
-    let metacriticScore: String?
+    var imdbRating: String?
+    var imdbVotes: String?
+    var rottenTomatoesScore: String?
+    var metacriticScore: String?
+    
+    /// Memberwise initializer
+    init(imdbRating: String? = nil, imdbVotes: String? = nil, rottenTomatoesScore: String? = nil, metacriticScore: String? = nil) {
+        self.imdbRating = imdbRating
+        self.imdbVotes = imdbVotes
+        self.rottenTomatoesScore = rottenTomatoesScore
+        self.metacriticScore = metacriticScore
+    }
     
     init?(from response: OMDbResponse) {
         guard response.response == "True" else { return nil }
