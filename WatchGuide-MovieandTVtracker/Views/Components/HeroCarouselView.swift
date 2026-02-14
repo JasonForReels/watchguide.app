@@ -7,6 +7,17 @@ import SwiftUI
 import Combine
 import YouTubePlayerKit
 
+// MARK: - Hero Carousel Mute Manager
+/// Shared manager that allows external views (e.g. detail sheets) to request the hero carousel
+/// to mute/unmute its trailer audio automatically.
+@MainActor
+class HeroCarouselMuteManager: ObservableObject {
+    static let shared = HeroCarouselMuteManager()
+    
+    /// When true, all hero carousel players should be muted (e.g. a detail page is open)
+    @Published var isExternallyMuted = false
+}
+
 struct HeroCarouselView: View {
     let items: [MediaItem]
     let onItemTap: (MediaItem) -> Void
@@ -735,6 +746,9 @@ class HeroPlayerViewModel: ObservableObject {
     @Published var isMuted = true
     
     private var stateCancellable: AnyCancellable?
+    private var externalMuteCancellable: AnyCancellable?
+    /// Tracks the user's chosen mute state before external muting was applied
+    private var userMutePreference: Bool = true
     
     @MainActor
     func setup(videoKey: String) {
@@ -742,6 +756,7 @@ class HeroPlayerViewModel: ObservableObject {
         
         let startMuted = StorageService.shared.settings.autoPlayTrailersMuted
         isMuted = startMuted
+        userMutePreference = startMuted
         
         let ytPlayer = YouTubePlayer(
             source: .video(id: videoKey),
@@ -767,7 +782,9 @@ class HeroPlayerViewModel: ObservableObject {
                 case .ready:
                     self.isReady = true
                     Task {
-                        if self.isMuted {
+                        // If externally muted, always mute regardless of user preference
+                        let shouldMute = self.isMuted || HeroCarouselMuteManager.shared.isExternallyMuted
+                        if shouldMute {
                             try? await ytPlayer.mute()
                         } else {
                             try? await ytPlayer.unmute()
@@ -780,6 +797,29 @@ class HeroPlayerViewModel: ObservableObject {
                 }
             }
         }
+        
+        // Observe external mute requests (e.g. when a detail page opens)
+        externalMuteCancellable = HeroCarouselMuteManager.shared.$isExternallyMuted
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] externallyMuted in
+                guard let self = self, let p = self.player, self.isReady else { return }
+                if externallyMuted {
+                    // Save current user preference before forcing mute
+                    self.userMutePreference = self.isMuted
+                    self.isMuted = true
+                    Task { try? await p.mute() }
+                } else {
+                    // Restore the user's preference when external mute is lifted
+                    self.isMuted = self.userMutePreference
+                    Task {
+                        if self.userMutePreference {
+                            try? await p.mute()
+                        } else {
+                            try? await p.unmute()
+                        }
+                    }
+                }
+            }
     }
     
     func teardown() {
@@ -790,11 +830,13 @@ class HeroPlayerViewModel: ObservableObject {
             player = nil
             isReady = false
             stateCancellable = nil
+            externalMuteCancellable = nil
         }
     }
     
     func toggleMute() {
         isMuted.toggle()
+        userMutePreference = isMuted
         guard let p = player else { return }
         Task {
             if isMuted {

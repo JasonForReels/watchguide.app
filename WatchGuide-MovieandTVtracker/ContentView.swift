@@ -72,6 +72,9 @@ struct ContentView: View {
             .sheet(item: $selectedMediaItem) { item in
                 MediaDetailView(item: item)
             }
+            .onChange(of: selectedMediaItem) { _, newValue in
+                HeroCarouselMuteManager.shared.isExternallyMuted = (newValue != nil)
+            }
         }
     }
     
