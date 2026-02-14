@@ -558,4 +558,32 @@ class StorageService: ObservableObject {
         browseRows = rows
         save(browseRows, to: browseRowsURL)
     }
+    
+    // MARK: - Clear All Data
+    /// Removes all user-generated data (lists, history, settings, etc.)
+    func clearAllData() {
+        wantToWatch = []
+        watched = []
+        liked = []
+        customLists = []
+        searchHistory = []
+        importedLists = []
+        customHomeRows = []
+        
+        save(wantToWatch, to: wantToWatchURL)
+        save(watched, to: watchedURL)
+        save(liked, to: likedURL)
+        save(customLists, to: customListsURL)
+        save(searchHistory, to: searchHistoryURL)
+        save(importedLists, to: importedListsURL)
+        save(customHomeRows, to: customHomeRowsURL)
+        
+        // Reset settings to defaults
+        settings = UserSettings()
+        save(settings, to: settingsURL)
+        
+        // Disable cloud sync
+        setCloudSyncEnabled(false)
+        lastSyncError = nil
+    }
 }

@@ -256,6 +256,56 @@ class AuthService: ObservableObject {
         }
     }
     
+    // MARK: - Delete Account
+    
+    /// Deletes the user's cloud data, clears local data, and signs out.
+    /// Also attempts to delete the auth user via Supabase Admin API (requires service_role key configured as a Supabase Edge Function).
+    func deleteAccount() async -> Bool {
+        guard isConfigured else {
+            errorMessage = "Supabase not configured."
+            return false
+        }
+        
+        guard let userId = currentUser?.id, let token = accessToken else {
+            errorMessage = "Not signed in."
+            return false
+        }
+        
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            // Step 1: Delete all user data from cloud (media_items table)
+            let deleteURL = URL(string: "\(supabaseURL)/rest/v1/media_items?device_id=eq.\(userId)")!
+            var deleteRequest = URLRequest(url: deleteURL)
+            deleteRequest.httpMethod = "DELETE"
+            deleteRequest.addValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
+            deleteRequest.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            deleteRequest.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            _ = try? await URLSession.shared.data(for: deleteRequest)
+            
+            // Step 2: Clear all local data
+            await MainActor.run {
+                let storage = StorageService.shared
+                storage.clearAllData()
+            }
+            
+            // Step 3: Sign out from Supabase Auth
+            let logoutURL = URL(string: "\(supabaseURL)/auth/v1/logout")!
+            var logoutRequest = URLRequest(url: logoutURL)
+            logoutRequest.httpMethod = "POST"
+            logoutRequest.addValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
+            logoutRequest.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            _ = try? await URLSession.shared.data(for: logoutRequest)
+            
+            // Step 4: Clear local session
+            clearSession()
+            
+            isLoading = false
+            return true
+        }
+    }
+    
     // MARK: - Password Reset
     
     func sendPasswordReset(email: String) async -> Bool {

@@ -238,6 +238,10 @@ struct AuthView: View {
 struct AccountView: View {
     @ObservedObject var authService = AuthService.shared
     @State private var showSignOutConfirmation = false
+    @State private var showDeleteConfirmation = false
+    @State private var showDeleteFinalConfirmation = false
+    @State private var deleteConfirmText = ""
+    @State private var accountDeleted = false
     
     var body: some View {
         if let user = authService.currentUser {
@@ -290,6 +294,22 @@ struct AccountView: View {
                     .background(Color.red.opacity(0.1))
                     .cornerRadius(12)
                 }
+                
+                // Delete account button
+                Button {
+                    showDeleteConfirmation = true
+                } label: {
+                    HStack {
+                        Image(systemName: "trash")
+                        Text("Delete Account")
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.red.opacity(0.8))
+                    .frame(maxWidth: .infinity)
+                    .padding(12)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
+                }
             }
             .confirmationDialog("Sign Out", isPresented: $showSignOutConfirmation, titleVisibility: .visible) {
                 Button("Sign Out", role: .destructive) {
@@ -300,6 +320,41 @@ struct AccountView: View {
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("You will need to sign in again to sync your lists across devices.")
+            }
+            .alert("Delete Account?", isPresented: $showDeleteConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Continue", role: .destructive) {
+                    showDeleteFinalConfirmation = true
+                }
+            } message: {
+                Text("This will permanently delete all your data including your watchlist, watched history, liked items, and custom lists. This action cannot be undone.")
+            }
+            .alert("Type DELETE to confirm", isPresented: $showDeleteFinalConfirmation) {
+                TextField("Type DELETE", text: $deleteConfirmText)
+                    .autocapitalization(.allCharacters)
+                Button("Cancel", role: .cancel) {
+                    deleteConfirmText = ""
+                }
+                Button("Delete My Account", role: .destructive) {
+                    guard deleteConfirmText.uppercased() == "DELETE" else {
+                        deleteConfirmText = ""
+                        return
+                    }
+                    Task {
+                        let success = await authService.deleteAccount()
+                        if success {
+                            accountDeleted = true
+                        }
+                        deleteConfirmText = ""
+                    }
+                }
+            } message: {
+                Text("This is your final confirmation. Type DELETE to permanently remove your account and all associated data.")
+            }
+            .alert("Account Deleted", isPresented: $accountDeleted) {
+                Button("OK") { }
+            } message: {
+                Text("Your account and all associated data have been successfully deleted.")
             }
         }
     }
