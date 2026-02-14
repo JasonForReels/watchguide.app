@@ -128,6 +128,10 @@ struct BrowseView: View {
             .onChange(of: StorageService.shared.settings.heroCarouselSource) { _, _ in
                 Task { await viewModel.refresh() }
             }
+            .onChange(of: authService.isAuthenticated) { _, _ in
+                // Refresh hero carousel when auth state changes (different lists for guests vs logged-in)
+                Task { await viewModel.refresh() }
+            }
             .sheet(item: $selectedPerson) { person in
                 PersonDetailView(
                     personId: person.id,
@@ -1696,6 +1700,35 @@ class BrowseViewModel: ObservableObject {
     
     private func loadHeroItems() async {
         let source = StorageService.shared.settings.heroCarouselSource
+        let isAuthenticated = await MainActor.run { AuthService.shared.isAuthenticated }
+        
+        // Default behavior: use MDBList lists based on auth state
+        // Only override if user has explicitly changed from the default
+        if source == .trendingMovies {
+            // Default source — use MDBList based on auth
+            do {
+                let listId = isAuthenticated
+                    ? "dualipafan01/new-content-list"
+                    : "dualipafan01/family-friendly-list"
+                let items = try await MDBListService.shared.fetchListItemsAsMediaItems(listId: listId)
+                if !items.isEmpty {
+                    heroItems = Array(items.prefix(10))
+                    ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
+                    return
+                }
+            } catch {
+                print("Error loading MDBList hero items: \(error)")
+            }
+            // Fallback to TMDB trending if MDBList fails
+            do {
+                let items = try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results
+                heroItems = Array(items.prefix(10))
+                ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
+            } catch {
+                print("Error loading fallback hero: \(error)")
+            }
+            return
+        }
         
         do {
             let items: [MediaItem]

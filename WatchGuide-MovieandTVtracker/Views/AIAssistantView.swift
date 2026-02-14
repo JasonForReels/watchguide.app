@@ -117,32 +117,16 @@ struct AIAssistantView: View {
     @StateObject private var viewModel = AIAssistantViewModel()
     @StateObject private var ageGate = ScoutAgeGateManager.shared
     @ObservedObject private var authService = AuthService.shared
-    @State private var showPrivacySheet = false
     
     var body: some View {
         NavigationStack {
-            AIAssistantBody(viewModel: viewModel,
-                            showPrivacySheet: $showPrivacySheet)
+            AIAssistantBody(viewModel: viewModel)
                 .navigationTitle("Scout")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
-                        HStack(spacing: 12) {
-                            // Privacy lock icon
-                            Button {
-                                showPrivacySheet = true
-                            } label: {
-                                Image(systemName: ageGate.isUnrestricted ? "lock.open.fill" : "lock.fill")
-                                    .font(.subheadline)
-                                    .foregroundColor(ageGate.isUnrestricted ? .green : .secondary)
-                            }
-                            
-                            ClearButton(viewModel: viewModel)
-                        }
+                        ClearButton(viewModel: viewModel)
                     }
-                }
-                .sheet(isPresented: $showPrivacySheet) {
-                    ScoutPrivacySheet()
                 }
                 .sheet(isPresented: $ageGate.showDOBPrompt) {
                     ScoutDOBPromptSheet()
@@ -259,7 +243,6 @@ struct ScoutDOBPromptSheet: View {
 // MARK: - Body (layout only — no observation, just passes references)
 private struct AIAssistantBody: View {
     let viewModel: AIAssistantViewModel
-    @Binding var showPrivacySheet: Bool
     @FocusState private var isInputFocused: Bool
     
     var body: some View {
@@ -818,6 +801,7 @@ private struct MessageBubbleWrapper: View {
 // MARK: - Welcome View (static)
 private struct WelcomeView: View {
     let onSuggestion: (String) -> Void
+    @State private var showPrivacyBanner = true
     
     var body: some View {
         VStack(spacing: 20) {
@@ -857,7 +841,100 @@ private struct WelcomeView: View {
                 }
             }
             .padding(.top, 8)
+            
+            // Privacy banner
+            if showPrivacyBanner {
+                ScoutPrivacyBanner(isVisible: $showPrivacyBanner)
+                    .padding(.top, 4)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
+    }
+}
+
+// MARK: - Scout Privacy Banner
+struct ScoutPrivacyBanner: View {
+    @Binding var isVisible: Bool
+    @ObservedObject private var ageGate = ScoutAgeGateManager.shared
+    @ObservedObject private var authService = AuthService.shared
+    
+    private var statusText: String {
+        if authService.isAuthenticated && ageGate.isUnrestricted {
+            return "Signed in — unrestricted mode"
+        } else if authService.isAuthenticated && ageGate.isUnder18 {
+            return "Signed in — restricted mode (under 18)"
+        } else if authService.isAuthenticated {
+            return "Signed in — verify age to unlock"
+        } else {
+            return "Content filtering is active for guests"
+        }
+    }
+    
+    private var statusColor: Color {
+        if authService.isAuthenticated && ageGate.isUnrestricted {
+            return .green
+        } else if authService.isAuthenticated && ageGate.isUnder18 {
+            return .orange
+        } else {
+            return .blue
+        }
+    }
+    
+    private var statusIcon: String {
+        if authService.isAuthenticated && ageGate.isUnrestricted {
+            return "lock.open.fill"
+        } else if authService.isAuthenticated && ageGate.isUnder18 {
+            return "exclamationmark.triangle.fill"
+        } else {
+            return "shield.checkered"
+        }
+    }
+    
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: statusIcon)
+                .font(.caption)
+                .foregroundColor(statusColor)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Scout Privacy")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                
+                Text(statusText)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+            
+            Spacer()
+            
+            Button {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    isVisible = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.secondary)
+                    .padding(6)
+                    .background(Color(.systemGray5))
+                    .clipShape(Circle())
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(.systemGray6))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(statusColor.opacity(0.2), lineWidth: 0.5)
+        )
+        .padding(.horizontal, 16)
     }
 }
 

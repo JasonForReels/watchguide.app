@@ -144,6 +144,75 @@ actor MDBListService {
     
     // MARK: - Convenience Methods
     
+    /// Fetch list items and convert to MediaItem format (for hero carousel, etc.)
+    func fetchListItemsAsMediaItems(listId: String) async throws -> [MediaItem] {
+        let items = try await getListItems(listId: listId)
+        var mediaItems: [MediaItem] = []
+        
+        for item in items.prefix(15) {
+            if let tmdbId = item.id, tmdbId > 0 {
+                do {
+                    let mediaType: MediaType = item.mediatype == "show" ? .tv : .movie
+                    
+                    if mediaType == .movie {
+                        let details = try await TMDBService.shared.getMovieDetails(id: tmdbId)
+                        let mi = MediaItem(
+                            id: details.id,
+                            title: details.title,
+                            name: nil,
+                            originalTitle: details.originalTitle,
+                            originalName: nil,
+                            overview: details.overview,
+                            posterPath: details.posterPath,
+                            backdropPath: details.backdropPath,
+                            releaseDate: details.releaseDate,
+                            firstAirDate: nil,
+                            voteAverage: details.voteAverage,
+                            voteCount: nil,
+                            popularity: nil,
+                            genreIds: nil,
+                            mediaType: "movie",
+                            adult: nil,
+                            originalLanguage: nil
+                        )
+                        mediaItems.append(mi)
+                    } else {
+                        let details = try await TMDBService.shared.getTVShowDetails(id: tmdbId)
+                        let mi = MediaItem(
+                            id: details.id,
+                            title: nil,
+                            name: details.name,
+                            originalTitle: nil,
+                            originalName: details.originalName,
+                            overview: details.overview,
+                            posterPath: details.posterPath,
+                            backdropPath: details.backdropPath,
+                            releaseDate: nil,
+                            firstAirDate: details.firstAirDate,
+                            voteAverage: details.voteAverage,
+                            voteCount: nil,
+                            popularity: nil,
+                            genreIds: nil,
+                            mediaType: "tv",
+                            adult: nil,
+                            originalLanguage: nil
+                        )
+                        mediaItems.append(mi)
+                    }
+                } catch {
+                    // Fall back to basic item from MDBList data
+                    if let basicItem = item.toSavedMediaItem() {
+                        mediaItems.append(basicItem.toMediaItem())
+                    }
+                }
+            } else if let basicItem = item.toSavedMediaItem() {
+                mediaItems.append(basicItem.toMediaItem())
+            }
+        }
+        
+        return mediaItems
+    }
+    
     /// Fetch list items and convert to app's SavedMediaItem format
     func fetchListItemsAsSavedMedia(listId: String) async throws -> [SavedMediaItem] {
         let items = try await getListItems(listId: listId)
