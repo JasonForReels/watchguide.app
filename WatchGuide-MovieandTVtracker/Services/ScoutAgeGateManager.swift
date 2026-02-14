@@ -22,9 +22,9 @@ class ScoutAgeGateManager: ObservableObject {
     
     private init() {}
     
-    /// Returns true if the user is signed in AND has verified they are 18+
+    /// Returns true if the user is signed in — no age gate needed
     var isUnrestricted: Bool {
-        AuthService.shared.isAuthenticated && isAgeVerified
+        AuthService.shared.isAuthenticated
     }
     
     /// Verify age from a birth date. Returns true if 18+.

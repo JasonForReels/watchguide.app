@@ -117,7 +117,6 @@ struct AIAssistantView: View {
     @StateObject private var viewModel = AIAssistantViewModel()
     @StateObject private var ageGate = ScoutAgeGateManager.shared
     @ObservedObject private var authService = AuthService.shared
-    @State private var showAgeVerification = false
     @State private var showPrivacySheet = false
     
     var body: some View {
@@ -143,16 +142,7 @@ struct AIAssistantView: View {
                     }
                 }
                 .sheet(isPresented: $showPrivacySheet) {
-                    ScoutPrivacySheet(showAgeVerification: $showAgeVerification)
-                }
-                .sheet(isPresented: $showAgeVerification) {
-                    ScoutAgeVerificationSheet()
-                }
-                .onAppear {
-                    // Reset age verification every time Scout page appears
-                    if !authService.isAuthenticated {
-                        ageGate.resetVerification()
-                    }
+                    ScoutPrivacySheet()
                 }
         }
     }
@@ -202,7 +192,6 @@ struct ScoutPrivacySheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var ageGate = ScoutAgeGateManager.shared
     @ObservedObject private var authService = AuthService.shared
-    @Binding var showAgeVerification: Bool
     
     // Animation states
     @State private var lockScale: CGFloat = 0.85
@@ -259,7 +248,7 @@ struct ScoutPrivacySheet: View {
                         
                         // Lock icon
                         ZStack {
-                            Image(systemName: "lock.fill")
+                            Image(systemName: authService.isAuthenticated ? "lock.open.fill" : "lock.fill")
                                 .font(.system(size: 48))
                                 .foregroundColor(.accentColor)
                                 .offset(y: shackleOffset)
@@ -306,7 +295,7 @@ struct ScoutPrivacySheet: View {
                             privacyBullet(
                                 icon: "person.badge.shield.checkmark.fill",
                                 color: .green,
-                                text: "Mature suggestions are only available to verified 18+ users for safety.",
+                                text: "Content filtering is active for guests. Sign in for full Scout access.",
                                 opacity: bullet3Opacity,
                                 offset: bullet3Offset
                             )
@@ -314,48 +303,24 @@ struct ScoutPrivacySheet: View {
                         .padding(.horizontal, 4)
                     }
                     
-                    // Age verification status & action
+                    // Auth status section
                     VStack(spacing: 12) {
-                        if ageGate.isUnrestricted {
+                        if authService.isAuthenticated {
                             HStack(spacing: 8) {
                                 Image(systemName: "checkmark.seal.fill")
                                     .foregroundColor(.green)
-                                Text("Age verified — unrestricted mode active")
+                                Text("Signed in — unrestricted mode active")
                                     .font(.subheadline)
                                     .foregroundColor(.green)
                             }
                             .padding()
                             .background(Color.green.opacity(0.1))
                             .cornerRadius(12)
-                        } else if authService.isAuthenticated {
-                            Button {
-                                dismiss()
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                    showAgeVerification = true
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: "person.badge.clock")
-                                    Text("Verify Age (18+)")
-                                }
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.accentColor)
-                                .foregroundColor(.white)
-                                .cornerRadius(12)
-                            }
-                            
-                            Text("Unlock mature content recommendations by verifying your age.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
                         } else {
                             HStack(spacing: 8) {
                                 Image(systemName: "lock.fill")
                                     .foregroundColor(.orange)
-                                Text("Sign in and verify your age to unlock mature content")
+                                Text("Sign in to unlock unrestricted Scout")
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                             }
@@ -505,95 +470,6 @@ struct ScoutPrivacySheet: View {
                 finalGlowOpacity = 0
             }
             animationCompleted = true
-        }
-    }
-}
-
-// MARK: - Scout Age Verification Sheet
-struct ScoutAgeVerificationSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var ageGate = ScoutAgeGateManager.shared
-    @State private var selectedDate = Calendar.current.date(byAdding: .year, value: -18, to: Date()) ?? Date()
-    @State private var verificationFailed = false
-    
-    private let dateRange: ClosedRange<Date> = {
-        let calendar = Calendar.current
-        let oldest = calendar.date(byAdding: .year, value: -120, to: Date()) ?? Date()
-        let now = Date()
-        return oldest...now
-    }()
-    
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                Spacer().frame(height: 20)
-                
-                ZStack {
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.12))
-                        .frame(width: 72, height: 72)
-                    Image(systemName: "person.badge.clock")
-                        .font(.system(size: 32))
-                        .foregroundColor(.accentColor)
-                }
-                
-                VStack(spacing: 8) {
-                    Text("Age Verification")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    
-                    Text("Please enter your date of birth to unlock unrestricted Scout recommendations. You must be 18 or older.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-                
-                DatePicker("Date of Birth", selection: $selectedDate, in: dateRange, displayedComponents: .date)
-                    .datePickerStyle(.wheel)
-                    .labelsHidden()
-                    .padding(.horizontal)
-                
-                if verificationFailed {
-                    HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.orange)
-                        Text("You must be 18 or older to unlock unrestricted content.")
-                            .font(.subheadline)
-                            .foregroundColor(.orange)
-                    }
-                    .padding()
-                    .background(Color.orange.opacity(0.1))
-                    .cornerRadius(12)
-                    .padding(.horizontal)
-                }
-                
-                Button {
-                    let success = ageGate.verify(birthDate: selectedDate)
-                    if success {
-                        dismiss()
-                    } else {
-                        verificationFailed = true
-                    }
-                } label: {
-                    Text("Verify")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
-                }
-                .padding(.horizontal)
-                
-                Spacer()
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
         }
     }
 }
