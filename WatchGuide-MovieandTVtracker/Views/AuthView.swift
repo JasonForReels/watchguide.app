@@ -313,6 +313,7 @@ struct AccountView: View {
                 Button("Sign Out", role: .destructive) {
                     Task {
                         await authService.signOut()
+                        ScoutAgeGateManager.shared.resetVerification()
                     }
                 }
                 Button("Cancel", role: .cancel) { }

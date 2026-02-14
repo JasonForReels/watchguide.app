@@ -144,6 +144,114 @@ struct AIAssistantView: View {
                 .sheet(isPresented: $showPrivacySheet) {
                     ScoutPrivacySheet()
                 }
+                .sheet(isPresented: $ageGate.showDOBPrompt) {
+                    ScoutDOBPromptSheet()
+                }
+                .onAppear {
+                    ageGate.promptIfNeeded()
+                }
+        }
+    }
+}
+
+// MARK: - DOB Prompt Sheet
+struct ScoutDOBPromptSheet: View {
+    @ObservedObject private var ageGate = ScoutAgeGateManager.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedDate = Calendar.current.date(byAdding: .year, value: -18, to: Date()) ?? Date()
+    @State private var showResult = false
+    @State private var verified = false
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Spacer().frame(height: 16)
+                
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.12))
+                        .frame(width: 64, height: 64)
+                    
+                    Image(systemName: "calendar.badge.clock")
+                        .font(.system(size: 28))
+                        .foregroundColor(.accentColor)
+                }
+                
+                VStack(spacing: 8) {
+                    Text("Date of Birth")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    Text("Please enter your date of birth to continue using Scout. This is not stored anywhere and is only used for this session.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                }
+                
+                DatePicker(
+                    "Date of Birth",
+                    selection: $selectedDate,
+                    in: ...Date(),
+                    displayedComponents: .date
+                )
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .padding(.horizontal)
+                
+                if showResult {
+                    if verified {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Verified — enjoy Scout!")
+                                .font(.subheadline)
+                                .foregroundColor(.green)
+                        }
+                        .padding()
+                        .background(Color.green.opacity(0.1))
+                        .cornerRadius(12)
+                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    } else {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            Text("You must be 18 or older for unrestricted access.")
+                                .font(.subheadline)
+                                .foregroundColor(.orange)
+                        }
+                        .padding()
+                        .background(Color.orange.opacity(0.1))
+                        .cornerRadius(12)
+                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    }
+                }
+                
+                Button {
+                    let result = ageGate.verify(birthDate: selectedDate)
+                    verified = result
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        showResult = true
+                    }
+                    // Auto-dismiss after a short delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        dismiss()
+                    }
+                } label: {
+                    Text("Continue")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(14)
+                }
+                .padding(.horizontal, 24)
+                
+                Spacer()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .interactiveDismissDisabled()
         }
     }
 }
@@ -305,7 +413,7 @@ struct ScoutPrivacySheet: View {
                     
                     // Auth status section
                     VStack(spacing: 12) {
-                        if authService.isAuthenticated {
+                        if authService.isAuthenticated && ageGate.isUnrestricted {
                             HStack(spacing: 8) {
                                 Image(systemName: "checkmark.seal.fill")
                                     .foregroundColor(.green)
@@ -315,6 +423,28 @@ struct ScoutPrivacySheet: View {
                             }
                             .padding()
                             .background(Color.green.opacity(0.1))
+                            .cornerRadius(12)
+                        } else if authService.isAuthenticated && ageGate.isUnder18 {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                                Text("Signed in — restricted mode (under 18)")
+                                    .font(.subheadline)
+                                    .foregroundColor(.orange)
+                            }
+                            .padding()
+                            .background(Color.orange.opacity(0.1))
+                            .cornerRadius(12)
+                        } else if authService.isAuthenticated {
+                            HStack(spacing: 8) {
+                                Image(systemName: "calendar.badge.clock")
+                                    .foregroundColor(.blue)
+                                Text("Signed in — verify your age to unlock Scout")
+                                    .font(.subheadline)
+                                    .foregroundColor(.blue)
+                            }
+                            .padding()
+                            .background(Color.blue.opacity(0.08))
                             .cornerRadius(12)
                         } else {
                             HStack(spacing: 8) {
@@ -1532,16 +1662,40 @@ class AIAssistantViewModel: ObservableObject {
     private var lastPublishedLength = 0
     private var pendingFlushTask: Task<Void, Never>?
     
-    /// Whether Scout should operate in content-restricted mode
+    /// Whether Scout should operate in content-restricted mode.
+    /// Restricted if: not signed in, OR signed in but not yet verified, OR signed in but under 18.
     private var isRestrictedMode: Bool {
         !ScoutAgeGateManager.shared.isUnrestricted
+    }
+    
+    /// True when a signed-in user verified as under 18 — they get blanket refusal on everything.
+    private var isUnder18Blanket: Bool {
+        ScoutAgeGateManager.shared.isUnder18Restricted
     }
     
     func sendMessage() async {
         let userMessage = inputState.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !userMessage.isEmpty else { return }
         
-        // In restricted mode, block user input that contains explicit content
+        // Under-18 signed-in users get blanket refusal on ALL messages
+        if isUnder18Blanket {
+            let blockedMsg = AIService.ChatMessage(role: "user", content: userMessage)
+            messages.append(blockedMsg)
+            messageCount = messages.count
+            inputState.inputText = ""
+            scrollTrigger += 1
+            
+            let refusalMsg = AIService.ChatMessage(
+                role: "assistant",
+                content: "Can't help you with that, try something else."
+            )
+            messages.append(refusalMsg)
+            messageCount = messages.count
+            scrollTrigger += 1
+            return
+        }
+        
+        // Guest users: block only when explicit content is detected
         if isRestrictedMode && ContentFilterService.shared.containsBlockedContent(userMessage) {
             let blockedMsg = AIService.ChatMessage(role: "user", content: userMessage)
             messages.append(blockedMsg)
