@@ -26,18 +26,17 @@ struct HeroCarouselView: View {
                             item: item,
                             isActive: index == currentIndex,
                             trailerKey: trailerLoader.trailerKeys[item.id],
+                            logoPath: trailerLoader.logoURLs[item.id],
                             onTap: { onItemTap(item) },
                             geometry: geometry,
                             colorScheme: colorScheme,
+                            trailerPhase: timerManager.trailerPhase,
                             onTrailerDurationKnown: { duration in
-                                // When the active slide reports its trailer duration,
-                                // update the timer to match
                                 if index == currentIndex {
                                     timerManager.setDuration(duration)
                                 }
                             },
                             onTrailerReady: {
-                                // Pause auto-scroll timer until duration is known
                                 if index == currentIndex {
                                     timerManager.pause()
                                 }
@@ -84,7 +83,6 @@ struct HeroCarouselView: View {
             }
         }
         .onChange(of: currentIndex) { _, _ in
-            // Reset timer for new slide — default 8s, will update if trailer reports duration
             timerManager.reset(defaultDuration: 8)
         }
         .onChange(of: items.count) { _, newCount in
@@ -100,6 +98,17 @@ struct HeroCarouselView: View {
     }
 }
 
+// MARK: - Trailer Phase
+/// Describes the lifecycle of a trailer on a hero slide.
+enum TrailerPhase: Equatable {
+    /// No trailer loaded or slide is in its static backdrop state
+    case backdrop
+    /// Trailer is actively playing
+    case playing
+    /// Trailer finished — show backdrop briefly before advancing
+    case postTrailer
+}
+
 // MARK: - Carousel Timer Manager
 /// Manages the auto-scroll timer with dynamic duration based on trailer length
 @MainActor
@@ -109,12 +118,19 @@ class CarouselTimerManager: ObservableObject {
     @Published var progress: CGFloat = 0
     /// Whether a trailer is actively playing (controls dots vs progress bar)
     @Published var isTrailerPlaying = false
+    /// Current trailer phase for the active slide
+    @Published var trailerPhase: TrailerPhase = .backdrop
     
     private var timer: Timer?
     private var isPaused = false
     private var displayLink: CADisplayLink?
     private var startTime: CFTimeInterval = 0
     private var duration: TimeInterval = 8
+    
+    /// How long to show the backdrop after a trailer finishes before advancing
+    static let postTrailerBackdropDuration: TimeInterval = 3.0
+    /// Extra grace period for the progress-bar → dots morph animation
+    static let morphGracePeriod: TimeInterval = 1.2
     
     func reset(defaultDuration: TimeInterval) {
         timer?.invalidate()
@@ -123,6 +139,7 @@ class CarouselTimerManager: ObservableObject {
         shouldAdvance = false
         progress = 0
         isTrailerPlaying = false
+        trailerPhase = .backdrop
         duration = defaultDuration
         startTimer(interval: defaultDuration)
     }
@@ -131,10 +148,10 @@ class CarouselTimerManager: ObservableObject {
         timer?.invalidate()
         stopDisplayLink()
         isPaused = false
-        // Use trailer duration but clamp between 15s and 180s
         let clamped = min(max(duration, 15), 180)
         self.duration = clamped
         isTrailerPlaying = true
+        trailerPhase = .playing
         startTime = CACurrentMediaTime()
         startTimer(interval: clamped)
         startDisplayLink()
@@ -151,11 +168,16 @@ class CarouselTimerManager: ObservableObject {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if self.isTrailerPlaying {
-                    // Transition the indicator back to dots first
+                    // 1. Transition indicator back to dots
                     self.isTrailerPlaying = false
                     self.stopDisplayLink()
-                    // Wait for the morph animation to complete before advancing
-                    DispatchQueue.main.asyncAfter(deadline: .now() + CarouselTimerManager.morphGracePeriod) {
+                    // 2. Enter post-trailer phase — show backdrop with title
+                    withAnimation(.easeInOut(duration: 0.6)) {
+                        self.trailerPhase = .postTrailer
+                    }
+                    // 3. After backdrop display + morph grace, advance
+                    let totalWait = CarouselTimerManager.morphGracePeriod + CarouselTimerManager.postTrailerBackdropDuration
+                    DispatchQueue.main.asyncAfter(deadline: .now() + totalWait) {
                         self.shouldAdvance = true
                     }
                 } else {
@@ -194,10 +216,6 @@ class CarouselTimerManager: ObservableObject {
         }
     }
     
-    /// Extra grace period (seconds) after trailer ends to allow the
-    /// progress-bar → dots morph to complete before the slide advances.
-    static let morphGracePeriod: TimeInterval = 1.2
-    
     deinit {
         timer?.invalidate()
         displayLink?.invalidate()
@@ -215,11 +233,17 @@ private class DisplayLinkTarget {
 @MainActor
 class HeroTrailerLoader: ObservableObject {
     @Published var trailerKeys: [Int: String] = [:]
+    @Published var logoURLs: [Int: String] = [:]  // item.id → logo file_path
     
     func loadTrailers(for items: [MediaItem]) async {
-        await withTaskGroup(of: (Int, String?).self) { group in
+        // Load trailers and logos in parallel
+        await withTaskGroup(of: (Int, String?, String?).self) { group in
             for item in items.prefix(10) {
                 group.addTask {
+                    var trailerKey: String?
+                    var logoPath: String?
+                    
+                    // Fetch trailer
                     do {
                         let videos: VideosResponse
                         if item.resolvedMediaType == .movie {
@@ -227,16 +251,31 @@ class HeroTrailerLoader: ObservableObject {
                         } else {
                             videos = try await TMDBService.shared.getTVShowVideos(id: item.id)
                         }
-                        let key = HeroTrailerLoader.pickTrailerKey(from: videos.results)
-                        return (item.id, key)
-                    } catch {
-                        return (item.id, nil)
-                    }
+                        trailerKey = HeroTrailerLoader.pickTrailerKey(from: videos.results)
+                    } catch {}
+                    
+                    // Fetch logo
+                    do {
+                        let logos = try await TMDBService.shared.getMediaLogos(
+                            mediaType: item.resolvedMediaType,
+                            id: item.id
+                        )
+                        // Pick the best English logo (highest vote average)
+                        let englishLogos = logos.filter { ($0.iso639_1 == "en" || $0.iso639_1 == nil) }
+                        let best = englishLogos.sorted { ($0.voteAverage ?? 0) > ($1.voteAverage ?? 0) }.first
+                            ?? logos.first
+                        logoPath = best?.filePath
+                    } catch {}
+                    
+                    return (item.id, trailerKey, logoPath)
                 }
             }
-            for await (id, key) in group {
+            for await (id, key, logo) in group {
                 if let key = key {
                     trailerKeys[id] = key
+                }
+                if let logo = logo {
+                    logoURLs[id] = logo
                 }
             }
         }
@@ -290,9 +329,11 @@ struct HeroCarouselSlide: View {
     let item: MediaItem
     let isActive: Bool
     let trailerKey: String?
+    let logoPath: String?
     let onTap: () -> Void
     let geometry: GeometryProxy
     let colorScheme: ColorScheme
+    let trailerPhase: TrailerPhase
     var onTrailerDurationKnown: ((TimeInterval) -> Void)?
     var onTrailerReady: (() -> Void)?
     
@@ -304,7 +345,12 @@ struct HeroCarouselSlide: View {
     
     /// True when the YouTube player is loaded and ready — backdrop should hide
     private var trailerIsVisible: Bool {
-        showTrailer && playerVM.isReady
+        showTrailer && playerVM.isReady && trailerPhase == .playing
+    }
+    
+    /// True when we're in the post-trailer backdrop reveal
+    private var isPostTrailer: Bool {
+        trailerPhase == .postTrailer && showTrailer
     }
     
     var body: some View {
@@ -317,9 +363,11 @@ struct HeroCarouselSlide: View {
                 YouTubePlayerKit.YouTubePlayerView(player)
                     .frame(width: slideWidth, height: slideHeight)
                     .allowsHitTesting(false)
+                    .opacity(isPostTrailer ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.8), value: isPostTrailer)
             }
             
-            // Layer 2: Backdrop image — fades out once the trailer is ready
+            // Layer 2: Backdrop image — fades out for trailer, fades back for post-trailer
             backdropImage
                 .opacity(trailerIsVisible ? 0 : 1)
                 .animation(.easeInOut(duration: 0.6), value: trailerIsVisible)
@@ -342,8 +390,7 @@ struct HeroCarouselSlide: View {
             }
             .allowsHitTesting(false)
             
-            // Layer 4: Content overlay — title, meta, controls
-            // Hidden when trailer is actively playing to show clean video
+            // Layer 4: Content overlay — title, meta (shown when NOT playing trailer)
             if !trailerIsVisible {
                 VStack(alignment: .leading, spacing: 8) {
                     Spacer()
@@ -374,10 +421,10 @@ struct HeroCarouselSlide: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 50)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .transition(.opacity)
+                .transition(.opacity.animation(.easeInOut(duration: 0.5)))
             }
             
-            // Layer 5: Trailer-playing overlay — mute button + TRAILER badge
+            // Layer 5: Trailer-playing overlay — mute button + logo + TRAILER badge
             if trailerIsVisible {
                 // Mute button (top-right)
                 VStack {
@@ -399,16 +446,29 @@ struct HeroCarouselSlide: View {
                 }
                 .transition(.opacity)
                 
-                // Bottom-left: small title + TRAILER badge
+                // Bottom-left: logo + TRAILER badge
                 VStack(alignment: .leading, spacing: 6) {
                     Spacer()
                     HStack(spacing: 10) {
-                        Text(item.displayTitle)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                            .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
+                        // Show logo image if available, otherwise fall back to text
+                        if let logoPath = logoPath,
+                           let logoURL = TMDBService.shared.imageURL(path: logoPath, size: .logo) {
+                            AsyncImage(url: logoURL) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(maxHeight: 32)
+                                        .shadow(color: .black.opacity(0.6), radius: 4, y: 2)
+                                default:
+                                    // While loading or on failure, show text fallback
+                                    titleTextFallback
+                                }
+                            }
+                        } else {
+                            titleTextFallback
+                        }
                         
                         Text("TRAILER")
                             .font(.system(size: 9, weight: .bold))
@@ -435,10 +495,15 @@ struct HeroCarouselSlide: View {
                 stopTrailer()
             }
         }
+        .onChange(of: trailerPhase) { _, phase in
+            // When entering post-trailer, pause the YouTube player
+            if phase == .postTrailer, let p = playerVM.player {
+                Task { try? await p.pause() }
+            }
+        }
         .onChange(of: playerVM.isReady) { _, ready in
             if ready && isActive {
                 onTrailerReady?()
-                // Fetch the video duration and report it to the carousel timer
                 if let p = playerVM.player {
                     Task {
                         if let duration = try? await p.getDuration() {
@@ -459,6 +524,16 @@ struct HeroCarouselSlide: View {
         .onDisappear {
             stopTrailer()
         }
+    }
+    
+    /// Text fallback for when logo isn't available
+    private var titleTextFallback: some View {
+        Text(item.displayTitle)
+            .font(.subheadline)
+            .fontWeight(.semibold)
+            .foregroundColor(.white)
+            .lineLimit(1)
+            .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
     }
     
     private var backdropImage: some View {
