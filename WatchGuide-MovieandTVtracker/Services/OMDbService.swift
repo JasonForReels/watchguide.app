@@ -86,13 +86,15 @@ struct RatingsSummary {
     var imdbRating: String?
     var imdbVotes: String?
     var rottenTomatoesScore: String?
+    var rottenTomatoesAudienceScore: String?
     var metacriticScore: String?
     
     /// Memberwise initializer
-    init(imdbRating: String? = nil, imdbVotes: String? = nil, rottenTomatoesScore: String? = nil, metacriticScore: String? = nil) {
+    init(imdbRating: String? = nil, imdbVotes: String? = nil, rottenTomatoesScore: String? = nil, rottenTomatoesAudienceScore: String? = nil, metacriticScore: String? = nil) {
         self.imdbRating = imdbRating
         self.imdbVotes = imdbVotes
         self.rottenTomatoesScore = rottenTomatoesScore
+        self.rottenTomatoesAudienceScore = rottenTomatoesAudienceScore
         self.metacriticScore = metacriticScore
     }
     
@@ -104,6 +106,7 @@ struct RatingsSummary {
         
         // Extract Rotten Tomatoes
         self.rottenTomatoesScore = response.ratings?.first { $0.source == "Rotten Tomatoes" }?.value
+        self.rottenTomatoesAudienceScore = nil // OMDb doesn't provide audience score
         
         // Extract Metacritic
         if let metascore = response.metascore, metascore != "N/A" {

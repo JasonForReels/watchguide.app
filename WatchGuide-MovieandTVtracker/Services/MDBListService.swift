@@ -286,6 +286,10 @@ extension RatingsSummary {
         let rt = ratings.first { $0.source == "tomatoes" }
         self.rottenTomatoesScore = rt.flatMap { r in r.score.map { "\($0)%" } }
         
+        // Rotten Tomatoes (audience)
+        let rtAudience = ratings.first { $0.source == "tomatoesaudience" }
+        self.rottenTomatoesAudienceScore = rtAudience.flatMap { r in r.score.map { "\($0)%" } }
+        
         // Metacritic
         let meta = ratings.first { $0.source == "metacritic" }
         self.metacriticScore = meta.flatMap { r in r.score.map { "\($0)/100" } }
