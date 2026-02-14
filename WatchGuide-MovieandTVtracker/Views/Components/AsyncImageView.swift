@@ -44,17 +44,21 @@ struct AsyncImageView: View {
     }
 }
 
-// MARK: - Poster Image with FanArt.tv Fallback
+// MARK: - Poster Image with FanArt.tv Primary, TMDB Fallback
 struct PosterImageView: View {
     let posterPath: String?
     let size: TMDBService.ImageSize
     var mediaId: Int?
     var mediaType: MediaType?
     
-    @State private var fallbackURL: URL?
-    @State private var loadAttempted = false
-    @State private var imageLoadFailed = false
-    @State private var shouldShowFallback = false
+    /// FanArt.tv poster URL (primary source)
+    @State private var fanartURL: URL?
+    /// Whether we've attempted to load from FanArt.tv
+    @State private var fanartAttempted = false
+    /// Whether FanArt.tv image failed to render
+    @State private var fanartImageFailed = false
+    /// Whether TMDB image failed to render
+    @State private var tmdbImageFailed = false
     
     init(posterPath: String?, size: TMDBService.ImageSize = .medium, mediaId: Int? = nil, mediaType: MediaType? = nil) {
         self.posterPath = posterPath
@@ -65,28 +69,50 @@ struct PosterImageView: View {
     
     var body: some View {
         Group {
-            if shouldShowFallback, let fallback = fallbackURL {
-                // Show fallback image
-                AsyncImage(url: fallback) { fallbackPhase in
-                    switch fallbackPhase {
+            if let fanartURL = fanartURL, !fanartImageFailed {
+                // Primary: FanArt.tv poster
+                AsyncImage(url: fanartURL) { phase in
+                    switch phase {
                     case .success(let image):
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
-                    default:
-                        placeholderView
+                    case .failure:
+                        // FanArt image failed to load — fall back to TMDB
+                        tmdbPosterView
+                            .onAppear { fanartImageFailed = true }
+                    case .empty:
+                        ZStack {
+                            Color(.systemGray5)
+                            ProgressView().tint(.secondary)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    @unknown default:
+                        tmdbPosterView
                     }
                 }
-            } else if let url = primaryImageURL {
-                // Show primary TMDB image
+            } else if fanartAttempted {
+                // FanArt unavailable — use TMDB
+                tmdbPosterView
+            } else {
+                // Still loading from FanArt — show TMDB while we wait
+                tmdbPosterView
+                    .onAppear { loadFanArtPoster() }
+            }
+        }
+    }
+    
+    /// TMDB poster (fallback)
+    private var tmdbPosterView: some View {
+        Group {
+            if let url = tmdbImageURL, !tmdbImageFailed {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
                         ZStack {
                             Color(.systemGray5)
-                            ProgressView()
-                                .tint(.secondary)
+                            ProgressView().tint(.secondary)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                     case .success(let image):
@@ -96,30 +122,18 @@ struct PosterImageView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                     case .failure:
                         placeholderView
-                            .onAppear {
-                                if !imageLoadFailed {
-                                    imageLoadFailed = true
-                                    loadFallbackImage()
-                                }
-                            }
+                            .onAppear { tmdbImageFailed = true }
                     @unknown default:
                         placeholderView
                     }
                 }
             } else {
-                // No poster path available - try to load fallback immediately
                 placeholderView
-                    .onAppear {
-                        if !loadAttempted {
-                            loadAttempted = true
-                            loadFallbackImage()
-                        }
-                    }
             }
         }
     }
     
-    private var primaryImageURL: URL? {
+    private var tmdbImageURL: URL? {
         TMDBService.shared.imageURL(path: posterPath, size: size)
     }
     
@@ -133,35 +147,88 @@ struct PosterImageView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
     
-    private func loadFallbackImage() {
-        guard let mediaId = mediaId, let mediaType = mediaType else { return }
-        
+    private func loadFanArtPoster() {
+        guard let mediaId = mediaId, let mediaType = mediaType else {
+            fanartAttempted = true
+            return
+        }
         Task {
-            if let url = await FanArtService.shared.getBestPosterURL(tmdbId: mediaId, mediaType: mediaType) {
-                await MainActor.run {
-                    self.fallbackURL = url
-                    self.shouldShowFallback = true
-                }
+            let url = await FanArtService.shared.getBestPosterURL(tmdbId: mediaId, mediaType: mediaType)
+            await MainActor.run {
+                self.fanartURL = url
+                self.fanartAttempted = true
             }
         }
     }
 }
 
-// MARK: - Backdrop Image
+// MARK: - Backdrop Image with FanArt.tv Primary, TMDB Fallback
 struct BackdropImageView: View {
     let backdropPath: String?
     let size: TMDBService.ImageSize
+    var mediaId: Int?
+    var mediaType: MediaType?
     
-    init(backdropPath: String?, size: TMDBService.ImageSize = .backdrop) {
+    @State private var fanartURL: URL?
+    @State private var fanartAttempted = false
+    @State private var fanartImageFailed = false
+    
+    init(backdropPath: String?, size: TMDBService.ImageSize = .backdrop, mediaId: Int? = nil, mediaType: MediaType? = nil) {
         self.backdropPath = backdropPath
         self.size = size
+        self.mediaId = mediaId
+        self.mediaType = mediaType
     }
     
     var body: some View {
+        Group {
+            if let fanartURL = fanartURL, !fanartImageFailed {
+                AsyncImage(url: fanartURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    case .failure:
+                        tmdbBackdropView
+                            .onAppear { fanartImageFailed = true }
+                    case .empty:
+                        ZStack {
+                            Color(.systemGray5)
+                            ProgressView().tint(.secondary)
+                        }
+                    @unknown default:
+                        tmdbBackdropView
+                    }
+                }
+            } else if fanartAttempted {
+                tmdbBackdropView
+            } else {
+                tmdbBackdropView
+                    .onAppear { loadFanArtBackdrop() }
+            }
+        }
+    }
+    
+    private var tmdbBackdropView: some View {
         AsyncImageView(
             url: TMDBService.shared.imageURL(path: backdropPath, size: size),
             cornerRadius: 0
         )
+    }
+    
+    private func loadFanArtBackdrop() {
+        guard let mediaId = mediaId, let mediaType = mediaType else {
+            fanartAttempted = true
+            return
+        }
+        Task {
+            let url = await FanArtService.shared.getBestBackdropURL(tmdbId: mediaId, mediaType: mediaType)
+            await MainActor.run {
+                self.fanartURL = url
+                self.fanartAttempted = true
+            }
+        }
     }
 }
 

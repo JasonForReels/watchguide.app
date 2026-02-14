@@ -40,7 +40,8 @@ struct HeroCarouselView: View {
                             item: item,
                             isActive: index == currentIndex && !isDragging,
                             trailerKey: trailerLoader.trailerKeys[item.id],
-                            logoPath: trailerLoader.logoURLs[item.id],
+                            logoURL: trailerLoader.logoURLs[item.id],
+                            fanartBackdropURL: trailerLoader.fanartBackdropURLs[item.id],
                             onTap: { onItemTap(item) },
                             slideSize: CGSize(width: width, height: height),
                             colorScheme: colorScheme,
@@ -315,15 +316,19 @@ private class DisplayLinkTarget {
 @MainActor
 class HeroTrailerLoader: ObservableObject {
     @Published var trailerKeys: [Int: String] = [:]
-    @Published var logoURLs: [Int: String] = [:]  // item.id → logo file_path
+    /// item.id → full logo URL string (FanArt.tv primary, TMDB fallback path prefixed with scheme)
+    @Published var logoURLs: [Int: String] = [:]
+    /// item.id → full backdrop URL string from FanArt.tv (nil = use TMDB backdrop)
+    @Published var fanartBackdropURLs: [Int: String] = [:]
     
     func loadTrailers(for items: [MediaItem]) async {
-        // Load trailers and logos in parallel
-        await withTaskGroup(of: (Int, String?, String?).self) { group in
+        // Load trailers, logos (FanArt→TMDB), and backdrops in parallel
+        await withTaskGroup(of: (Int, String?, String?, String?).self) { group in
             for item in items.prefix(10) {
                 group.addTask {
                     var trailerKey: String?
-                    var logoPath: String?
+                    var logoURL: String?
+                    var backdropURL: String?
                     
                     // Fetch trailer
                     do {
@@ -336,28 +341,43 @@ class HeroTrailerLoader: ObservableObject {
                         trailerKey = HeroTrailerLoader.pickTrailerKey(from: videos.results)
                     } catch {}
                     
-                    // Fetch logo
-                    do {
-                        let logos = try await TMDBService.shared.getMediaLogos(
-                            mediaType: item.resolvedMediaType,
-                            id: item.id
-                        )
-                        // Pick the best English logo (highest vote average)
-                        let englishLogos = logos.filter { ($0.iso639_1 == "en" || $0.iso639_1 == nil) }
-                        let best = englishLogos.sorted { ($0.voteAverage ?? 0) > ($1.voteAverage ?? 0) }.first
-                            ?? logos.first
-                        logoPath = best?.filePath
-                    } catch {}
+                    // Fetch logo — FanArt.tv first, TMDB fallback
+                    if let fanartLogo = await FanArtService.shared.getBestLogoURL(tmdbId: item.id, mediaType: item.resolvedMediaType) {
+                        logoURL = fanartLogo.absoluteString
+                    } else {
+                        // TMDB fallback
+                        do {
+                            let logos = try await TMDBService.shared.getMediaLogos(
+                                mediaType: item.resolvedMediaType,
+                                id: item.id
+                            )
+                            let englishLogos = logos.filter { ($0.iso639_1 == "en" || $0.iso639_1 == nil) }
+                            let best = englishLogos.sorted { ($0.voteAverage ?? 0) > ($1.voteAverage ?? 0) }.first
+                                ?? logos.first
+                            if let filePath = best?.filePath,
+                               let tmdbURL = TMDBService.shared.imageURL(path: filePath, size: .logo) {
+                                logoURL = tmdbURL.absoluteString
+                            }
+                        } catch {}
+                    }
                     
-                    return (item.id, trailerKey, logoPath)
+                    // Fetch backdrop — FanArt.tv (if available)
+                    if let fanartBG = await FanArtService.shared.getBestBackdropURL(tmdbId: item.id, mediaType: item.resolvedMediaType) {
+                        backdropURL = fanartBG.absoluteString
+                    }
+                    
+                    return (item.id, trailerKey, logoURL, backdropURL)
                 }
             }
-            for await (id, key, logo) in group {
+            for await (id, key, logo, backdrop) in group {
                 if let key = key {
                     trailerKeys[id] = key
                 }
                 if let logo = logo {
                     logoURLs[id] = logo
+                }
+                if let backdrop = backdrop {
+                    fanartBackdropURLs[id] = backdrop
                 }
             }
         }
@@ -411,7 +431,10 @@ struct HeroCarouselSlide: View {
     let item: MediaItem
     let isActive: Bool
     let trailerKey: String?
-    let logoPath: String?
+    /// Full URL string for the logo (FanArt.tv or TMDB)
+    let logoURL: String?
+    /// Full URL string for the FanArt.tv backdrop (nil = use TMDB)
+    let fanartBackdropURL: String?
     let onTap: () -> Void
     let slideSize: CGSize
     let colorScheme: ColorScheme
@@ -478,9 +501,9 @@ struct HeroCarouselSlide: View {
                     Spacer()
                     
                     // Show logo if available, otherwise fall back to text title
-                    if let logoPath = logoPath,
-                       let logoURL = TMDBService.shared.imageURL(path: logoPath, size: .logo) {
-                        AsyncImage(url: logoURL) { phase in
+                    if let logoURLStr = logoURL,
+                       let resolvedLogoURL = URL(string: logoURLStr) {
+                        AsyncImage(url: resolvedLogoURL) { phase in
                             switch phase {
                             case .success(let image):
                                 image
@@ -545,9 +568,9 @@ struct HeroCarouselSlide: View {
                     Spacer()
                     HStack(spacing: 10) {
                         // Show logo image if available, otherwise fall back to text
-                        if let logoPath = logoPath,
-                           let logoURL = TMDBService.shared.imageURL(path: logoPath, size: .logo) {
-                            AsyncImage(url: logoURL) { phase in
+                        if let logoURLStr = logoURL,
+                           let resolvedLogoURL = URL(string: logoURLStr) {
+                            AsyncImage(url: resolvedLogoURL) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image
@@ -640,8 +663,16 @@ struct HeroCarouselSlide: View {
             .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
     }
     
+    /// Resolved backdrop URL: FanArt.tv when available, otherwise TMDB
+    private var resolvedBackdropURL: URL? {
+        if let fanartStr = fanartBackdropURL, let url = URL(string: fanartStr) {
+            return url
+        }
+        return TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)
+    }
+    
     private var backdropImage: some View {
-        AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
+        AsyncImage(url: resolvedBackdropURL) { phase in
             switch phase {
             case .empty:
                 Rectangle()
@@ -652,13 +683,31 @@ struct HeroCarouselSlide: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             case .failure:
-                Rectangle()
-                    .fill(Color(.systemGray5))
-                    .overlay {
-                        Image(systemName: "film")
-                            .font(.largeTitle)
-                            .foregroundColor(.secondary)
+                // If FanArt backdrop failed, try TMDB directly
+                if fanartBackdropURL != nil {
+                    AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { fallbackPhase in
+                        switch fallbackPhase {
+                        case .success(let img):
+                            img.resizable().aspectRatio(contentMode: .fill)
+                        default:
+                            Rectangle()
+                                .fill(Color(.systemGray5))
+                                .overlay {
+                                    Image(systemName: "film")
+                                        .font(.largeTitle)
+                                        .foregroundColor(.secondary)
+                                }
+                        }
                     }
+                } else {
+                    Rectangle()
+                        .fill(Color(.systemGray5))
+                        .overlay {
+                            Image(systemName: "film")
+                                .font(.largeTitle)
+                                .foregroundColor(.secondary)
+                        }
+                }
             @unknown default:
                 Rectangle().fill(Color(.systemGray5))
             }

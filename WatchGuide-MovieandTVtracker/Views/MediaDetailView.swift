@@ -239,20 +239,28 @@ struct MediaDetailView: View {
             let isCompact = verticalSizeClass == .compact
             
             ZStack(alignment: .bottomLeading) {
-                // Backdrop - use aspectRatio fit to show entire image
-                AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                    default:
-                        Rectangle()
-                            .fill(Color(.systemGray4))
+                // Backdrop — FanArt.tv primary, TMDB fallback
+                if let fanartStr = viewModel.fanartBackdropURL, let fanartURL = URL(string: fanartStr) {
+                    AsyncImage(url: fanartURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        default:
+                            // FanArt failed or loading — use TMDB
+                            tmdbBackdropImage
+                        }
                     }
+                    .frame(width: width, height: height)
+                    .clipped()
+                    .background(Color.black)
+                } else {
+                    tmdbBackdropImage
+                        .frame(width: width, height: height)
+                        .clipped()
+                        .background(Color.black)
                 }
-                .frame(width: width, height: height)
-                .background(Color.black)
                 
                 // Gradient overlay
                 LinearGradient(
@@ -321,10 +329,31 @@ struct MediaDetailView: View {
         .aspectRatio(16.0/9.0, contentMode: .fit)
     }
     
+    /// TMDB backdrop (used as fallback)
+    private var tmdbBackdropImage: some View {
+        AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            default:
+                Rectangle()
+                    .fill(Color(.systemGray4))
+            }
+        }
+    }
+    
     @ViewBuilder
     private func logoOverlay(width: CGFloat, height: CGFloat) -> some View {
-        if let logoPath = viewModel.logoPath,
-           let url = TMDBService.shared.imageURL(path: logoPath, size: .logo) {
+        // Resolve logo URL: FanArt.tv full URL first, TMDB path second
+        let resolvedLogoURL: URL? = {
+            if let fullStr = viewModel.logoFullURL, let url = URL(string: fullStr) { return url }
+            if let path = viewModel.logoPath { return TMDBService.shared.imageURL(path: path, size: .logo) }
+            return nil
+        }()
+        
+        if let url = resolvedLogoURL {
             let maxWidth = min(width * 0.32, 220)
             let maxHeight = min(height * 0.18, 70)
             
@@ -623,6 +652,10 @@ class MediaDetailViewModel: ObservableObject {
     @Published var seasons: [Season]?
     @Published var savedItem: SavedMediaItem?
     @Published var logoPath: String?
+    /// Full URL string for the logo (FanArt.tv or TMDB). Takes precedence over logoPath.
+    @Published var logoFullURL: String?
+    /// Full URL string for the FanArt.tv backdrop (nil = use TMDB)
+    @Published var fanartBackdropURL: String?
     @Published var collectionInfo: CollectionInfo?
     @Published var collectionItems: [MediaItem] = []
     
@@ -691,13 +724,26 @@ class MediaDetailViewModel: ObservableObject {
                 }
             }
             
-            // Title logo
+            // Title logo — FanArt.tv primary, TMDB fallback
             group.addTask { @MainActor in
-                do {
-                    let logos = try await TMDBService.shared.getMediaLogos(mediaType: .movie, id: movieId)
-                    self.logoPath = self.selectPreferredLogo(from: logos)
-                } catch {
-                    print("Error loading movie logos: \(error)")
+                // Try FanArt.tv first
+                if let fanartLogo = await FanArtService.shared.getBestLogoURL(tmdbId: movieId, mediaType: .movie) {
+                    self.logoFullURL = fanartLogo.absoluteString
+                } else {
+                    // TMDB fallback
+                    do {
+                        let logos = try await TMDBService.shared.getMediaLogos(mediaType: .movie, id: movieId)
+                        self.logoPath = self.selectPreferredLogo(from: logos)
+                    } catch {
+                        print("Error loading movie logos: \(error)")
+                    }
+                }
+            }
+            
+            // FanArt backdrop
+            group.addTask { @MainActor in
+                if let fanartBG = await FanArtService.shared.getBestBackdropURL(tmdbId: movieId, mediaType: .movie) {
+                    self.fanartBackdropURL = fanartBG.absoluteString
                 }
             }
             
@@ -785,13 +831,24 @@ class MediaDetailViewModel: ObservableObject {
         
         // Phase 2: Load everything else concurrently
         await withTaskGroup(of: Void.self) { group in
-            // Title logo
+            // Title logo — FanArt.tv primary, TMDB fallback
             group.addTask { @MainActor in
-                do {
-                    let logos = try await TMDBService.shared.getMediaLogos(mediaType: .tv, id: tvId)
-                    self.logoPath = self.selectPreferredLogo(from: logos)
-                } catch {
-                    print("Error loading TV logos: \(error)")
+                if let fanartLogo = await FanArtService.shared.getBestLogoURL(tmdbId: tvId, mediaType: .tv) {
+                    self.logoFullURL = fanartLogo.absoluteString
+                } else {
+                    do {
+                        let logos = try await TMDBService.shared.getMediaLogos(mediaType: .tv, id: tvId)
+                        self.logoPath = self.selectPreferredLogo(from: logos)
+                    } catch {
+                        print("Error loading TV logos: \(error)")
+                    }
+                }
+            }
+            
+            // FanArt backdrop
+            group.addTask { @MainActor in
+                if let fanartBG = await FanArtService.shared.getBestBackdropURL(tmdbId: tvId, mediaType: .tv) {
+                    self.fanartBackdropURL = fanartBG.absoluteString
                 }
             }
             
