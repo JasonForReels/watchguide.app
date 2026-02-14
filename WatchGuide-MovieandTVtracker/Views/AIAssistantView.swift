@@ -1675,7 +1675,7 @@ class AIAssistantViewModel: ObservableObject {
             
             let refusalMsg = AIService.ChatMessage(
                 role: "assistant",
-                content: "I keep recommendations appropriate for all audiences. How about some great action, comedy, or family-friendly films instead?"
+                content: "Sorry, I can't help with that request, please try something else."
             )
             messages.append(refusalMsg)
             messageCount = messages.count

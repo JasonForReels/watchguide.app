@@ -86,36 +86,17 @@ class ContentFilterService {
         return false
     }
     
-    /// Filters/replaces blocked words in AI output text with asterisks.
-    /// Returns the cleaned text.
+    /// The standard refusal message shown when blocked content is detected.
+    static let refusalMessage = "Sorry, I can't help with that request, please try something else."
+    
+    /// Checks AI output for blocked content. If any is found, replaces the
+    /// entire response with the standard refusal message instead of asterisking
+    /// individual words — this ensures nothing inappropriate leaks through.
     func filterOutput(_ text: String) -> String {
-        var result = text
-        
-        // Replace multi-word phrases first (before tokenizing)
-        for phrase in blockedPhrases {
-            let pattern = "(?i)" + NSRegularExpression.escapedPattern(for: phrase)
-            if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
-                result = regex.stringByReplacingMatches(
-                    in: result,
-                    range: NSRange(result.startIndex..., in: result),
-                    withTemplate: String(repeating: "*", count: phrase.count)
-                )
-            }
+        if containsBlockedContent(text) {
+            return Self.refusalMessage
         }
-        
-        // Replace single blocked words
-        for word in allBlockedWords {
-            let pattern = "(?i)\\b" + NSRegularExpression.escapedPattern(for: word) + "\\b"
-            if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
-                result = regex.stringByReplacingMatches(
-                    in: result,
-                    range: NSRange(result.startIndex..., in: result),
-                    withTemplate: String(repeating: "*", count: word.count)
-                )
-            }
-        }
-        
-        return result
+        return text
     }
     
     /// Returns the family-friendly system prompt addition for unverified users.
@@ -130,7 +111,7 @@ class ContentFilterService {
         - If a user asks about a movie or show with mature content, describe it in general family-friendly terms only (e.g., "This film contains some mature themes" rather than describing them).
         - Do NOT recommend NC-17, X-rated, or unrated adult content.
         - Keep all language clean and appropriate for ages 13 and under.
-        - If asked to generate explicit content, politely refuse: "I keep recommendations appropriate for all audiences. How about some great action, comedy, or family-friendly films instead?"
+        - If asked to generate explicit content, politely refuse: "Sorry, I can't help with that request, please try something else."
         - Redirect any inappropriate requests to family-friendly alternatives.
         """
     }
