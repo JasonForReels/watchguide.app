@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import MessageUI
 
 struct AuthView: View {
     @ObservedObject var authService = AuthService.shared
@@ -238,10 +239,7 @@ struct AuthView: View {
 struct AccountView: View {
     @ObservedObject var authService = AuthService.shared
     @State private var showSignOutConfirmation = false
-    @State private var showDeleteConfirmation = false
-    @State private var showDeleteFinalConfirmation = false
-    @State private var deleteConfirmText = ""
-    @State private var accountDeleted = false
+    @State private var showMailError = false
     
     var body: some View {
         if let user = authService.currentUser {
@@ -295,9 +293,9 @@ struct AccountView: View {
                     .cornerRadius(12)
                 }
                 
-                // Delete account button
+                // Delete account button — opens Mail
                 Button {
-                    showDeleteConfirmation = true
+                    openDeleteAccountEmail()
                 } label: {
                     HStack {
                         Image(systemName: "trash")
@@ -321,40 +319,29 @@ struct AccountView: View {
             } message: {
                 Text("You will need to sign in again to sync your lists across devices.")
             }
-            .alert("Delete Account?", isPresented: $showDeleteConfirmation) {
-                Button("Cancel", role: .cancel) { }
-                Button("Continue", role: .destructive) {
-                    showDeleteFinalConfirmation = true
-                }
+            .alert("Unable to Open Mail", isPresented: $showMailError) {
+                Button("OK", role: .cancel) { }
             } message: {
-                Text("This will permanently delete all your data including your watchlist, watched history, liked items, and custom lists. This action cannot be undone.")
+                Text("Please send an email to support@watchguide.app with the subject \"Account deletion request\" to request your account be deleted.")
             }
-            .alert("Type DELETE to confirm", isPresented: $showDeleteFinalConfirmation) {
-                TextField("Type DELETE", text: $deleteConfirmText)
-                    .autocapitalization(.allCharacters)
-                Button("Cancel", role: .cancel) {
-                    deleteConfirmText = ""
-                }
-                Button("Delete My Account", role: .destructive) {
-                    guard deleteConfirmText.uppercased() == "DELETE" else {
-                        deleteConfirmText = ""
-                        return
-                    }
-                    Task {
-                        let success = await authService.deleteAccount()
-                        if success {
-                            accountDeleted = true
-                        }
-                        deleteConfirmText = ""
-                    }
-                }
-            } message: {
-                Text("This is your final confirmation. Type DELETE to permanently remove your account and all associated data.")
-            }
-            .alert("Account Deleted", isPresented: $accountDeleted) {
-                Button("OK") { }
-            } message: {
-                Text("Your account and all associated data have been successfully deleted.")
+        }
+    }
+    
+    private func openDeleteAccountEmail() {
+        let recipient = "support@watchguide.app"
+        let subject = "Account deletion request"
+        let body = "Input your email so we can go ahead and permanently delete your account and all data, optionally, go back into the app and press \"Clear All Data\" under \"Data Management\" if you don't want your account deleted.\n\nEmail: "
+        
+        let subjectEncoded = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject
+        let bodyEncoded = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? body
+        
+        let mailtoString = "mailto:\(recipient)?subject=\(subjectEncoded)&body=\(bodyEncoded)"
+        
+        if let url = URL(string: mailtoString) {
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url)
+            } else {
+                showMailError = true
             }
         }
     }
