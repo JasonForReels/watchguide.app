@@ -472,17 +472,29 @@ struct HeroCarouselSlide: View {
             }
             .allowsHitTesting(false)
             
-            // Layer 4: Content overlay — title, meta (shown when NOT playing trailer)
+            // Layer 4: Content overlay — logo/title, meta (shown when NOT playing trailer)
             if !trailerIsVisible {
                 VStack(alignment: .leading, spacing: 8) {
                     Spacer()
                     
-                    Text(item.displayTitle)
-                        .font(.title)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .lineLimit(2)
-                        .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+                    // Show logo if available, otherwise fall back to text title
+                    if let logoPath = logoPath,
+                       let logoURL = TMDBService.shared.imageURL(path: logoPath, size: .logo) {
+                        AsyncImage(url: logoURL) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(maxWidth: slideWidth * 0.55, maxHeight: 60)
+                                    .shadow(color: .black.opacity(0.6), radius: 6, y: 3)
+                            default:
+                                backdropTitleText
+                            }
+                        }
+                    } else {
+                        backdropTitleText
+                    }
                     
                     HStack(spacing: 12) {
                         if let year = item.year {
@@ -608,7 +620,17 @@ struct HeroCarouselSlide: View {
         }
     }
     
-    /// Text fallback for when logo isn't available
+    /// Large text fallback for backdrop view when logo isn't available
+    private var backdropTitleText: some View {
+        Text(item.displayTitle)
+            .font(.title)
+            .fontWeight(.bold)
+            .foregroundColor(.white)
+            .lineLimit(2)
+            .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+    }
+    
+    /// Small text fallback for trailer overlay when logo isn't available
     private var titleTextFallback: some View {
         Text(item.displayTitle)
             .font(.subheadline)
