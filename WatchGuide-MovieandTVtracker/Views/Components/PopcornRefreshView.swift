@@ -313,80 +313,67 @@ struct PopcornBucketShape: Shape {
 }
 
 // MARK: - Custom Refreshable ScrollView
-/// A ScrollView wrapper that replaces the system pull-to-refresh indicator
-/// with a custom popcorn animation.
+/// A ScrollView wrapper that uses the native .refreshable modifier for reliable
+/// pull-to-refresh detection, while overlaying a custom popcorn animation.
 struct PopcornRefreshableScrollView<Content: View>: View {
     let onRefresh: () async -> Void
     @ViewBuilder let content: () -> Content
     
     @State private var isRefreshing = false
-    @State private var pullProgress: CGFloat = 0
-    @State private var contentOffset: CGFloat = 0
-    
-    private let refreshThreshold: CGFloat = 70
     
     var body: some View {
-        GeometryReader { outerGeometry in
-            ScrollView {
-                VStack(spacing: 0) {
-                    // Pull-to-refresh indicator
-                    GeometryReader { geometry in
-                        let offset = geometry.frame(in: .named("pullToRefresh")).minY
-                        
-                        Color.clear
-                            .preference(key: ScrollOffsetPreferenceKey.self, value: offset)
-                    }
-                    .frame(height: 0)
-                    
-                    // Popcorn refresh view
-                    PopcornRefreshView(
-                        isRefreshing: isRefreshing,
-                        progress: pullProgress
-                    )
-                    .frame(maxWidth: .infinity)
-                    
-                    // Actual content
-                    content()
+        ScrollView {
+            VStack(spacing: 0) {
+                // Track scroll offset for pull progress
+                GeometryReader { geo in
+                    let offset = geo.frame(in: .named("popcornScroll")).minY
+                    Color.clear
+                        .preference(key: PopcornScrollOffsetKey.self, value: offset)
                 }
-            }
-            .coordinateSpace(name: "pullToRefresh")
-            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { offset in
-                guard !isRefreshing else { return }
+                .frame(height: 0)
                 
-                let adjustedOffset = max(0, offset)
-                pullProgress = min(1, adjustedOffset / refreshThreshold)
-                contentOffset = adjustedOffset
-                
-                // Trigger refresh when user has pulled enough and releases
-                if adjustedOffset > refreshThreshold && !isRefreshing {
-                    triggerRefresh()
+                // Popcorn refresh indicator (shows when refreshing)
+                if isRefreshing {
+                    PopcornRefreshView(isRefreshing: true, progress: 1.0)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 80)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
+                
+                // Actual content
+                content()
             }
         }
-    }
-    
-    private func triggerRefresh() {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        
-        // Haptic feedback
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
-        
-        Task {
+        .coordinateSpace(name: "popcornScroll")
+        .refreshable {
+            // Haptic feedback
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    isRefreshing = true
+                }
+            }
+            
             await onRefresh()
+            
+            // Small delay so the animation is visible
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            
             await MainActor.run {
                 withAnimation(.easeOut(duration: 0.3)) {
                     isRefreshing = false
-                    pullProgress = 0
                 }
             }
         }
+        // Hide the default system refresh spinner by tinting it to clear
+        .tint(.clear)
     }
 }
 
 // MARK: - Scroll Offset Preference Key
-private struct ScrollOffsetPreferenceKey: PreferenceKey {
+private struct PopcornScrollOffsetKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
