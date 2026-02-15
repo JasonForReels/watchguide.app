@@ -16,6 +16,10 @@ class ProfileService: ObservableObject {
     @Published var activeProfile: UserProfile?
     @Published var needsProfileSelection = false
     
+    /// Whether the profile picker has been shown at least once this app session.
+    /// Resets every cold launch so the picker always appears on startup.
+    private var hasShownPickerThisSession = false
+    
     private let profilesKey = "user_profiles"
     private let activeProfileKey = "active_profile_id"
     private let documentsDirectory: URL
@@ -45,11 +49,17 @@ class ProfileService: ObservableObject {
             decoder.dateDecodingStrategy = .iso8601
             profiles = try decoder.decode([UserProfile].self, from: data)
             
-            // Restore active profile
-            if let activeId = UserDefaults.standard.string(forKey: activeProfileKey),
-               let profile = profiles.first(where: { $0.id == activeId }) {
-                activeProfile = profile
-                applyProfileSettings(profile)
+            // On cold launch, if there are multiple profiles, require selection (Netflix-style).
+            // If there is exactly 1 profile, auto-select it.
+            if profiles.count == 1, let onlyProfile = profiles.first {
+                activeProfile = onlyProfile
+                UserDefaults.standard.set(onlyProfile.id, forKey: activeProfileKey)
+                applyProfileSettings(onlyProfile)
+                hasShownPickerThisSession = true
+            } else if profiles.count > 1 {
+                // Don't auto-restore — force the "Who's Watching?" picker every launch
+                activeProfile = nil
+                needsProfileSelection = true
             }
         } catch {
             print("Error loading profiles: \(error)")
@@ -111,11 +121,17 @@ class ProfileService: ObservableObject {
         activeProfile = profile
         UserDefaults.standard.set(profile.id, forKey: activeProfileKey)
         needsProfileSelection = false
+        hasShownPickerThisSession = true
         applyProfileSettings(profile)
     }
     
     func requestProfileSelection() {
         needsProfileSelection = true
+    }
+    
+    /// Resets the session flag so the picker will show again (e.g. after sign-out + sign-in)
+    func resetSessionFlag() {
+        hasShownPickerThisSession = false
     }
     
     /// Apply profile-based settings to the global UserSettings
@@ -203,13 +219,21 @@ class ProfileService: ObservableObject {
                 profiles = cloudProfiles
                 saveProfiles()
                 
-                // Restore active profile if possible
-                if let activeId = UserDefaults.standard.string(forKey: activeProfileKey),
-                   let profile = profiles.first(where: { $0.id == activeId }) {
+                // If only 1 profile, auto-select it
+                if cloudProfiles.count == 1, let onlyProfile = cloudProfiles.first {
+                    activeProfile = onlyProfile
+                    UserDefaults.standard.set(onlyProfile.id, forKey: activeProfileKey)
+                    applyProfileSettings(onlyProfile)
+                    hasShownPickerThisSession = true
+                } else if !hasShownPickerThisSession {
+                    // Multiple profiles and picker not shown yet — show it
+                    activeProfile = nil
+                    needsProfileSelection = true
+                } else if let activeId = UserDefaults.standard.string(forKey: activeProfileKey),
+                          let profile = cloudProfiles.first(where: { $0.id == activeId }) {
+                    // Picker already shown this session, just refresh the active profile data
                     activeProfile = profile
                     applyProfileSettings(profile)
-                } else {
-                    needsProfileSelection = true
                 }
             }
         } catch {
@@ -334,6 +358,7 @@ class ProfileService: ObservableObject {
         activeProfile = nil
         UserDefaults.standard.removeObject(forKey: activeProfileKey)
         needsProfileSelection = false
+        hasShownPickerThisSession = false
         saveProfiles()
     }
 }

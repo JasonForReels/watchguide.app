@@ -200,6 +200,7 @@ class AuthService: ObservableObject {
             // Reset active profile on sign out (keep profiles for next login)
             ProfileService.shared.activeProfile = nil
             ProfileService.shared.needsProfileSelection = false
+            ProfileService.shared.resetSessionFlag()
             return
         }
         
@@ -219,6 +220,7 @@ class AuthService: ObservableObject {
         // Reset active profile on sign out (keep profiles for next login)
         ProfileService.shared.activeProfile = nil
         ProfileService.shared.needsProfileSelection = false
+        ProfileService.shared.resetSessionFlag()
         
         // Reset kids profile setting when signing out
         var settings = StorageService.shared.settings

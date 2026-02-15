@@ -71,7 +71,8 @@ struct ContentView: View {
             FirstProfileSetupView {
                 // Setup complete — profiles are created and active profile is set
             }
-        } else if authService.isAuthenticated && profileService.needsProfileSelection {
+        } else if authService.isAuthenticated && profileService.hasProfiles && profileService.needsProfileSelection {
+            // Netflix-style: show "Who's Watching?" on every app launch
             ProfilePickerView()
         } else {
             Group {
@@ -90,8 +91,8 @@ struct ContentView: View {
                     selectedTab = .browse
                 }
                 // When user logs in with existing profiles, show profile picker
-                if isAuth && profileService.hasProfiles && !profileService.hasActiveProfile {
-                    profileService.needsProfileSelection = true
+                if isAuth && profileService.hasProfiles && profileService.profiles.count > 1 && !profileService.hasActiveProfile {
+                    profileService.requestProfileSelection()
                 }
                 // Make sure the current tab is marked as visited after auth change
                 // since .id() forces a TabView rebuild
