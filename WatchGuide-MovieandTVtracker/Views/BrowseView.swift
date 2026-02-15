@@ -118,7 +118,7 @@ struct BrowseView: View {
                         } label: {
                             if let profile = profileService.activeProfile {
                                 ZStack {
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    Circle()
                                         .fill(profile.color.color.opacity(0.15))
                                         .frame(width: 32, height: 32)
                                     
