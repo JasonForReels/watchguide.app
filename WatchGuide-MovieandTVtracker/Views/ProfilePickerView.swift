@@ -210,6 +210,209 @@ struct AddProfileCard: View {
     }
 }
 
+// MARK: - Profile Switcher Sheet (compact, for in-app switching)
+struct ProfileSwitcherSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var profileService = ProfileService.shared
+    @State private var showAddProfile = false
+    @State private var showEditProfile: UserProfile?
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Current profile header
+                    if let active = profileService.activeProfile {
+                        VStack(spacing: 8) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(active.color.color.opacity(0.15))
+                                    .frame(width: 72, height: 72)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                            .stroke(active.color.color.opacity(0.3), lineWidth: 2)
+                                    )
+                                
+                                Image(systemName: active.avatar.rawValue)
+                                    .font(.system(size: 30))
+                                    .foregroundColor(active.color.color)
+                            }
+                            
+                            HStack(spacing: 6) {
+                                Text(active.name)
+                                    .font(.headline)
+                                if active.isKids {
+                                    Text("KIDS")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Capsule().fill(Color.green))
+                                }
+                            }
+                            
+                            Text("Active Profile")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.top, 8)
+                    }
+                    
+                    Divider()
+                        .padding(.horizontal)
+                    
+                    // Other profiles
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Switch to")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 20)
+                        
+                        ForEach(profileService.profiles.filter { $0.id != profileService.activeProfile?.id }) { profile in
+                            Button {
+                                profileService.switchToProfile(profile)
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 14) {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .fill(profile.color.color.opacity(0.15))
+                                            .frame(width: 44, height: 44)
+                                        
+                                        Image(systemName: profile.avatar.rawValue)
+                                            .font(.title3)
+                                            .foregroundColor(profile.color.color)
+                                    }
+                                    
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 6) {
+                                            Text(profile.name)
+                                                .font(.subheadline)
+                                                .fontWeight(.medium)
+                                                .foregroundColor(.primary)
+                                            
+                                            if profile.isKids {
+                                                Text("KIDS")
+                                                    .font(.system(size: 8, weight: .bold))
+                                                    .foregroundColor(.white)
+                                                    .padding(.horizontal, 4)
+                                                    .padding(.vertical, 1)
+                                                    .background(Capsule().fill(Color.green))
+                                            }
+                                        }
+                                        
+                                        Text(profile.isKids ? "Ages 6-12" : profile.ageGroup.displayName)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color(.systemGray6))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 16)
+                        }
+                        
+                        // "No other profiles" if only 1 profile
+                        if profileService.profiles.count <= 1 {
+                            HStack {
+                                Spacer()
+                                VStack(spacing: 8) {
+                                    Image(systemName: "person.badge.plus")
+                                        .font(.title2)
+                                        .foregroundColor(.secondary)
+                                    Text("No other profiles yet")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.vertical, 16)
+                                Spacer()
+                            }
+                        }
+                    }
+                    
+                    Divider()
+                        .padding(.horizontal)
+                    
+                    // Actions
+                    VStack(spacing: 10) {
+                        // Add profile (max 5)
+                        if profileService.profiles.count < 5 {
+                            Button {
+                                showAddProfile = true
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "plus.circle.fill")
+                                        .foregroundColor(.accentColor)
+                                    Text("Add Profile")
+                                        .fontWeight(.medium)
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                }
+                                .padding(14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color(.systemGray6))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 16)
+                        }
+                        
+                        // Edit current profile
+                        if let active = profileService.activeProfile {
+                            Button {
+                                showEditProfile = active
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "pencil.circle.fill")
+                                        .foregroundColor(.secondary)
+                                    Text("Edit Current Profile")
+                                        .fontWeight(.medium)
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                }
+                                .padding(14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color(.systemGray6))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 16)
+                        }
+                    }
+                    
+                    Spacer(minLength: 20)
+                }
+            }
+            .navigationTitle("Profiles")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .sheet(isPresented: $showAddProfile) {
+                ProfileSetupView(mode: .create)
+            }
+            .sheet(item: $showEditProfile) { profile in
+                ProfileSetupView(mode: .edit(profile))
+            }
+        }
+    }
+}
+
 // MARK: - Scale Button Style
 struct ScaleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {

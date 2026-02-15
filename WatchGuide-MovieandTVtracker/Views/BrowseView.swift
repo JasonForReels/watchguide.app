@@ -13,7 +13,9 @@ struct BrowseView: View {
     @State private var activeStudioSheet: StudioSheet?
     @State private var showCustomizeSheet = false
     @State private var selectedPerson: Person?
+    @State private var showProfileSwitcher = false
     @ObservedObject private var authService = AuthService.shared
+    @ObservedObject private var profileService = ProfileService.shared
     
     enum StudioSheet: String, Identifiable {
         case twentiethCentury, warnerBros, dreamWorks, dcStudios, universalPictures, sonyPictures
@@ -105,6 +107,29 @@ struct BrowseView: View {
                 await forYouVM.loadIfNeeded()
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if authService.isAuthenticated && profileService.hasProfiles {
+                        Button {
+                            showProfileSwitcher = true
+                        } label: {
+                            if let profile = profileService.activeProfile {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(profile.color.color.opacity(0.15))
+                                        .frame(width: 32, height: 32)
+                                    
+                                    Image(systemName: profile.avatar.rawValue)
+                                        .font(.system(size: 14))
+                                        .foregroundColor(profile.color.color)
+                                }
+                            } else {
+                                Image(systemName: "person.crop.circle")
+                                    .font(.title3)
+                            }
+                        }
+                    }
+                }
+                
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showCustomizeSheet = true
@@ -134,6 +159,9 @@ struct BrowseView: View {
             }
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
+            }
+            .sheet(isPresented: $showProfileSwitcher) {
+                ProfileSwitcherSheet()
             }
             .onChange(of: StorageService.shared.settings.heroCarouselSource) { _, _ in
                 Task { await viewModel.refresh() }

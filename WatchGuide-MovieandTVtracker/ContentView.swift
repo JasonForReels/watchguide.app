@@ -66,6 +66,11 @@ struct ContentView: View {
     var body: some View {
         if requiresOnboarding {
             OnboardingFlowView()
+        } else if authService.isAuthenticated && !profileService.hasProfiles && !profileService.hasActiveProfile {
+            // Authenticated user with no profiles — show first-time setup
+            FirstProfileSetupView {
+                // Setup complete — profiles are created and active profile is set
+            }
         } else if authService.isAuthenticated && profileService.needsProfileSelection {
             ProfilePickerView()
         } else {

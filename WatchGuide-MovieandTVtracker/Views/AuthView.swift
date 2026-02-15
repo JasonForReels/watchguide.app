@@ -230,12 +230,8 @@ struct AuthView: View {
         if isSignUp {
             let success = await authService.signUp(email: email, password: password)
             if success {
-                // New user — need to set up their first profile
-                if !profileService.hasProfiles {
-                    showProfileSetup = true
-                } else {
-                    dismiss()
-                }
+                // Dismiss — ContentView will detect no profiles and show FirstProfileSetupView
+                dismiss()
             }
         } else {
             let success = await authService.signIn(email: email, password: password)
@@ -243,14 +239,12 @@ struct AuthView: View {
                 // Try to download existing profiles from cloud
                 await profileService.downloadProfilesFromCloud()
                 
-                if profileService.hasProfiles {
-                    // Has existing profiles — show picker
+                if profileService.hasProfiles && !profileService.hasActiveProfile {
+                    // Has existing profiles — ContentView will show profile picker
                     profileService.requestProfileSelection()
-                    dismiss()
-                } else {
-                    // No profiles yet — create first one
-                    showProfileSetup = true
                 }
+                // Dismiss — ContentView handles what to show next
+                dismiss()
             }
         }
     }
