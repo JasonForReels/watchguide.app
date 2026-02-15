@@ -40,8 +40,8 @@ struct BrowseView: View {
                         })
                     }
                     
-                    // Networks Section (Streaming Services)
-                    if !viewModel.networkHubs.isEmpty {
+                    // Networks Section (Streaming Services) — hidden for kids profiles
+                    if !isKidsProfile && !viewModel.networkHubs.isEmpty {
                         NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
                             selectedNetworkHub = hub
                         }
@@ -67,16 +67,18 @@ struct BrowseView: View {
                             )
                         }
                         
-                        // Insert Studios buttons after Trending TV Shows row
-                        if row.title == "Trending TV Shows" {
-                            StudiosHubRow(
-                                onTwentiethCenturyTap: { activeStudioSheet = .twentiethCentury },
-                                onWarnerBrosTap: { activeStudioSheet = .warnerBros },
-                                onDreamWorksTap: { activeStudioSheet = .dreamWorks },
-                                onDCStudiosTap: { activeStudioSheet = .dcStudios },
-                                onUniversalPicturesTap: { activeStudioSheet = .universalPictures },
-                                onSonyPicturesTap: { activeStudioSheet = .sonyPictures }
-                            )
+                        // Insert Studios buttons after Trending TV Shows row — hidden for kids profiles
+                        if row.title == "Trending TV Shows" || (isKidsProfile && row.title == "Kids TV Shows") {
+                            if !isKidsProfile {
+                                StudiosHubRow(
+                                    onTwentiethCenturyTap: { activeStudioSheet = .twentiethCentury },
+                                    onWarnerBrosTap: { activeStudioSheet = .warnerBros },
+                                    onDreamWorksTap: { activeStudioSheet = .dreamWorks },
+                                    onDCStudiosTap: { activeStudioSheet = .dcStudios },
+                                    onUniversalPicturesTap: { activeStudioSheet = .universalPictures },
+                                    onSonyPicturesTap: { activeStudioSheet = .sonyPictures }
+                                )
+                            }
                             
                             // For You Row (AI-powered, based on likes) — only for signed-in non-kids users
                             if authService.isAuthenticated && !isKidsProfile {
@@ -87,8 +89,10 @@ struct BrowseView: View {
                         }
                     }
                     
-                    // MARK: - Discover Section
-                    BrowseDiscoverSection()
+                    // MARK: - Discover Section (hidden for kids profiles — contains AI and mature discovery features)
+                    if !isKidsProfile {
+                        BrowseDiscoverSection()
+                    }
                 }
                 .padding(.vertical)
             }
@@ -1876,6 +1880,14 @@ class BrowseViewModel: ObservableObject {
     }
     
     private func loadBrowseRows() async {
+        let isKids = await MainActor.run { StorageService.shared.settings.isKidsProfile }
+        
+        // Kids profile: use dedicated kids-friendly rows instead of the user's config
+        if isKids {
+            await loadKidsBrowseRows()
+            return
+        }
+        
         var configs = StorageService.shared.browseRows.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }
         
         // If no enabled configs, use defaults
@@ -1906,6 +1918,117 @@ class BrowseViewModel: ObservableObject {
         }
         
         // Sort by original order and extract rows
+        rows = loadedRows.sorted(by: { $0.0 < $1.0 }).map { $0.1 }
+    }
+    
+    /// Loads browse rows with only kids-friendly content.
+    /// Replaces all standard rows with curated kids categories.
+    private func loadKidsBrowseRows() async {
+        // Kids genre IDs: Animation = 16, Family = 10751 (movies & TV), Kids = 10762 (TV only)
+        var loadedRows: [(Int, MediaRow)] = []
+        
+        await withTaskGroup(of: (Int, MediaRow?).self) { group in
+            // Row 0: Kids Movies (popular family/animation movies, G/PG)
+            group.addTask {
+                do {
+                    let response = try await TMDBService.shared.discoverKidsMovies()
+                    let items = response.results
+                    if !items.isEmpty {
+                        ImagePrefetchService.shared.prefetchPosters(for: items)
+                        return (0, MediaRow(title: "Kids Movies", items: items, people: []))
+                    }
+                } catch {
+                    print("Error loading kids movies: \(error)")
+                }
+                return (0, nil)
+            }
+            
+            // Row 1: Kids TV Shows (popular family/animation/kids TV)
+            group.addTask {
+                do {
+                    let response = try await TMDBService.shared.discoverKidsTV()
+                    let items = response.results
+                    if !items.isEmpty {
+                        ImagePrefetchService.shared.prefetchPosters(for: items)
+                        return (1, MediaRow(title: "Kids TV Shows", items: items, people: []))
+                    }
+                } catch {
+                    print("Error loading kids TV: \(error)")
+                }
+                return (1, nil)
+            }
+            
+            // Row 2: Top Rated Family Movies
+            group.addTask {
+                do {
+                    let region = await MainActor.run { StorageService.shared.settings.region }
+                    let certRegion = ["US", "CA", "GB", "AU", "NZ", "DE", "FR"].contains(region) ? region : "US"
+                    let response: TMDBResponse<MediaItem> = try await TMDBService.shared.discoverMovies(
+                        genres: [10751],
+                        sortBy: "vote_average.desc"
+                    )
+                    // Filter to only include items with decent vote count to avoid obscure titles
+                    let items = response.results.filter { ($0.voteCount ?? 0) >= 100 }
+                    if !items.isEmpty {
+                        ImagePrefetchService.shared.prefetchPosters(for: items)
+                        return (2, MediaRow(title: "Top Rated Family Movies", items: items, people: []))
+                    }
+                } catch {
+                    print("Error loading top rated family movies: \(error)")
+                }
+                return (2, nil)
+            }
+            
+            // Row 3: Animated TV Shows
+            group.addTask {
+                do {
+                    let response = try await TMDBService.shared.discoverTV(genres: [16], sortBy: "popularity.desc")
+                    // Filter to keep only clearly kids-friendly shows (exclude adult animation)
+                    let kidsGenreIds: Set<Int> = [16, 10751, 10762]
+                    let items = response.results.filter { item in
+                        guard let genres = item.genreIds else { return true }
+                        // Exclude if the show has genres commonly associated with adult animation
+                        // (Crime=80, War=10768/10752, Drama=18 without Family/Kids)
+                        let adultGenres: Set<Int> = [80, 10752, 10768]
+                        let hasAdultGenre = !genres.filter { adultGenres.contains($0) }.isEmpty
+                        let hasFamilyGenre = !genres.filter { kidsGenreIds.contains($0) }.isEmpty
+                        if hasAdultGenre && !hasFamilyGenre { return false }
+                        return true
+                    }
+                    if !items.isEmpty {
+                        ImagePrefetchService.shared.prefetchPosters(for: items)
+                        return (3, MediaRow(title: "Animated Shows", items: items, people: []))
+                    }
+                } catch {
+                    print("Error loading animated TV: \(error)")
+                }
+                return (3, nil)
+            }
+            
+            // Row 4: New Family Movies (recent releases)
+            group.addTask {
+                do {
+                    let region = await MainActor.run { StorageService.shared.settings.region }
+                    let certRegion = ["US", "CA", "GB", "AU", "NZ", "DE", "FR"].contains(region) ? region : "US"
+                    let response = try await TMDBService.shared.discoverKidsMovies(page: 2)
+                    let items = response.results
+                    if !items.isEmpty {
+                        ImagePrefetchService.shared.prefetchPosters(for: items)
+                        return (4, MediaRow(title: "More Kids Movies", items: items, people: []))
+                    }
+                } catch {
+                    print("Error loading new family movies: \(error)")
+                }
+                return (4, nil)
+            }
+            
+            for await result in group {
+                if let row = result.1 {
+                    loadedRows.append((result.0, row))
+                }
+            }
+        }
+        
         rows = loadedRows.sorted(by: { $0.0 < $1.0 }).map { $0.1 }
     }
     

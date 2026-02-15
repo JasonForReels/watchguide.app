@@ -69,11 +69,14 @@ struct SearchView: View {
                         action: { viewModel.selectedType = .tv }
                     )
                     
-                    FilterChip(
-                        title: "People",
-                        isSelected: viewModel.selectedType == .person,
-                        action: { viewModel.selectedType = .person }
-                    )
+                    // Hide People filter for kids profiles
+                    if !StorageService.shared.settings.isKidsProfile {
+                        FilterChip(
+                            title: "People",
+                            isSelected: viewModel.selectedType == .person,
+                            action: { viewModel.selectedType = .person }
+                        )
+                    }
                     
                     Divider()
                         .frame(height: 20)
@@ -343,6 +346,13 @@ struct SearchSuggestionsView: View {
     @ObservedObject var viewModel: SearchViewModel
     let onSelect: (String) -> Void
     
+    private var trendingSuggestions: [String] {
+        if StorageService.shared.settings.isKidsProfile {
+            return ["Frozen", "Moana", "Toy Story", "Paw Patrol", "Bluey", "SpongeBob", "Encanto", "Lego Movie"]
+        }
+        return ["Dune", "The Last of Us", "Oppenheimer", "Breaking Bad", "The Batman", "Succession", "Avatar", "Stranger Things"]
+    }
+    
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -388,7 +398,7 @@ struct SearchSuggestionsView: View {
                         .font(.headline)
                     
                     FlowLayout(spacing: 8) {
-                        ForEach(["Dune", "The Last of Us", "Oppenheimer", "Breaking Bad", "The Batman", "Succession", "Avatar", "Stranger Things"], id: \.self) { term in
+                        ForEach(trendingSuggestions, id: \.self) { term in
                             Button {
                                 onSelect(term)
                             } label: {
@@ -813,6 +823,26 @@ class SearchViewModel: ObservableObject {
         
         if let type = selectedType {
             filtered = filtered.filter { $0.resolvedMediaType == type }
+        }
+        
+        // Kids profile: filter to only show family-friendly content
+        if StorageService.shared.settings.isKidsProfile {
+            // Kids-friendly genre IDs:
+            // Movies: Animation=16, Family=10751
+            // TV: Animation=16, Family=10751, Kids=10762
+            let kidsGenreIds: Set<Int> = [16, 10751, 10762]
+            filtered = filtered.filter { item in
+                // Exclude adult-flagged content
+                if item.adult == true { return false }
+                // Exclude people results for kids
+                if item.resolvedMediaType == .person { return false }
+                // If genre info is available, require at least one kids genre
+                if let genres = item.genreIds, !genres.isEmpty {
+                    return !genres.filter({ kidsGenreIds.contains($0) }).isEmpty
+                }
+                // If no genre info, allow it through (better than hiding everything)
+                return true
+            }
         }
         
         return filtered
