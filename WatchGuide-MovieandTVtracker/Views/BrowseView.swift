@@ -20,15 +20,21 @@ struct BrowseView: View {
         var id: String { rawValue }
     }
     
+    private var isKidsProfile: Bool {
+        StorageService.shared.settings.isKidsProfile
+    }
+    
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 24) {
-                    // Scout AI Banner
-                    ScoutPromoBanner()
+                    // Scout AI Banner (hidden for kids profiles)
+                    if !isKidsProfile {
+                        ScoutPromoBanner()
+                    }
                     
-                    // Hero Carousel — clean rectangle card
-                    if !viewModel.heroItems.isEmpty {
+                    // Hero Carousel — hidden for kids profiles
+                    if !viewModel.heroItems.isEmpty && !isKidsProfile {
                         HeroCarouselView(items: viewModel.heroItems, onItemTap: { item in
                             selectedItem = item
                         })
@@ -72,8 +78,8 @@ struct BrowseView: View {
                                 onSonyPicturesTap: { activeStudioSheet = .sonyPictures }
                             )
                             
-                            // For You Row (AI-powered, based on likes) — only for signed-in users
-                            if authService.isAuthenticated {
+                            // For You Row (AI-powered, based on likes) — only for signed-in non-kids users
+                            if authService.isAuthenticated && !isKidsProfile {
                                 ForYouRow(viewModel: forYouVM) { item in
                                     selectedItem = item
                                 }

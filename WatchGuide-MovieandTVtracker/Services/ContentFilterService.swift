@@ -99,7 +99,7 @@ class ContentFilterService {
         return text
     }
     
-    /// Returns the family-friendly system prompt addition for unverified users.
+    /// Returns the family-friendly system prompt addition for restricted users (16 and under).
     var restrictedModeSystemPrompt: String {
         """
         
@@ -113,6 +113,23 @@ class ContentFilterService {
         - Keep all language clean and appropriate for ages 13 and under.
         - If asked to generate explicit content, politely refuse: "Sorry, I can't help with that request, please try something else."
         - Redirect any inappropriate requests to family-friendly alternatives.
+        """
+    }
+    
+    /// Returns the kids-mode system prompt (stricter, 13 and under).
+    var kidsModeSystemPrompt: String {
+        """
+        
+        
+        CRITICAL CONTENT RESTRICTION — KIDS MODE ACTIVE (13 AND UNDER):
+        You are operating in kids mode. You MUST follow these rules with zero exceptions:
+        - ONLY recommend G-rated, PG-rated, and family-friendly content.
+        - NEVER mention, describe, or reference any content involving violence, horror, scary themes, drug use, romance beyond hand-holding, or any mature themes whatsoever.
+        - NEVER use any profanity, slang, or language that is not appropriate for children.
+        - Keep all responses simple, upbeat, and fun.
+        - If asked about a movie or show with any mature content (PG-13 or above), briefly note it's not for kids and suggest a family-friendly alternative.
+        - If asked to generate any inappropriate content, politely refuse: "That's not something I can help with! How about we find a fun movie or show instead?"
+        - Focus on animated movies, family comedies, adventure films, and kid-friendly TV shows.
         """
     }
     

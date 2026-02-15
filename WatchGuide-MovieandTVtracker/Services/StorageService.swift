@@ -334,11 +334,27 @@ class StorageService: ObservableObject {
         lastSyncError = nil
         
         do {
+            // Upload media items (watchlist, watched, liked)
             try await SupabaseService.shared.uploadAllData(
                 wantToWatch: wantToWatch,
                 watched: watched,
                 liked: liked
             )
+            
+            // Upload user settings (including kids profile & passcode)
+            try await SupabaseService.shared.uploadSettings(settings)
+            
+            // Upload custom lists
+            try await SupabaseService.shared.uploadCustomLists(customLists)
+            
+            // Upload home screen config
+            try await HomeScreenSyncService.shared.uploadAllHomeScreenConfig(
+                browseRows: browseRows,
+                extensionLists: importedLists,
+                customHomeRows: customHomeRows,
+                networkHubs: networkHubs
+            )
+            
             await SupabaseService.shared.updateLastSyncTime()
             objectWillChange.send()
         } catch {
@@ -360,15 +376,53 @@ class StorageService: ObservableObject {
         lastSyncError = nil
         
         do {
+            // Download media items
             let data = try await SupabaseService.shared.downloadAllData()
-            
             wantToWatch = data.wantToWatch
             watched = data.watched
             liked = data.liked
-            
             save(wantToWatch, to: wantToWatchURL)
             save(watched, to: watchedURL)
             save(liked, to: likedURL)
+            
+            // Download user settings
+            if let cloudSettings = try await SupabaseService.shared.downloadSettings() {
+                settings = cloudSettings
+                save(settings, to: settingsURL)
+            }
+            
+            // Download custom lists
+            let cloudCustomLists = try await SupabaseService.shared.downloadCustomLists()
+            if !cloudCustomLists.isEmpty {
+                customLists = cloudCustomLists
+                save(customLists, to: customListsURL)
+            }
+            
+            // Download home screen config
+            let homeConfig = try await HomeScreenSyncService.shared.downloadAllHomeScreenConfig()
+            if !homeConfig.browseRows.isEmpty {
+                browseRows = homeConfig.browseRows
+                save(browseRows, to: browseRowsURL)
+            }
+            if !homeConfig.extensionLists.isEmpty {
+                importedLists = homeConfig.extensionLists
+                save(importedLists, to: importedListsURL)
+            }
+            if !homeConfig.customHomeRows.isEmpty {
+                customHomeRows = homeConfig.customHomeRows
+                save(customHomeRows, to: customHomeRowsURL)
+            }
+            // Apply network hub config
+            if !homeConfig.networkHubsConfig.isEmpty {
+                for config in homeConfig.networkHubsConfig {
+                    if let idx = networkHubs.firstIndex(where: { $0.id == config.hubId }) {
+                        networkHubs[idx].isEnabled = config.isEnabled
+                        networkHubs[idx].sortOrder = config.sortOrder
+                    }
+                }
+                networkHubs.sort { $0.sortOrder < $1.sortOrder }
+                save(networkHubs, to: networkHubsURL)
+            }
             
             await SupabaseService.shared.updateLastSyncTime()
             objectWillChange.send()

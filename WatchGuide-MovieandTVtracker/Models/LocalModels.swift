@@ -360,6 +360,8 @@ struct UserSettings: Codable, Equatable {
     var compactMode: Bool
     var ambientModeEnabled: Bool
     var heroCarouselSource: HeroCarouselSource
+    var isKidsProfile: Bool
+    var parentPasscode: String?  // 4-digit passcode set by parent to lock age-restricted settings
     
     init() {
         self.region = Locale.current.region?.identifier ?? "US"
@@ -370,6 +372,8 @@ struct UserSettings: Codable, Equatable {
         self.compactMode = false
         self.ambientModeEnabled = false
         self.heroCarouselSource = .trendingMovies
+        self.isKidsProfile = false
+        self.parentPasscode = nil
     }
 }
 

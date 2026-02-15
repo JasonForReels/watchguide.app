@@ -85,6 +85,13 @@ struct ContentView: View {
                 // since .id() forces a TabView rebuild
                 visitedTabs.insert(selectedTab)
             }
+            .onChange(of: StorageService.shared.settings.isKidsProfile) { _, isKids in
+                // If kids profile is activated while on Scout tab, redirect to Browse
+                if isKids && selectedTab == .ai {
+                    selectedTab = .browse
+                }
+                visitedTabs.insert(selectedTab)
+            }
         }
     }
     
@@ -93,13 +100,21 @@ struct ContentView: View {
         return false
     }
     
-    // Stable list of visible tabs based on auth state
+    // Stable list of visible tabs based on auth state and kids profile
     private var visibleTabs: [Tab] {
-        if authService.isAuthenticated {
-            return Tab.allCases
-        } else {
-            return Tab.allCases.filter { $0 != .lists }
+        var tabs = Tab.allCases
+        
+        // Hide Lists tab for non-authenticated users
+        if !authService.isAuthenticated {
+            tabs = tabs.filter { $0 != .lists }
         }
+        
+        // Hide Scout AI tab for kids profiles (13 and under)
+        if StorageService.shared.settings.isKidsProfile {
+            tabs = tabs.filter { $0 != .ai }
+        }
+        
+        return tabs
     }
     
     // MARK: - iPhone Layout (TabView)
@@ -171,7 +186,7 @@ struct ScoutPromoBanner: View {
     @EnvironmentObject private var bannerManager: ScoutBannerManager
     
     var body: some View {
-        if bannerManager.isBannerVisible {
+        if bannerManager.isBannerVisible && !StorageService.shared.settings.isKidsProfile {
             HStack(spacing: 12) {
                 Image(systemName: "sparkles")
                     .font(.body)

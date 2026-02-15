@@ -14,6 +14,15 @@ struct SettingsView: View {
     @State private var showAuthSheet = false
     @State private var isManualUpload = false
     @State private var isManualDownload = false
+    @State private var showPasscodeSetup = false
+    @State private var showPasscodeEntry = false
+    @State private var passcodeAction: PasscodeAction = .disableKids
+    
+    enum PasscodeAction {
+        case disableKids       // Turn off kids profile
+        case enableAdult       // Turn on "Include Adult Content"
+        case changePasscode    // Change the parent passcode
+    }
     
     init() {
         _settings = State(initialValue: StorageService.shared.settings)
@@ -87,17 +96,90 @@ struct SettingsView: View {
                 }
             }
             
+            // Kids Profile
+            Section {
+                Toggle("Kids Profile", isOn: Binding(
+                    get: { settings.isKidsProfile },
+                    set: { newValue in
+                        if newValue {
+                            // Turning ON kids profile — show passcode setup
+                            if settings.parentPasscode == nil {
+                                showPasscodeSetup = true
+                            } else {
+                                settings.isKidsProfile = true
+                                settings.includeAdult = false // Force restrict content
+                            }
+                        } else {
+                            // Turning OFF kids profile — require passcode
+                            if settings.parentPasscode != nil {
+                                passcodeAction = .disableKids
+                                showPasscodeEntry = true
+                            } else {
+                                settings.isKidsProfile = false
+                            }
+                        }
+                    }
+                ))
+                
+                if settings.isKidsProfile {
+                    HStack {
+                        Image(systemName: "person.crop.circle.badge.checkmark")
+                            .foregroundColor(.green)
+                        Text("Kids mode is active")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                if settings.parentPasscode != nil {
+                    Button {
+                        passcodeAction = .changePasscode
+                        showPasscodeEntry = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "lock.rotation")
+                                .foregroundColor(.accentColor)
+                            Text("Change Parent Passcode")
+                        }
+                    }
+                }
+            } header: {
+                Text("Parental Controls")
+            } footer: {
+                if settings.isKidsProfile {
+                    Text("Scout AI is hidden and content is restricted to ages 13 and under. A parent passcode is required to change these settings.")
+                } else {
+                    Text("Enable Kids Profile to restrict content to ages 13 and under and hide Scout AI. A parent passcode protects the setting.")
+                }
+            }
+            
             // Display Options
             Section("Display") {
                 Toggle("Compact Mode", isOn: $settings.compactMode)
                 Toggle("Ambient Mode", isOn: $settings.ambientModeEnabled)
                 Toggle("Auto-play Trailers", isOn: $settings.autoPlayTrailers)
                 Toggle("Mute Trailers on Autoplay", isOn: $settings.autoPlayTrailersMuted)
-                Toggle("Include Adult Content", isOn: $settings.includeAdult)
                 
-                Picker("Hero Carousel", selection: $settings.heroCarouselSource) {
-                    ForEach(HeroCarouselSource.allCases, id: \.rawValue) { source in
-                        Text(source.displayName).tag(source)
+                // Include Adult Content toggle — passcode-gated when kids profile has passcode
+                Toggle("Include Adult Content", isOn: Binding(
+                    get: { settings.includeAdult },
+                    set: { newValue in
+                        if newValue && settings.parentPasscode != nil {
+                            // Require passcode to enable adult content
+                            passcodeAction = .enableAdult
+                            showPasscodeEntry = true
+                        } else {
+                            settings.includeAdult = newValue
+                        }
+                    }
+                ))
+                .disabled(settings.isKidsProfile) // Cannot enable adult content in kids mode
+                
+                if !settings.isKidsProfile {
+                    Picker("Hero Carousel", selection: $settings.heroCarouselSource) {
+                        ForEach(HeroCarouselSource.allCases, id: \.rawValue) { source in
+                            Text(source.displayName).tag(source)
+                        }
                     }
                 }
             }
@@ -268,6 +350,31 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showAuthSheet) {
             AuthView()
+        }
+        .sheet(isPresented: $showPasscodeSetup) {
+            ParentPasscodeSetupSheet { passcode in
+                settings.parentPasscode = passcode
+                settings.isKidsProfile = true
+                settings.includeAdult = false
+            }
+        }
+        .sheet(isPresented: $showPasscodeEntry) {
+            ParentPasscodeEntrySheet(
+                storedPasscode: settings.parentPasscode ?? ""
+            ) {
+                // Passcode verified — perform the action
+                switch passcodeAction {
+                case .disableKids:
+                    settings.isKidsProfile = false
+                case .enableAdult:
+                    settings.includeAdult = true
+                case .changePasscode:
+                    // After verifying old passcode, show setup for new one
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        showPasscodeSetup = true
+                    }
+                }
+            }
         }
     }
     
@@ -1184,6 +1291,12 @@ struct SupabaseSetupGuideView: View {
     
     private var sqlSchema: String {
         """
+        -- ===================================================
+        -- WatchGuide Cloud Sync — Full Schema
+        -- Run this entire script in Supabase SQL Editor
+        -- ===================================================
+
+        -- 1. Media Items (watchlist, watched, liked)
         CREATE TABLE IF NOT EXISTS media_items (
             id SERIAL PRIMARY KEY,
             device_id TEXT NOT NULL,
@@ -1200,11 +1313,165 @@ struct SupabaseSetupGuideView: View {
             UNIQUE(device_id, list_type, media_id, media_type)
         );
 
-        ALTER TABLE media_items ENABLE ROW LEVEL SECURITY;
+        -- 2. User Settings (region, kids profile, passcode, display prefs)
+        CREATE TABLE IF NOT EXISTS user_settings (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL UNIQUE,
+            region TEXT DEFAULT 'US',
+            preferred_language TEXT DEFAULT 'en',
+            include_adult BOOLEAN DEFAULT FALSE,
+            auto_play_trailers BOOLEAN DEFAULT FALSE,
+            auto_play_trailers_muted BOOLEAN DEFAULT TRUE,
+            compact_mode BOOLEAN DEFAULT FALSE,
+            ambient_mode_enabled BOOLEAN DEFAULT FALSE,
+            hero_carousel_source TEXT DEFAULT 'trending_movies',
+            is_kids_profile BOOLEAN DEFAULT FALSE,
+            parent_passcode TEXT,
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
 
-        CREATE POLICY "Allow all for anon" ON media_items
-            FOR ALL TO anon
-            USING (true) WITH CHECK (true);
+        -- 3. Custom Lists (user-created lists)
+        CREATE TABLE IF NOT EXISTS custom_lists (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            list_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            icon_name TEXT DEFAULT 'folder.fill',
+            display_style TEXT DEFAULT 'row',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(user_id, list_id)
+        );
+
+        -- 4. Custom List Items
+        CREATE TABLE IF NOT EXISTS custom_list_items (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            list_id TEXT NOT NULL,
+            media_id INTEGER NOT NULL,
+            media_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            poster_path TEXT,
+            backdrop_path TEXT,
+            year TEXT,
+            vote_average DOUBLE PRECISION,
+            overview TEXT,
+            sort_order INTEGER DEFAULT 0,
+            added_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(user_id, list_id, media_id, media_type)
+        );
+
+        -- 5. Browse Config (row visibility & order)
+        CREATE TABLE IF NOT EXISTS browse_config (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            row_id TEXT NOT NULL,
+            row_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            is_enabled BOOLEAN DEFAULT TRUE,
+            sort_order INTEGER DEFAULT 0,
+            UNIQUE(user_id, row_id)
+        );
+
+        -- 6. Extension Lists (MDBList / PublicMetaDB)
+        CREATE TABLE IF NOT EXISTS extension_lists (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            list_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            source TEXT NOT NULL,
+            custom_name TEXT,
+            show_on_home BOOLEAN DEFAULT FALSE,
+            last_synced TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(user_id, list_id)
+        );
+
+        -- 7. Extension List Items
+        CREATE TABLE IF NOT EXISTS extension_list_items (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            list_id TEXT NOT NULL,
+            media_id INTEGER NOT NULL,
+            media_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            poster_path TEXT,
+            backdrop_path TEXT,
+            year TEXT,
+            vote_average DOUBLE PRECISION,
+            overview TEXT,
+            sort_order INTEGER DEFAULT 0,
+            UNIQUE(user_id, list_id, media_id, media_type)
+        );
+
+        -- 8. Custom Home Rows
+        CREATE TABLE IF NOT EXISTS custom_home_rows (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            row_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            row_type TEXT NOT NULL,
+            imported_list_id TEXT,
+            hub_image_url TEXT,
+            is_enabled BOOLEAN DEFAULT TRUE,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(user_id, row_id)
+        );
+
+        -- 9. Network Hubs Config (streaming service visibility & order)
+        CREATE TABLE IF NOT EXISTS network_hubs_config (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            hub_id TEXT NOT NULL,
+            is_enabled BOOLEAN DEFAULT TRUE,
+            sort_order INTEGER DEFAULT 0,
+            UNIQUE(user_id, hub_id)
+        );
+
+        -- ===================================================
+        -- Enable Row Level Security on ALL tables
+        -- ===================================================
+        ALTER TABLE media_items ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE user_settings ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE custom_lists ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE custom_list_items ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE browse_config ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE extension_lists ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE extension_list_items ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE custom_home_rows ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE network_hubs_config ENABLE ROW LEVEL SECURITY;
+
+        -- ===================================================
+        -- RLS Policies — allow all for anon & authenticated
+        -- ===================================================
+        CREATE POLICY "Allow all for anon" ON media_items FOR ALL TO anon USING (true) WITH CHECK (true);
+        CREATE POLICY "Allow all for auth" ON media_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+        CREATE POLICY "Allow all for anon" ON user_settings FOR ALL TO anon USING (true) WITH CHECK (true);
+        CREATE POLICY "Allow all for auth" ON user_settings FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+        CREATE POLICY "Allow all for anon" ON custom_lists FOR ALL TO anon USING (true) WITH CHECK (true);
+        CREATE POLICY "Allow all for auth" ON custom_lists FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+        CREATE POLICY "Allow all for anon" ON custom_list_items FOR ALL TO anon USING (true) WITH CHECK (true);
+        CREATE POLICY "Allow all for auth" ON custom_list_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+        CREATE POLICY "Allow all for anon" ON browse_config FOR ALL TO anon USING (true) WITH CHECK (true);
+        CREATE POLICY "Allow all for auth" ON browse_config FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+        CREATE POLICY "Allow all for anon" ON extension_lists FOR ALL TO anon USING (true) WITH CHECK (true);
+        CREATE POLICY "Allow all for auth" ON extension_lists FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+        CREATE POLICY "Allow all for anon" ON extension_list_items FOR ALL TO anon USING (true) WITH CHECK (true);
+        CREATE POLICY "Allow all for auth" ON extension_list_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+        CREATE POLICY "Allow all for anon" ON custom_home_rows FOR ALL TO anon USING (true) WITH CHECK (true);
+        CREATE POLICY "Allow all for auth" ON custom_home_rows FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+        CREATE POLICY "Allow all for anon" ON network_hubs_config FOR ALL TO anon USING (true) WITH CHECK (true);
+        CREATE POLICY "Allow all for auth" ON network_hubs_config FOR ALL TO authenticated USING (true) WITH CHECK (true);
         """
     }
 }
@@ -1495,6 +1762,212 @@ struct MDBListDetailView: View {
                     storage.deleteCustomHomeRow(id: homeRow.id)
                 }
             }
+        }
+    }
+}
+
+// MARK: - Parent Passcode Setup Sheet
+struct ParentPasscodeSetupSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var passcode = ""
+    @State private var confirmPasscode = ""
+    @State private var step: PasscodeSetupStep = .create
+    @State private var errorMessage: String?
+    @FocusState private var isFocused: Bool
+    
+    let onComplete: (String) -> Void
+    
+    enum PasscodeSetupStep {
+        case create
+        case confirm
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 32) {
+                Spacer()
+                
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.12))
+                        .frame(width: 80, height: 80)
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: 36))
+                        .foregroundColor(.accentColor)
+                }
+                
+                VStack(spacing: 8) {
+                    Text(step == .create ? "Create Parent Passcode" : "Confirm Passcode")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                    
+                    Text(step == .create
+                         ? "Set a 4-digit passcode to protect parental settings"
+                         : "Enter the same passcode again to confirm")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                }
+                
+                // Passcode dots
+                HStack(spacing: 16) {
+                    let currentCode = step == .create ? passcode : confirmPasscode
+                    ForEach(0..<4, id: \.self) { index in
+                        Circle()
+                            .fill(index < currentCode.count ? Color.accentColor : Color(.systemGray4))
+                            .frame(width: 16, height: 16)
+                            .animation(.easeInOut(duration: 0.15), value: currentCode.count)
+                    }
+                }
+                
+                if let error = errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .transition(.opacity)
+                }
+                
+                // Hidden text field to capture keyboard input
+                TextField("", text: step == .create ? $passcode : $confirmPasscode)
+                    .keyboardType(.numberPad)
+                    .focused($isFocused)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .onChange(of: passcode) { _, newValue in
+                        // Limit to 4 digits
+                        if newValue.count > 4 {
+                            passcode = String(newValue.prefix(4))
+                        }
+                        // Filter non-digits
+                        passcode = newValue.filter { $0.isNumber }
+                        if passcode.count > 4 { passcode = String(passcode.prefix(4)) }
+                        
+                        if passcode.count == 4 && step == .create {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation { step = .confirm }
+                            }
+                        }
+                    }
+                    .onChange(of: confirmPasscode) { _, newValue in
+                        confirmPasscode = newValue.filter { $0.isNumber }
+                        if confirmPasscode.count > 4 { confirmPasscode = String(confirmPasscode.prefix(4)) }
+                        
+                        if confirmPasscode.count == 4 {
+                            if confirmPasscode == passcode {
+                                onComplete(passcode)
+                                dismiss()
+                            } else {
+                                errorMessage = "Passcodes don't match. Try again."
+                                confirmPasscode = ""
+                            }
+                        } else {
+                            errorMessage = nil
+                        }
+                    }
+                
+                Spacer()
+                Spacer()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .onAppear { isFocused = true }
+        }
+    }
+}
+
+// MARK: - Parent Passcode Entry Sheet
+struct ParentPasscodeEntrySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let storedPasscode: String
+    let onVerified: () -> Void
+    
+    @State private var enteredPasscode = ""
+    @State private var errorMessage: String?
+    @State private var attempts = 0
+    @FocusState private var isFocused: Bool
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 32) {
+                Spacer()
+                
+                ZStack {
+                    Circle()
+                        .fill(Color.orange.opacity(0.12))
+                        .frame(width: 80, height: 80)
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 36))
+                        .foregroundColor(.orange)
+                }
+                
+                VStack(spacing: 8) {
+                    Text("Enter Parent Passcode")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                    
+                    Text("A parent passcode is required to change this setting")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                }
+                
+                // Passcode dots
+                HStack(spacing: 16) {
+                    ForEach(0..<4, id: \.self) { index in
+                        Circle()
+                            .fill(index < enteredPasscode.count ? Color.orange : Color(.systemGray4))
+                            .frame(width: 16, height: 16)
+                            .animation(.easeInOut(duration: 0.15), value: enteredPasscode.count)
+                    }
+                }
+                
+                if let error = errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .transition(.opacity)
+                }
+                
+                // Hidden text field
+                TextField("", text: $enteredPasscode)
+                    .keyboardType(.numberPad)
+                    .focused($isFocused)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .onChange(of: enteredPasscode) { _, newValue in
+                        enteredPasscode = newValue.filter { $0.isNumber }
+                        if enteredPasscode.count > 4 { enteredPasscode = String(enteredPasscode.prefix(4)) }
+                        
+                        if enteredPasscode.count == 4 {
+                            if enteredPasscode == storedPasscode {
+                                onVerified()
+                                dismiss()
+                            } else {
+                                attempts += 1
+                                errorMessage = "Incorrect passcode. Try again."
+                                enteredPasscode = ""
+                            }
+                        } else {
+                            errorMessage = nil
+                        }
+                    }
+                
+                Spacer()
+                Spacer()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .onAppear { isFocused = true }
         }
     }
 }
