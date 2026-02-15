@@ -503,6 +503,19 @@ struct SyncedExtensionList: Codable {
         case lastSynced = "last_synced"
         case createdAt = "created_at"
     }
+    
+    // Explicitly encode all keys (including nil as null) to avoid PGRST102
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(userId, forKey: .userId)
+        try container.encode(listId, forKey: .listId)
+        try container.encode(name, forKey: .name)
+        try container.encode(source, forKey: .source)
+        try container.encode(customName, forKey: .customName)
+        try container.encode(showOnHome, forKey: .showOnHome)
+        try container.encode(lastSynced, forKey: .lastSynced)
+        try container.encode(createdAt, forKey: .createdAt)
+    }
 }
 
 struct SyncedExtensionListItem: Codable {
@@ -531,6 +544,22 @@ struct SyncedExtensionListItem: Codable {
         case overview
         case sortOrder = "sort_order"
     }
+    
+    // Explicitly encode all keys (including nil as null) to avoid PGRST102
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(userId, forKey: .userId)
+        try container.encode(listId, forKey: .listId)
+        try container.encode(mediaId, forKey: .mediaId)
+        try container.encode(mediaType, forKey: .mediaType)
+        try container.encode(title, forKey: .title)
+        try container.encode(posterPath, forKey: .posterPath)
+        try container.encode(backdropPath, forKey: .backdropPath)
+        try container.encode(year, forKey: .year)
+        try container.encode(voteAverage, forKey: .voteAverage)
+        try container.encode(overview, forKey: .overview)
+        try container.encode(sortOrder, forKey: .sortOrder)
+    }
 }
 
 struct SyncedCustomHomeRow: Codable {
@@ -554,6 +583,20 @@ struct SyncedCustomHomeRow: Codable {
         case isEnabled = "is_enabled"
         case sortOrder = "sort_order"
         case createdAt = "created_at"
+    }
+    
+    // Explicitly encode all keys (including nil as null) to avoid PGRST102
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(userId, forKey: .userId)
+        try container.encode(rowId, forKey: .rowId)
+        try container.encode(name, forKey: .name)
+        try container.encode(rowType, forKey: .rowType)
+        try container.encode(importedListId, forKey: .importedListId)
+        try container.encode(hubImageUrl, forKey: .hubImageUrl)
+        try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(sortOrder, forKey: .sortOrder)
+        try container.encode(createdAt, forKey: .createdAt)
     }
 }
 

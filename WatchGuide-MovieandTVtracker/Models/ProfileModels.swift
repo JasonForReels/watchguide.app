@@ -169,4 +169,19 @@ struct SyncedProfile: Codable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
+    
+    // Explicitly encode all keys (including nil as null) to avoid PGRST102
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(userId, forKey: .userId)
+        try container.encode(profileId, forKey: .profileId)
+        try container.encode(name, forKey: .name)
+        try container.encode(avatar, forKey: .avatar)
+        try container.encode(color, forKey: .color)
+        try container.encode(ageGroup, forKey: .ageGroup)
+        try container.encode(isKids, forKey: .isKids)
+        try container.encode(dateOfBirth, forKey: .dateOfBirth)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+    }
 }

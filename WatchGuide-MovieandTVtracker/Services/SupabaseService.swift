@@ -599,6 +599,23 @@ struct SyncedMediaItem: Codable {
         case addedAt = "added_at"
     }
     
+    // Explicitly encode all keys (including nil as null) to avoid PGRST102
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(id, forKey: .id)
+        try container.encode(deviceId, forKey: .deviceId)
+        try container.encode(listType, forKey: .listType)
+        try container.encode(mediaId, forKey: .mediaId)
+        try container.encode(mediaType, forKey: .mediaType)
+        try container.encode(title, forKey: .title)
+        try container.encode(posterPath, forKey: .posterPath)
+        try container.encode(backdropPath, forKey: .backdropPath)
+        try container.encode(year, forKey: .year)
+        try container.encode(voteAverage, forKey: .voteAverage)
+        try container.encode(overview, forKey: .overview)
+        try container.encode(addedAt, forKey: .addedAt)
+    }
+    
     func toSavedMediaItem() -> SavedMediaItem? {
         guard let type = MediaType(rawValue: mediaType) else { return nil }
         
@@ -670,6 +687,23 @@ struct SyncedUserSettings: Codable {
         case parentPasscode = "parent_passcode"
         case updatedAt = "updated_at"
     }
+    
+    // Explicitly encode all keys (including nil as null) to avoid PGRST102
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(userId, forKey: .userId)
+        try container.encode(region, forKey: .region)
+        try container.encode(preferredLanguage, forKey: .preferredLanguage)
+        try container.encode(includeAdult, forKey: .includeAdult)
+        try container.encode(autoPlayTrailers, forKey: .autoPlayTrailers)
+        try container.encode(autoPlayTrailersMuted, forKey: .autoPlayTrailersMuted)
+        try container.encode(compactMode, forKey: .compactMode)
+        try container.encode(ambientModeEnabled, forKey: .ambientModeEnabled)
+        try container.encode(heroCarouselSource, forKey: .heroCarouselSource)
+        try container.encode(isKidsProfile, forKey: .isKidsProfile)
+        try container.encode(parentPasscode, forKey: .parentPasscode)
+        try container.encode(updatedAt, forKey: .updatedAt)
+    }
 }
 
 // MARK: - Synced Custom List
@@ -691,6 +725,19 @@ struct SyncedCustomList: Codable {
         case displayStyle = "display_style"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+    
+    // Explicitly encode all keys (including nil as null) to avoid PGRST102
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(userId, forKey: .userId)
+        try container.encode(listId, forKey: .listId)
+        try container.encode(name, forKey: .name)
+        try container.encode(description, forKey: .description)
+        try container.encode(iconName, forKey: .iconName)
+        try container.encode(displayStyle, forKey: .displayStyle)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
     }
 }
 
@@ -722,6 +769,23 @@ struct SyncedCustomListItem: Codable {
         case overview
         case sortOrder = "sort_order"
         case addedAt = "added_at"
+    }
+    
+    // Explicitly encode all keys (including nil as null) to avoid PGRST102
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(userId, forKey: .userId)
+        try container.encode(listId, forKey: .listId)
+        try container.encode(mediaId, forKey: .mediaId)
+        try container.encode(mediaType, forKey: .mediaType)
+        try container.encode(title, forKey: .title)
+        try container.encode(posterPath, forKey: .posterPath)
+        try container.encode(backdropPath, forKey: .backdropPath)
+        try container.encode(year, forKey: .year)
+        try container.encode(voteAverage, forKey: .voteAverage)
+        try container.encode(overview, forKey: .overview)
+        try container.encode(sortOrder, forKey: .sortOrder)
+        try container.encode(addedAt, forKey: .addedAt)
     }
 }
 
