@@ -377,7 +377,7 @@ struct SettingsView: View {
                 HStack {
                     Text("Version")
                     Spacer()
-                    Text("1.1.0")
+                    Text(appVersionString)
                         .foregroundColor(.secondary)
                 }
                 
@@ -454,6 +454,12 @@ struct SettingsView: View {
                 ProfileSetupView(mode: .edit(profile))
             }
         }
+    }
+    
+    private var appVersionString: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "v\(version) (\(build))"
     }
     
     private var regionOptions: [(code: String, name: String)] {
