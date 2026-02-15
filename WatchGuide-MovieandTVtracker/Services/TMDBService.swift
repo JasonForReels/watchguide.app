@@ -454,6 +454,38 @@ actor TMDBService {
         return try await request("/discover/tv", queryItems: queryItems)
     }
     
+    // MARK: - Kids / Family Content Discovery
+    
+    /// Discover family-friendly movies suitable for kids profiles (13 and under).
+    /// Uses certification filters (G, PG) and the Animation (16) / Family (10751) genres.
+    func discoverKidsMovies(page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+        let region = await MainActor.run { StorageService.shared.settings.region }
+        let certRegion = ["US", "CA", "GB", "AU", "NZ", "DE", "FR"].contains(region) ? region : "US"
+        let queryItems = [
+            URLQueryItem(name: "sort_by", value: "popularity.desc"),
+            URLQueryItem(name: "page", value: "\(page)"),
+            URLQueryItem(name: "include_adult", value: "false"),
+            URLQueryItem(name: "with_genres", value: "16|10751"),  // Animation OR Family
+            URLQueryItem(name: "certification_country", value: certRegion),
+            URLQueryItem(name: "certification.lte", value: "PG"),
+            URLQueryItem(name: "vote_count.gte", value: "50")
+        ]
+        return try await request("/discover/movie", queryItems: queryItems)
+    }
+    
+    /// Discover family-friendly TV shows suitable for kids profiles (13 and under).
+    /// Uses the Animation (16) / Family (10751) / Kids (10762) genres.
+    func discoverKidsTV(page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+        let queryItems = [
+            URLQueryItem(name: "sort_by", value: "popularity.desc"),
+            URLQueryItem(name: "page", value: "\(page)"),
+            URLQueryItem(name: "include_adult", value: "false"),
+            URLQueryItem(name: "with_genres", value: "16|10751|10762"),  // Animation OR Family OR Kids
+            URLQueryItem(name: "vote_count.gte", value: "20")
+        ]
+        return try await request("/discover/tv", queryItems: queryItems)
+    }
+    
     // MARK: - Discover by Watch Provider
     func discoverMoviesWithProvider(providerIds: [Int], region: String, page: Int = 1) async throws -> TMDBResponse<MediaItem> {
         let queryItems = [

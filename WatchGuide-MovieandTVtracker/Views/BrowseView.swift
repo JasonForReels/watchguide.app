@@ -33,8 +33,8 @@ struct BrowseView: View {
                         ScoutPromoBanner()
                     }
                     
-                    // Hero Carousel — hidden for kids profiles
-                    if !viewModel.heroItems.isEmpty && !isKidsProfile {
+                    // Hero Carousel — shows kids-only content for kids profiles
+                    if !viewModel.heroItems.isEmpty {
                         HeroCarouselView(items: viewModel.heroItems, onItemTap: { item in
                             selectedItem = item
                         })
@@ -136,6 +136,10 @@ struct BrowseView: View {
             }
             .onChange(of: authService.isAuthenticated) { _, _ in
                 // Refresh hero carousel when auth state changes (different lists for guests vs logged-in)
+                Task { await viewModel.refresh() }
+            }
+            .onChange(of: StorageService.shared.settings.isKidsProfile) { _, _ in
+                // Refresh hero carousel when kids profile toggled (different content for kids)
                 Task { await viewModel.refresh() }
             }
             .sheet(item: $selectedPerson) { person in
@@ -1707,6 +1711,13 @@ class BrowseViewModel: ObservableObject {
     private func loadHeroItems() async {
         let source = StorageService.shared.settings.heroCarouselSource
         let isAuthenticated = await MainActor.run { AuthService.shared.isAuthenticated }
+        let isKids = await MainActor.run { StorageService.shared.settings.isKidsProfile }
+        
+        // Kids profile: load only family-friendly content for the hero carousel
+        if isKids {
+            await loadKidsHeroItems()
+            return
+        }
         
         // Default behavior: use MDBList lists based on auth state
         // Only override if user has explicitly changed from the default
@@ -1760,6 +1771,95 @@ class BrowseViewModel: ObservableObject {
             ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
         } catch {
             print("Error loading hero: \(error)")
+        }
+    }
+    
+    /// Loads hero carousel items specifically for kids profiles.
+    /// Mixes popular family/kids movies and TV shows, sorted by popularity.
+    private func loadKidsHeroItems() async {
+        do {
+            // Fetch kids movies and TV shows concurrently
+            async let kidsMoviesTask = TMDBService.shared.discoverKidsMovies()
+            async let kidsTVTask = TMDBService.shared.discoverKidsTV()
+            
+            let kidsMovies = try await kidsMoviesTask.results
+            let kidsTV = try await kidsTVTask.results
+            
+            // Tag TV items with media_type so resolvedMediaType works correctly
+            let taggedTV = kidsTV.map { item -> MediaItem in
+                if item.mediaType == nil {
+                    return MediaItem(
+                        id: item.id,
+                        title: item.title,
+                        name: item.name,
+                        originalTitle: item.originalTitle,
+                        originalName: item.originalName,
+                        overview: item.overview,
+                        posterPath: item.posterPath,
+                        backdropPath: item.backdropPath,
+                        releaseDate: item.releaseDate,
+                        firstAirDate: item.firstAirDate,
+                        voteAverage: item.voteAverage,
+                        voteCount: item.voteCount,
+                        popularity: item.popularity,
+                        genreIds: item.genreIds,
+                        mediaType: "tv",
+                        adult: item.adult,
+                        originalLanguage: item.originalLanguage
+                    )
+                }
+                return item
+            }
+            
+            let taggedMovies = kidsMovies.map { item -> MediaItem in
+                if item.mediaType == nil {
+                    return MediaItem(
+                        id: item.id,
+                        title: item.title,
+                        name: item.name,
+                        originalTitle: item.originalTitle,
+                        originalName: item.originalName,
+                        overview: item.overview,
+                        posterPath: item.posterPath,
+                        backdropPath: item.backdropPath,
+                        releaseDate: item.releaseDate,
+                        firstAirDate: item.firstAirDate,
+                        voteAverage: item.voteAverage,
+                        voteCount: item.voteCount,
+                        popularity: item.popularity,
+                        genreIds: item.genreIds,
+                        mediaType: "movie",
+                        adult: item.adult,
+                        originalLanguage: item.originalLanguage
+                    )
+                }
+                return item
+            }
+            
+            // Interleave: take top movies and TV, sort by popularity, pick top 10
+            var combined = Array(taggedMovies.prefix(10)) + Array(taggedTV.prefix(10))
+            combined.sort { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+            
+            // Deduplicate by ID
+            var seen = Set<Int>()
+            let unique = combined.filter { item in
+                if seen.contains(item.id) { return false }
+                seen.insert(item.id)
+                return true
+            }
+            
+            heroItems = Array(unique.prefix(10))
+            ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
+        } catch {
+            print("Error loading kids hero items: \(error)")
+            // Fallback: try the family-friendly MDBList
+            do {
+                let items = try await MDBListService.shared.fetchListItemsAsMediaItems(listId: "dualipafan01/family-friendly-list")
+                heroItems = Array(items.prefix(10))
+                ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
+            } catch {
+                print("Kids hero fallback also failed: \(error)")
+            }
         }
     }
     
