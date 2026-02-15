@@ -14,6 +14,7 @@ struct ProfilePickerView: View {
     @State private var isManageMode = false
     @State private var selectedProfile: UserProfile?
     @State private var animateIn = false
+    @State private var isRefreshing = false
     
     var body: some View {
         ZStack {
@@ -90,6 +91,15 @@ struct ProfilePickerView: View {
         .onAppear {
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 animateIn = true
+            }
+            // Silently refresh profiles from cloud so cross-device changes appear
+            if !isRefreshing {
+                isRefreshing = true
+                profileService.refreshFromCloudIfNeeded()
+                // Reset flag after a short delay to allow re-refresh if view reappears
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                    isRefreshing = false
+                }
             }
         }
         .sheet(isPresented: $showAddProfile) {

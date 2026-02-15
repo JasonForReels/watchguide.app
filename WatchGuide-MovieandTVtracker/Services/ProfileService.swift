@@ -33,10 +33,15 @@ class ProfileService: ObservableObject {
         ApiKeyManager.shared.get(key: "SUPABASE_ANON_KEY") ?? ""
     }
     
+    /// Whether a cloud sync has already been performed this app session.
+    private var hasSyncedThisSession = false
+    
     private init() {
         documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         profilesURL = documentsDirectory.appendingPathComponent("profiles.json")
         loadProfiles()
+        // Automatically sync profiles from cloud on launch if authenticated
+        syncFromCloudOnLaunchIfNeeded()
     }
     
     // MARK: - Persistence
@@ -132,6 +137,7 @@ class ProfileService: ObservableObject {
     /// Resets the session flag so the picker will show again (e.g. after sign-out + sign-in)
     func resetSessionFlag() {
         hasShownPickerThisSession = false
+        hasSyncedThisSession = false
     }
     
     /// Apply profile-based settings to the global UserSettings
@@ -195,6 +201,41 @@ class ProfileService: ObservableObject {
     }
     
     // MARK: - Cloud Sync
+    
+    /// Called once on launch: if the user has a restored session, silently fetch profiles from
+    /// the cloud so that changes made on other devices are reflected immediately.
+    private func syncFromCloudOnLaunchIfNeeded() {
+        guard !hasSyncedThisSession else { return }
+        guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
+        
+        // The AuthService session is restored synchronously in its init, so
+        // isAuthenticated may already be true at this point. However, if the
+        // session was expired and a refresh is in-flight we might miss it.
+        // Use a short delay to give the auth refresh a chance to complete.
+        Task { @MainActor in
+            // Give auth session refresh a moment to complete (up to 2 seconds)
+            for _ in 0..<10 {
+                if AuthService.shared.isAuthenticated { break }
+                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2s
+            }
+            
+            guard AuthService.shared.isAuthenticated else { return }
+            guard !hasSyncedThisSession else { return }
+            hasSyncedThisSession = true
+            await downloadProfilesFromCloud()
+        }
+    }
+    
+    /// Public method that can be called from views (e.g. ProfilePickerView)
+    /// to ensure profiles are up-to-date from the cloud.
+    func refreshFromCloudIfNeeded() {
+        guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
+        guard AuthService.shared.isAuthenticated else { return }
+        
+        Task { @MainActor in
+            await downloadProfilesFromCloud()
+        }
+    }
     
     func syncProfilesToCloud() {
         guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
