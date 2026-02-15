@@ -26,12 +26,17 @@ struct BrowseView: View {
         StorageService.shared.settings.isKidsProfile
     }
     
+    /// True only for adult (18+) profiles — Scout AI and related features require this
+    private var isAdultProfile: Bool {
+        !ScoutAgeGateManager.shared.isScoutHidden
+    }
+    
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 24) {
-                    // Scout AI Banner (hidden for kids profiles)
-                    if !isKidsProfile {
+                    // Scout AI Banner (only for 18+ adult profiles)
+                    if isAdultProfile {
                         ScoutPromoBanner()
                     }
                     
@@ -82,8 +87,8 @@ struct BrowseView: View {
                                 )
                             }
                             
-                            // For You Row (AI-powered, based on likes) — only for signed-in non-kids users
-                            if authService.isAuthenticated && !isKidsProfile {
+                            // For You Row (AI-powered, based on likes) — only for signed-in adult (18+) users
+                            if authService.isAuthenticated && isAdultProfile {
                                 ForYouRow(viewModel: forYouVM) { item in
                                     selectedItem = item
                                 }
@@ -91,8 +96,8 @@ struct BrowseView: View {
                         }
                     }
                     
-                    // MARK: - Discover Section (hidden for kids profiles — contains AI and mature discovery features)
-                    if !isKidsProfile {
+                    // MARK: - Discover Section (only for 18+ adult profiles — contains AI and mature discovery features)
+                    if isAdultProfile {
                         BrowseDiscoverSection()
                     }
                 }

@@ -99,8 +99,15 @@ struct ContentView: View {
                 visitedTabs.insert(selectedTab)
             }
             .onChange(of: StorageService.shared.settings.isKidsProfile) { _, isKids in
-                // If kids profile is activated while on Scout tab, redirect to Browse
+                // If non-adult profile is activated while on Scout tab, redirect to Browse
                 if isKids && selectedTab == .ai {
+                    selectedTab = .browse
+                }
+                visitedTabs.insert(selectedTab)
+            }
+            .onChange(of: profileService.activeProfile?.ageGroup) { _, newAgeGroup in
+                // If a non-adult profile is selected while on Scout tab, redirect to Browse
+                if newAgeGroup != .adult && selectedTab == .ai {
                     selectedTab = .browse
                 }
                 visitedTabs.insert(selectedTab)
@@ -113,7 +120,7 @@ struct ContentView: View {
         return false
     }
     
-    // Stable list of visible tabs based on auth state and kids profile
+    // Stable list of visible tabs based on auth state and age profile
     private var visibleTabs: [Tab] {
         var tabs = Tab.allCases
         
@@ -122,9 +129,10 @@ struct ContentView: View {
             tabs = tabs.filter { $0 != .lists }
         }
         
-        // Hide Scout AI tab for kids profiles (13 and under)
+        // Hide Scout AI tab for non-adult profiles (only 18+ can access Scout)
+        let isAdult = profileService.activeProfile?.ageGroup == .adult && profileService.activeProfile?.isKids != true
         let isKids = profileService.activeProfile?.isKids == true || StorageService.shared.settings.isKidsProfile
-        if isKids {
+        if isKids || (profileService.hasActiveProfile && !isAdult) {
             tabs = tabs.filter { $0 != .ai }
         }
         
@@ -199,8 +207,13 @@ struct LazyTabContent<Content: View>: View {
 struct ScoutPromoBanner: View {
     @EnvironmentObject private var bannerManager: ScoutBannerManager
     
+    /// Scout banner is only visible for adult (18+) profiles
+    private var isScoutAvailable: Bool {
+        !ScoutAgeGateManager.shared.isScoutHidden
+    }
+    
     var body: some View {
-        if bannerManager.isBannerVisible && !StorageService.shared.settings.isKidsProfile {
+        if bannerManager.isBannerVisible && isScoutAvailable {
             HStack(spacing: 12) {
                 Image(systemName: "sparkles")
                     .font(.body)

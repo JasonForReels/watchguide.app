@@ -37,9 +37,9 @@ class ScoutAgeGateManager: ObservableObject {
         isKidsProfile || activeAgeGroup != .adult || !StorageService.shared.settings.includeAdult
     }
     
-    /// Whether Scout AI should be completely hidden (kids profile = 13 and under).
+    /// Whether Scout AI should be completely hidden (only available for 18+ adult profiles).
     var isScoutHidden: Bool {
-        isKidsProfile
+        isKidsProfile || activeAgeGroup != .adult
     }
     
     /// Human-readable label for the current mode.
