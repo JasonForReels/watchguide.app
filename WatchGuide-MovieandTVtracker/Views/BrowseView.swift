@@ -1905,9 +1905,8 @@ class BrowseViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 150_000_000) // 0.15s
         }
 
-        rows = []
-        heroItems = []
-        networkHubs = []
+        // Keep current data visible while loading fresh data
+        // Only clear if we successfully get new data in loadContent()
         await loadContent()
     }
     

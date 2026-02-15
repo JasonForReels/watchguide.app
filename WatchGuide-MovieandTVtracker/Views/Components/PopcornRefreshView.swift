@@ -49,7 +49,7 @@ struct PopcornRefreshView: View {
                     .transition(.opacity)
             }
         }
-        .frame(height: isRefreshing ? 80 : max(0, progress * 80))
+        .frame(height: isRefreshing ? 100 : max(0, progress * 100))
         .opacity(max(0, min(1, progress * 2)))
         .onChange(of: isRefreshing) { _, refreshing in
             if refreshing {
@@ -336,7 +336,7 @@ struct PopcornRefreshableScrollView<Content: View>: View {
                 if isRefreshing {
                     PopcornRefreshView(isRefreshing: true, progress: 1.0)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 80)
+                        .frame(height: 100)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
                 
@@ -351,18 +351,19 @@ struct PopcornRefreshableScrollView<Content: View>: View {
             generator.impactOccurred()
             
             await MainActor.run {
-                withAnimation(.easeInOut(duration: 0.25)) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                     isRefreshing = true
                 }
             }
             
+            // Run the actual data refresh
             await onRefresh()
             
-            // Small delay so the animation is visible
-            try? await Task.sleep(nanoseconds: 400_000_000)
+            // Keep the animation visible for a satisfying duration after data loads
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
             
             await MainActor.run {
-                withAnimation(.easeOut(duration: 0.3)) {
+                withAnimation(.easeOut(duration: 0.4)) {
                     isRefreshing = false
                 }
             }
