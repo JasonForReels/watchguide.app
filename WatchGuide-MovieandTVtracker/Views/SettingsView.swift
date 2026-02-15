@@ -233,8 +233,8 @@ struct SettingsView: View {
                 Toggle("Auto-play Trailers", isOn: $settings.autoPlayTrailers)
                 Toggle("Mute Trailers on Autoplay", isOn: $settings.autoPlayTrailersMuted)
                 
-                // Include Adult Content toggle — passcode-gated when kids profile has passcode
-                Toggle("Include Adult Content", isOn: Binding(
+                // Include Adult Content toggle — only affects TMDB browse results, NOT Scout AI
+                Toggle("Include Adult Content (Browse)", isOn: Binding(
                     get: { settings.includeAdult },
                     set: { newValue in
                         if newValue && settings.parentPasscode != nil {

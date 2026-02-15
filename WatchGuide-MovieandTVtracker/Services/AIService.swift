@@ -448,9 +448,12 @@ actor AIService {
         - CRITICAL: NEVER repeat yourself. State facts exactly ONCE. If you mention box office numbers, dates, or any data, say it ONE time only. Do NOT restate or rephrase the same information a second time. Your response must be concise with zero redundancy.
         """
         
-        // Add content restriction for unverified users
+        // ALWAYS enforce content safety — required for App Store 13+ rating
+        prompt += ContentFilterService.shared.alwaysOnSafetyPrompt
+        
+        // Add extra restrictions for kids mode
         if restrictedMode {
-            prompt += ContentFilterService.shared.restrictedModeSystemPrompt
+            prompt += ContentFilterService.shared.kidsModeSystemPrompt
         }
         
         if webSearchEnabled {

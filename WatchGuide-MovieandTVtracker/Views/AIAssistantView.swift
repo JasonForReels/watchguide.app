@@ -171,7 +171,6 @@ private struct ClearButton: View {
 // MARK: - Scout Privacy Sheet
 struct ScoutPrivacySheet: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var ageGate = ScoutAgeGateManager.shared
     
     var body: some View {
         NavigationStack {
@@ -192,14 +191,14 @@ struct ScoutPrivacySheet: View {
                             )
                             .frame(width: 120, height: 120)
                         
-                        Image(systemName: ageGate.isUnrestricted ? "lock.open.fill" : "lock.fill")
+                        Image(systemName: "shield.checkered")
                             .font(.system(size: 48))
                             .foregroundColor(.accentColor)
                     }
                     .frame(height: 120)
                     
                     VStack(spacing: 16) {
-                        Text("Scout Privacy")
+                        Text("Scout Privacy & Safety")
                             .font(.title2)
                             .fontWeight(.bold)
                         
@@ -219,7 +218,7 @@ struct ScoutPrivacySheet: View {
                             privacyBullet(
                                 icon: "person.badge.shield.checkmark.fill",
                                 color: .green,
-                                text: "Toggle \"Include Adult Content\" in Settings to control content filtering."
+                                text: "Content filtering is always active. Scout will never generate explicit, graphic, or age-inappropriate content."
                             )
                         }
                         .padding(.horizontal, 4)
@@ -227,14 +226,14 @@ struct ScoutPrivacySheet: View {
                     
                     // Current mode indicator
                     HStack(spacing: 8) {
-                        Image(systemName: ageGate.isUnrestricted ? "checkmark.seal.fill" : "shield.fill")
-                            .foregroundColor(ageGate.isUnrestricted ? .green : .blue)
-                        Text(ageGate.modeLabel)
+                        Image(systemName: "shield.fill")
+                            .foregroundColor(.blue)
+                        Text("Content filtered (13+ safe)")
                             .font(.subheadline)
-                            .foregroundColor(ageGate.isUnrestricted ? .green : .blue)
+                            .foregroundColor(.blue)
                     }
                     .padding()
-                    .background((ageGate.isUnrestricted ? Color.green : Color.blue).opacity(0.1))
+                    .background(Color.blue.opacity(0.1))
                     .cornerRadius(12)
                     
                     Spacer(minLength: 40)
@@ -534,29 +533,20 @@ private struct WelcomeView: View {
 // MARK: - Scout Privacy Banner
 struct ScoutPrivacyBanner: View {
     @Binding var isVisible: Bool
-    @ObservedObject private var ageGate = ScoutAgeGateManager.shared
-    
-    private var statusColor: Color {
-        ageGate.isUnrestricted ? .green : .blue
-    }
-    
-    private var statusIcon: String {
-        ageGate.isUnrestricted ? "lock.open.fill" : "shield.checkered"
-    }
     
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: statusIcon)
+            Image(systemName: "shield.checkered")
                 .font(.caption)
-                .foregroundColor(statusColor)
+                .foregroundColor(.blue)
             
             VStack(alignment: .leading, spacing: 2) {
-                Text("Content Mode")
+                Text("Content Safety")
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                 
-                Text(ageGate.modeLabel)
+                Text("All responses are filtered for 13+ appropriateness")
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .lineLimit(2)
@@ -586,7 +576,7 @@ struct ScoutPrivacyBanner: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(statusColor.opacity(0.2), lineWidth: 0.5)
+                .stroke(Color.blue.opacity(0.2), lineWidth: 0.5)
         )
         .padding(.horizontal, 16)
     }
@@ -1393,18 +1383,19 @@ class AIAssistantViewModel: ObservableObject {
     private var lastPublishedLength = 0
     private var pendingFlushTask: Task<Void, Never>?
     
-    /// Whether Scout should operate in content-restricted mode.
-    /// Restricted when "Include Adult Content" toggle is OFF in Settings.
-    private var isRestrictedMode: Bool {
-        ScoutAgeGateManager.shared.isRestricted
+    /// Whether Scout should operate in extra-strict kids mode.
+    /// Content safety is ALWAYS enforced (via system prompt + output filter).
+    /// This flag enables the additional kids-only restrictions on top of baseline safety.
+    private var isKidsMode: Bool {
+        ScoutAgeGateManager.shared.isKidsRestricted
     }
     
     func sendMessage() async {
         let userMessage = inputState.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !userMessage.isEmpty else { return }
         
-        // When "Include Adult Content" is OFF, block messages with explicit content
-        if isRestrictedMode && ContentFilterService.shared.containsBlockedContent(userMessage) {
+        // ALWAYS block messages with explicit content — required for App Store 13+ rating
+        if ContentFilterService.shared.containsBlockedContent(userMessage) {
             let blockedMsg = AIService.ChatMessage(role: "user", content: userMessage)
             messages.append(blockedMsg)
             messageCount = messages.count
@@ -1413,7 +1404,7 @@ class AIAssistantViewModel: ObservableObject {
             
             let refusalMsg = AIService.ChatMessage(
                 role: "assistant",
-                content: "Sorry, I can't help with that request, please try something else."
+                content: ContentFilterService.refusalMessage
             )
             messages.append(refusalMsg)
             messageCount = messages.count
@@ -1435,7 +1426,7 @@ class AIAssistantViewModel: ObservableObject {
         inputState.saveModel()
         
         let selectedModel = inputState.selectedModel
-        let restricted = isRestrictedMode
+        let kidsMode = isKidsMode
         
         // Check for trailer short-circuit first (non-streaming)
         let lowercased = userMessage.lowercased()
@@ -1451,14 +1442,15 @@ class AIAssistantViewModel: ObservableObject {
                     likedItems: likedItems,
                     webSearchEnabled: webSearchEnabled,
                     model: selectedModel,
-                    restrictedMode: restricted
+                    restrictedMode: kidsMode
                 )
                 
                 isThinking = false
                 
                 // Check for [TRAILER:] tags in the response
                 let (rawCleanedContent, trailerTitles) = AIService.extractTrailerTags(from: response)
-                let cleanedContent = restricted ? ContentFilterService.shared.filterOutput(rawCleanedContent) : rawCleanedContent
+                // ALWAYS filter output — required for App Store 13+ rating
+                let cleanedContent = ContentFilterService.shared.filterOutput(rawCleanedContent)
                 let assistantMessage = AIService.ChatMessage(role: "assistant", content: cleanedContent)
                 messages.append(assistantMessage)
                 messageCount = messages.count
@@ -1508,7 +1500,7 @@ class AIAssistantViewModel: ObservableObject {
             likedItems: likedItems,
             webSearchEnabled: webSearchEnabled,
             model: selectedModel,
-            restrictedMode: restricted
+            restrictedMode: kidsMode
         )
         
         for await event in stream {
@@ -1527,8 +1519,8 @@ class AIAssistantViewModel: ObservableObject {
                     isThinking = false
                     currentThinkingText = accumulatedThinking
                 }
-                // Apply content filter for restricted mode
-                let filteredText = restricted ? ContentFilterService.shared.filterOutput(text) : text
+                // ALWAYS apply content filter — required for App Store 13+ rating
+                let filteredText = ContentFilterService.shared.filterOutput(text)
                 pendingContent = filteredText
                 
                 // Time + char based throttle — only push when enough time AND content has elapsed
@@ -1569,10 +1561,8 @@ class AIAssistantViewModel: ObservableObject {
                 streamingMessageId = nil
                 isThinking = false
                 
-                // Final pass: filter content in restricted mode
-                if restricted {
-                    messages[streamIndex].content = ContentFilterService.shared.filterOutput(messages[streamIndex].content)
-                }
+                // Final pass: ALWAYS filter content — required for App Store 13+ rating
+                messages[streamIndex].content = ContentFilterService.shared.filterOutput(messages[streamIndex].content)
                 
                 // Extract [TRAILER:Title] tags and fetch trailer from TMDB
                 let finalContent = messages[streamIndex].content

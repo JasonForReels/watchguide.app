@@ -2,10 +2,11 @@
 //  ScoutAgeGateManager.swift
 //  WatchGuide-MovieandTVtracker
 //
-//  Manages content restriction state based on profiles, the "Include Adult Content" toggle
-//  in Settings, and the Kids Profile toggle.
+//  Manages content restriction state based on profiles and the Kids Profile toggle.
+//  Scout AI ALWAYS has content filtering enforced (required for App Store 13+ rating).
+//  The "Include Adult Content" toggle only affects TMDB browse results, NOT Scout AI.
 //  Profiles integrate with age groups: Kids (6-12), Teen (13-17), Adult (18+).
-//  Kids Profile ON = restricted mode + Scout AI hidden (13 and under).
+//  Kids Profile ON = extra-strict kids mode + Scout AI hidden.
 //
 
 import Foundation
@@ -27,14 +28,22 @@ class ScoutAgeGateManager: ObservableObject {
         ProfileService.shared.activeProfile?.ageGroup ?? (isKidsProfile ? .kids : .adult)
     }
     
-    /// True when "Include Adult Content" toggle is ON, NOT a kids profile, and age group is adult — no content restrictions.
-    var isUnrestricted: Bool {
-        !isKidsProfile && activeAgeGroup == .adult && StorageService.shared.settings.includeAdult
+    /// Scout AI content filtering is ALWAYS on. This property indicates whether
+    /// the extra-strict kids mode is active (which adds additional restrictions
+    /// beyond the baseline 13+ safety filter).
+    var isKidsRestricted: Bool {
+        isKidsProfile || activeAgeGroup == .kids
     }
     
-    /// True when "Include Adult Content" toggle is OFF, kids profile is active, or age group is restricted.
+    /// Scout AI always has content safety enforced. This is no longer toggleable.
+    /// The "Include Adult Content" setting only affects TMDB browse results.
+    var isUnrestricted: Bool {
+        false // Scout AI content filtering is always on
+    }
+    
+    /// Content filtering is always active for Scout AI.
     var isRestricted: Bool {
-        isKidsProfile || activeAgeGroup != .adult || !StorageService.shared.settings.includeAdult
+        true // Always restricted for App Store 13+ compliance
     }
     
     /// Whether Scout AI should be completely hidden (only available for 18+ adult profiles).
@@ -53,7 +62,7 @@ class ScoutAgeGateManager: ObservableObject {
         case .teen:
             return "Teen mode (13-17)"
         case .adult:
-            return isUnrestricted ? "Unrestricted mode (18+)" : "Restricted mode (16 and under)"
+            return "Content filtered (13+ safe)"
         }
     }
 }
