@@ -33,7 +33,10 @@ struct BrowseView: View {
     
     var body: some View {
         NavigationStack {
-            ScrollView {
+            PopcornRefreshableScrollView {
+                await viewModel.refresh()
+                await forYouVM.refresh()
+            } content: {
                 LazyVStack(spacing: 24) {
                     // Scout AI Banner (only for 18+ adult profiles)
                     if isAdultProfile {
@@ -102,10 +105,6 @@ struct BrowseView: View {
                     }
                 }
                 .padding(.vertical)
-            }
-            .refreshable {
-                await viewModel.refresh()
-                await forYouVM.refresh()
             }
             .task {
                 await viewModel.loadContent()
