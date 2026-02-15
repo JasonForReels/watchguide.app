@@ -28,6 +28,7 @@ struct ContentView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var scoutBannerManager = ScoutBannerManager.shared
     @ObservedObject private var authService = AuthService.shared
+    @ObservedObject private var profileService = ProfileService.shared
     
     // Track which tabs have been visited so we only create their views once
     @State private var visitedTabs: Set<Tab> = [.browse]
@@ -65,6 +66,8 @@ struct ContentView: View {
     var body: some View {
         if requiresOnboarding {
             OnboardingFlowView()
+        } else if authService.isAuthenticated && profileService.needsProfileSelection {
+            ProfilePickerView()
         } else {
             Group {
                 iPhoneLayout
@@ -80,6 +83,10 @@ struct ContentView: View {
                 // If user logs out while on Lists tab, redirect to Browse
                 if !isAuth && selectedTab == .lists {
                     selectedTab = .browse
+                }
+                // When user logs in with existing profiles, show profile picker
+                if isAuth && profileService.hasProfiles && !profileService.hasActiveProfile {
+                    profileService.needsProfileSelection = true
                 }
                 // Make sure the current tab is marked as visited after auth change
                 // since .id() forces a TabView rebuild
@@ -110,7 +117,8 @@ struct ContentView: View {
         }
         
         // Hide Scout AI tab for kids profiles (13 and under)
-        if StorageService.shared.settings.isKidsProfile {
+        let isKids = profileService.activeProfile?.isKids == true || StorageService.shared.settings.isKidsProfile
+        if isKids {
             tabs = tabs.filter { $0 != .ai }
         }
         
@@ -132,7 +140,7 @@ struct ContentView: View {
         .onChange(of: selectedTab) { _, newTab in
             visitedTabs.insert(newTab)
         }
-        .id(authService.isAuthenticated)
+        .id("\(authService.isAuthenticated)-\(profileService.activeProfile?.id ?? "none")")
     }
     
     @ViewBuilder

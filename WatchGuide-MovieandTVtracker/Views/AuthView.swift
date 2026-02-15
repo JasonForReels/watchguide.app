@@ -10,6 +10,7 @@ import MessageUI
 
 struct AuthView: View {
     @ObservedObject var authService = AuthService.shared
+    @ObservedObject var profileService = ProfileService.shared
     @Environment(\.dismiss) private var dismiss
     
     @State private var isSignUp = false
@@ -18,6 +19,7 @@ struct AuthView: View {
     @State private var confirmPassword = ""
     @State private var showForgotPassword = false
     @State private var resetEmailSent = false
+    @State private var showProfileSetup = false
     
     var body: some View {
         NavigationStack {
@@ -206,6 +208,11 @@ struct AuthView: View {
             } message: {
                 Text("If an account exists with that email, you'll receive a password reset link shortly.")
             }
+            .fullScreenCover(isPresented: $showProfileSetup) {
+                FirstProfileSetupView {
+                    dismiss()
+                }
+            }
         }
     }
     
@@ -223,12 +230,27 @@ struct AuthView: View {
         if isSignUp {
             let success = await authService.signUp(email: email, password: password)
             if success {
-                dismiss()
+                // New user — need to set up their first profile
+                if !profileService.hasProfiles {
+                    showProfileSetup = true
+                } else {
+                    dismiss()
+                }
             }
         } else {
             let success = await authService.signIn(email: email, password: password)
             if success {
-                dismiss()
+                // Try to download existing profiles from cloud
+                await profileService.downloadProfilesFromCloud()
+                
+                if profileService.hasProfiles {
+                    // Has existing profiles — show picker
+                    profileService.requestProfileSelection()
+                    dismiss()
+                } else {
+                    // No profiles yet — create first one
+                    showProfileSetup = true
+                }
             }
         }
     }

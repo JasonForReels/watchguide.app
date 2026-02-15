@@ -355,6 +355,9 @@ class StorageService: ObservableObject {
                 networkHubs: networkHubs
             )
             
+            // Upload profiles
+            ProfileService.shared.syncProfilesToCloud()
+            
             await SupabaseService.shared.updateLastSyncTime()
             objectWillChange.send()
         } catch {
@@ -423,6 +426,9 @@ class StorageService: ObservableObject {
                 networkHubs.sort { $0.sortOrder < $1.sortOrder }
                 save(networkHubs, to: networkHubsURL)
             }
+            
+            // Download profiles
+            await ProfileService.shared.downloadProfilesFromCloud()
             
             await SupabaseService.shared.updateLastSyncTime()
             objectWillChange.send()
@@ -635,6 +641,9 @@ class StorageService: ObservableObject {
         // Reset settings to defaults
         settings = UserSettings()
         save(settings, to: settingsURL)
+        
+        // Clear profiles
+        ProfileService.shared.clearAllProfiles()
         
         // Disable cloud sync
         setCloudSyncEnabled(false)

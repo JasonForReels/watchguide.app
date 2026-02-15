@@ -197,6 +197,9 @@ class AuthService: ObservableObject {
     func signOut() async {
         guard isConfigured, let token = accessToken else {
             clearSession()
+            // Reset active profile on sign out (keep profiles for next login)
+            ProfileService.shared.activeProfile = nil
+            ProfileService.shared.needsProfileSelection = false
             return
         }
         
@@ -213,6 +216,15 @@ class AuthService: ObservableObject {
         }
         
         clearSession()
+        // Reset active profile on sign out (keep profiles for next login)
+        ProfileService.shared.activeProfile = nil
+        ProfileService.shared.needsProfileSelection = false
+        
+        // Reset kids profile setting when signing out
+        var settings = StorageService.shared.settings
+        settings.isKidsProfile = false
+        StorageService.shared.updateSettings(settings)
+        
         isLoading = false
     }
     

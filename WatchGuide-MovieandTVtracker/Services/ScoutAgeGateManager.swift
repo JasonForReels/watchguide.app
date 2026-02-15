@@ -2,10 +2,9 @@
 //  ScoutAgeGateManager.swift
 //  WatchGuide-MovieandTVtracker
 //
-//  Manages content restriction state based on the "Include Adult Content" toggle in Settings
-//  and the Kids Profile toggle.
-//  Toggle OFF = restricted mode (family-friendly, 16 and under).
-//  Toggle ON = unrestricted mode (18+).
+//  Manages content restriction state based on profiles, the "Include Adult Content" toggle
+//  in Settings, and the Kids Profile toggle.
+//  Profiles integrate with age groups: Kids (6-12), Teen (13-17), Adult (18+).
 //  Kids Profile ON = restricted mode + Scout AI hidden (13 and under).
 //
 
@@ -20,17 +19,22 @@ class ScoutAgeGateManager: ObservableObject {
     
     /// True when Kids Profile is active — content is restricted to 13 and under.
     var isKidsProfile: Bool {
-        StorageService.shared.settings.isKidsProfile
+        ProfileService.shared.activeProfile?.isKids == true || StorageService.shared.settings.isKidsProfile
     }
     
-    /// True when "Include Adult Content" toggle is ON and NOT a kids profile — no content restrictions.
+    /// The active age group from the profile system
+    var activeAgeGroup: AgeGroup {
+        ProfileService.shared.activeProfile?.ageGroup ?? (isKidsProfile ? .kids : .adult)
+    }
+    
+    /// True when "Include Adult Content" toggle is ON, NOT a kids profile, and age group is adult — no content restrictions.
     var isUnrestricted: Bool {
-        !isKidsProfile && StorageService.shared.settings.includeAdult
+        !isKidsProfile && activeAgeGroup == .adult && StorageService.shared.settings.includeAdult
     }
     
-    /// True when "Include Adult Content" toggle is OFF or kids profile is active — restricted / family-friendly mode.
+    /// True when "Include Adult Content" toggle is OFF, kids profile is active, or age group is restricted.
     var isRestricted: Bool {
-        isKidsProfile || !StorageService.shared.settings.includeAdult
+        isKidsProfile || activeAgeGroup != .adult || !StorageService.shared.settings.includeAdult
     }
     
     /// Whether Scout AI should be completely hidden (kids profile = 13 and under).
@@ -41,8 +45,15 @@ class ScoutAgeGateManager: ObservableObject {
     /// Human-readable label for the current mode.
     var modeLabel: String {
         if isKidsProfile {
-            return "Kids mode (13 and under)"
+            return "Kids mode (6-12)"
         }
-        return isUnrestricted ? "Unrestricted mode (18+)" : "Restricted mode (16 and under)"
+        switch activeAgeGroup {
+        case .kids:
+            return "Kids mode (6-12)"
+        case .teen:
+            return "Teen mode (13-17)"
+        case .adult:
+            return isUnrestricted ? "Unrestricted mode (18+)" : "Restricted mode (16 and under)"
+        }
     }
 }

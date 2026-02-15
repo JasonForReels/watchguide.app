@@ -9,6 +9,7 @@ import AuthenticationServices
 struct SettingsView: View {
     @ObservedObject private var storage = StorageService.shared
     @ObservedObject private var authService = AuthService.shared
+    @ObservedObject private var profileService = ProfileService.shared
     @State private var settings: UserSettings
     @State private var showClearDataAlert = false
     @State private var showAuthSheet = false
@@ -17,6 +18,7 @@ struct SettingsView: View {
     @State private var showPasscodeSetup = false
     @State private var showPasscodeEntry = false
     @State private var passcodeAction: PasscodeAction = .disableKids
+    @State private var showEditProfile = false
     
     enum PasscodeAction {
         case disableKids       // Turn off kids profile
@@ -78,6 +80,77 @@ struct SettingsView: View {
             } footer: {
                 if !authService.isAuthenticated {
                     Text("Sign in to sync your watchlist, watched items, and likes across all your devices")
+                }
+            }
+            
+            // Active Profile Section
+            if authService.isAuthenticated && profileService.hasProfiles {
+                Section {
+                    if let profile = profileService.activeProfile {
+                        HStack(spacing: 14) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(profile.color.color.opacity(0.15))
+                                    .frame(width: 44, height: 44)
+                                
+                                Image(systemName: profile.avatar.rawValue)
+                                    .font(.title3)
+                                    .foregroundColor(profile.color.color)
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(profile.name)
+                                        .font(.headline)
+                                    
+                                    if profile.isKids {
+                                        Text("KIDS")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 1)
+                                            .background(Capsule().fill(Color.green))
+                                    }
+                                }
+                                
+                                Text(profile.isKids ? "Kids (6-12)" : profile.ageGroup.displayName)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                        }
+                        
+                        Button {
+                            showEditProfile = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "pencil")
+                                    .foregroundColor(.accentColor)
+                                Text("Edit Profile")
+                            }
+                        }
+                        
+                        Button {
+                            profileService.requestProfileSelection()
+                        } label: {
+                            HStack {
+                                Image(systemName: "person.2.fill")
+                                    .foregroundColor(.accentColor)
+                                Text("Switch Profile")
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Active Profile")
+                } footer: {
+                    if let profile = profileService.activeProfile {
+                        if profile.isKids {
+                            Text("Kids profile is active. Content is restricted to ages 6-12. Switch to a different profile to access all content.")
+                        } else if profile.ageGroup == .teen {
+                            Text("Teen profile is active. Some mature content may be restricted.")
+                        }
+                    }
                 }
             }
             
@@ -374,6 +447,11 @@ struct SettingsView: View {
                         showPasscodeSetup = true
                     }
                 }
+            }
+        }
+        .sheet(isPresented: $showEditProfile) {
+            if let profile = profileService.activeProfile {
+                ProfileSetupView(mode: .edit(profile))
             }
         }
     }
@@ -1430,6 +1508,22 @@ struct SupabaseSetupGuideView: View {
             UNIQUE(user_id, hub_id)
         );
 
+        -- 10. Profiles (user profiles with age verification)
+        CREATE TABLE IF NOT EXISTS profiles (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            avatar TEXT NOT NULL DEFAULT 'popcorn.fill',
+            color TEXT NOT NULL DEFAULT 'blue',
+            age_group TEXT NOT NULL DEFAULT 'adult',
+            is_kids BOOLEAN DEFAULT FALSE,
+            date_of_birth TEXT,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(user_id, profile_id)
+        );
+
         -- ===================================================
         -- Enable Row Level Security on ALL tables
         -- ===================================================
@@ -1442,6 +1536,7 @@ struct SupabaseSetupGuideView: View {
         ALTER TABLE extension_list_items ENABLE ROW LEVEL SECURITY;
         ALTER TABLE custom_home_rows ENABLE ROW LEVEL SECURITY;
         ALTER TABLE network_hubs_config ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
         -- ===================================================
         -- RLS Policies — allow all for anon & authenticated
@@ -1472,6 +1567,9 @@ struct SupabaseSetupGuideView: View {
 
         CREATE POLICY "Allow all for anon" ON network_hubs_config FOR ALL TO anon USING (true) WITH CHECK (true);
         CREATE POLICY "Allow all for auth" ON network_hubs_config FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+        CREATE POLICY "Allow all for anon" ON profiles FOR ALL TO anon USING (true) WITH CHECK (true);
+        CREATE POLICY "Allow all for auth" ON profiles FOR ALL TO authenticated USING (true) WITH CHECK (true);
         """
     }
 }
