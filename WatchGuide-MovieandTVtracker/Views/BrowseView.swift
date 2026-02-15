@@ -117,18 +117,10 @@ struct BrowseView: View {
                             showProfileSwitcher = true
                         } label: {
                             if let profile = profileService.activeProfile {
-                                ZStack {
-                                    Circle()
-                                        .fill(profile.color.color.opacity(0.15))
-                                        .frame(width: 32, height: 32)
-                                    
-                                    Image(systemName: profile.avatar.rawValue)
-                                        .font(.system(size: 14))
-                                        .foregroundColor(profile.color.color)
-                                }
+                                Image(systemName: profile.avatar.rawValue)
+                                    .foregroundColor(profile.color.color)
                             } else {
                                 Image(systemName: "person.crop.circle")
-                                    .font(.title3)
                             }
                         }
                     }
