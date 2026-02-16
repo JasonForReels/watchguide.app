@@ -19,6 +19,7 @@ class StorageService: ObservableObject {
     @Published private(set) var networkHubs: [NetworkHub] = []
     @Published private(set) var importedLists: [ImportedListItem] = []
     @Published private(set) var customHomeRows: [CustomHomeRow] = []
+    @Published private(set) var customJSONHubs: [CustomJSONHub] = []
     @Published private(set) var settings: UserSettings = UserSettings()
     @Published private(set) var searchHistory: [SearchHistoryItem] = []
     @Published private(set) var browseRows: [BrowseRowConfig] = BrowseRowConfig.defaultRows
@@ -48,6 +49,7 @@ class StorageService: ObservableObject {
     private let networkHubsURL: URL
     private let importedListsURL: URL
     private let customHomeRowsURL: URL
+    private let customJSONHubsURL: URL
     private let settingsURL: URL
     private let searchHistoryURL: URL
     private let browseRowsURL: URL
@@ -62,6 +64,7 @@ class StorageService: ObservableObject {
         networkHubsURL = documentsDirectory.appendingPathComponent("network_hubs.json")
         importedListsURL = documentsDirectory.appendingPathComponent("imported_lists.json")
         customHomeRowsURL = documentsDirectory.appendingPathComponent("custom_home_rows.json")
+        customJSONHubsURL = documentsDirectory.appendingPathComponent("custom_json_hubs.json")
         settingsURL = documentsDirectory.appendingPathComponent("settings.json")
         searchHistoryURL = documentsDirectory.appendingPathComponent("search_history.json")
         browseRowsURL = documentsDirectory.appendingPathComponent("browse_rows.json")
@@ -85,6 +88,7 @@ class StorageService: ObservableObject {
         networkHubs = load(from: networkHubsURL) ?? []
         importedLists = load(from: importedListsURL) ?? []
         customHomeRows = load(from: customHomeRowsURL) ?? []
+        customJSONHubs = load(from: customJSONHubsURL) ?? []
         settings = load(from: settingsURL) ?? UserSettings()
         searchHistory = load(from: searchHistoryURL) ?? []
         browseRows = load(from: browseRowsURL) ?? BrowseRowConfig.defaultRows
@@ -427,6 +431,12 @@ class StorageService: ObservableObject {
                 save(networkHubs, to: networkHubsURL)
             }
             
+            // Apply custom JSON hubs
+            if !homeConfig.customJSONHubs.isEmpty {
+                customJSONHubs = homeConfig.customJSONHubs
+                save(customJSONHubs, to: customJSONHubsURL)
+            }
+            
             // Download profiles
             await ProfileService.shared.downloadProfilesFromCloud()
             
@@ -583,6 +593,41 @@ class StorageService: ObservableObject {
         return customHomeRows.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }
     }
     
+    // MARK: - Custom JSON Hubs
+    func addCustomJSONHub(_ hub: CustomJSONHub) {
+        var newHub = hub
+        newHub.sortOrder = customJSONHubs.count
+        customJSONHubs.append(newHub)
+        save(customJSONHubs, to: customJSONHubsURL)
+    }
+    
+    func updateCustomJSONHub(_ hub: CustomJSONHub) {
+        if let index = customJSONHubs.firstIndex(where: { $0.id == hub.id }) {
+            customJSONHubs[index] = hub
+            save(customJSONHubs, to: customJSONHubsURL)
+        }
+    }
+    
+    func deleteCustomJSONHub(id: String) {
+        customJSONHubs.removeAll { $0.id == id }
+        save(customJSONHubs, to: customJSONHubsURL)
+    }
+    
+    func getEnabledCustomJSONHubs() -> [CustomJSONHub] {
+        return customJSONHubs
+            .filter { $0.isEnabled }
+            .sorted { $0.sortOrder < $1.sortOrder }
+    }
+    
+    func reorderCustomJSONHubs(_ hubs: [CustomJSONHub]) {
+        var updated = hubs
+        for (index, _) in updated.enumerated() {
+            updated[index].sortOrder = index
+        }
+        customJSONHubs = updated
+        save(customJSONHubs, to: customJSONHubsURL)
+    }
+    
     // MARK: - Settings
     func updateSettings(_ newSettings: UserSettings) {
         settings = newSettings
@@ -629,6 +674,7 @@ class StorageService: ObservableObject {
         searchHistory = []
         importedLists = []
         customHomeRows = []
+        customJSONHubs = []
         
         save(wantToWatch, to: wantToWatchURL)
         save(watched, to: watchedURL)
@@ -637,6 +683,7 @@ class StorageService: ObservableObject {
         save(searchHistory, to: searchHistoryURL)
         save(importedLists, to: importedListsURL)
         save(customHomeRows, to: customHomeRowsURL)
+        save(customJSONHubs, to: customJSONHubsURL)
         
         // Reset settings to defaults
         settings = UserSettings()

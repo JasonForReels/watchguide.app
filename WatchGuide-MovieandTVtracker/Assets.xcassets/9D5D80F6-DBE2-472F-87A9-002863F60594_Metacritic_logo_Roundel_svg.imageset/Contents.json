@@ -4,6 +4,14 @@
       "filename" : "9D5D80F6-DBE2-472F-87A9-002863F60594_Metacritic_logo_Roundel_svg.png",
       "idiom" : "universal",
       "scale" : "1x"
+    },
+    {
+      "idiom" : "universal",
+      "scale" : "2x"
+    },
+    {
+      "idiom" : "universal",
+      "scale" : "3x"
     }
   ],
   "info" : {

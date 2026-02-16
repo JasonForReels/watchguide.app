@@ -14,6 +14,7 @@ struct BrowseView: View {
     @State private var showCustomizeSheet = false
     @State private var selectedPerson: Person?
     @State private var showProfileSwitcher = false
+    @State private var selectedJSONHub: CustomJSONHub?
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var profileService = ProfileService.shared
     
@@ -90,6 +91,16 @@ struct BrowseView: View {
                                 )
                             }
                             
+                            // Custom JSON Hubs — user-created hubs from external JSON URLs
+                            if !isKidsProfile {
+                                let enabledHubs = StorageService.shared.getEnabledCustomJSONHubs()
+                                if !enabledHubs.isEmpty {
+                                    CustomJSONHubsRow(hubs: enabledHubs) { hub in
+                                        selectedJSONHub = hub
+                                    }
+                                }
+                            }
+                            
                             // For You Row (AI-powered, based on likes) — only for signed-in adult (18+) users
                             if authService.isAuthenticated && isAdultProfile {
                                 ForYouRow(viewModel: forYouVM) { item in
@@ -152,6 +163,9 @@ struct BrowseView: View {
                 case .sonyPictures:
                     SonyPicturesSheet(selectedItem: $selectedItem)
                 }
+            }
+            .sheet(item: $selectedJSONHub) { hub in
+                CustomJSONHubSheet(hub: hub, selectedItem: $selectedItem)
             }
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
@@ -2483,6 +2497,180 @@ struct BrowseCustomizeSheet: View {
         
         // Save network hubs
         storage.reorderNetworkHubs(networkHubs)
+    }
+}
+
+// MARK: - Custom JSON Hubs Row
+struct CustomJSONHubsRow: View {
+    let hubs: [CustomJSONHub]
+    let onHubTap: (CustomJSONHub) -> Void
+    
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(hubs) { hub in
+                    CustomJSONHubButton(hub: hub, action: { onHubTap(hub) })
+                }
+            }
+            .padding(.horizontal)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Custom JSON Hub Button
+struct CustomJSONHubButton: View {
+    let hub: CustomJSONHub
+    let action: () -> Void
+    @State private var isPressed = false
+    
+    private var resolvedColor: Color {
+        if let hex = hub.brandColor, !hex.isEmpty {
+            return Color(hex: hex)
+        }
+        return Color.orange
+    }
+    
+    var body: some View {
+        Button(action: action) {
+            Text(hub.name)
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(minWidth: 80)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(resolvedColor)
+                )
+        }
+        .buttonStyle(.plain)
+        .shadow(color: resolvedColor.opacity(0.35), radius: isPressed ? 2 : 5, y: isPressed ? 1 : 3)
+        .scaleEffect(isPressed ? 0.94 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
+        .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+            isPressed = pressing
+        }, perform: {})
+    }
+}
+
+// MARK: - Color Hex Extension
+extension Color {
+    init(hex: String) {
+        var cleanHex = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanHex.hasPrefix("#") { cleanHex.removeFirst() }
+        
+        var rgb: UInt64 = 0
+        Scanner(string: cleanHex).scanHexInt64(&rgb)
+        
+        let r = Double((rgb >> 16) & 0xFF) / 255.0
+        let g = Double((rgb >> 8) & 0xFF) / 255.0
+        let b = Double(rgb & 0xFF) / 255.0
+        
+        self.init(red: r, green: g, blue: b)
+    }
+}
+
+// MARK: - Custom JSON Hub Sheet
+struct CustomJSONHubSheet: View {
+    let hub: CustomJSONHub
+    @Binding var selectedItem: MediaItem?
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedTab = 0
+    
+    private var movies: [SavedMediaItem] {
+        hub.items.filter { $0.mediaType == .movie }
+    }
+    
+    private var tvShows: [SavedMediaItem] {
+        hub.items.filter { $0.mediaType == .tv }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Header
+                Text(hub.name)
+                    .font(.title3)
+                    .fontWeight(.bold)
+                    .padding(.vertical, 12)
+                
+                // Tab picker (only show if both types exist)
+                if !movies.isEmpty && !tvShows.isEmpty {
+                    Picker("Content Type", selection: $selectedTab) {
+                        Text("Movies").tag(0)
+                        Text("TV").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.bottom, 16)
+                }
+                
+                let items: [SavedMediaItem] = {
+                    if movies.isEmpty && !tvShows.isEmpty { return tvShows }
+                    if tvShows.isEmpty && !movies.isEmpty { return movies }
+                    return selectedTab == 0 ? movies : tvShows
+                }()
+                
+                if items.isEmpty {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "film.stack")
+                            .font(.largeTitle)
+                            .foregroundColor(.secondary)
+                        Text("No items found")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [
+                            GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                        ], spacing: 20) {
+                            ForEach(items) { item in
+                                SavedMediaPosterCard(item: item)
+                                    .onTapGesture {
+                                        let mediaItem = MediaItem(
+                                            id: item.mediaId,
+                                            title: item.mediaType == .movie ? item.title : nil,
+                                            name: item.mediaType == .tv ? item.title : nil,
+                                            originalTitle: nil,
+                                            originalName: nil,
+                                            overview: item.overview,
+                                            posterPath: item.posterPath,
+                                            backdropPath: item.backdropPath,
+                                            releaseDate: item.year,
+                                            firstAirDate: item.year,
+                                            voteAverage: item.voteAverage,
+                                            voteCount: nil,
+                                            popularity: nil,
+                                            genreIds: nil,
+                                            mediaType: item.mediaType.rawValue,
+                                            adult: nil,
+                                            originalLanguage: nil
+                                        )
+                                        selectedItem = mediaItem
+                                        dismiss()
+                                    }
+                            }
+                        }
+                        .padding()
+                    }
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
     }
 }
 

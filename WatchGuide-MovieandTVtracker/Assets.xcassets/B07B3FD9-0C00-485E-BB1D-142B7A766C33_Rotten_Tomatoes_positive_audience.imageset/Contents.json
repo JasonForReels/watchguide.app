@@ -4,6 +4,14 @@
       "filename" : "B07B3FD9-0C00-485E-BB1D-142B7A766C33_Rotten_Tomatoes_positive_audience.svg",
       "idiom" : "universal",
       "scale" : "1x"
+    },
+    {
+      "idiom" : "universal",
+      "scale" : "2x"
+    },
+    {
+      "idiom" : "universal",
+      "scale" : "3x"
     }
   ],
   "info" : {

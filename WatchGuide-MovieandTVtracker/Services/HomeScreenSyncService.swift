@@ -435,6 +435,92 @@ actor HomeScreenSyncService {
         return try await request(endpoint: "network_hubs_config", queryItems: queryItems)
     }
     
+    // MARK: - Custom JSON Hubs Sync
+    
+    func uploadCustomJSONHubs(_ hubs: [CustomJSONHub]) async throws {
+        let userId = await getUserId()
+        guard !userId.isEmpty else {
+            throw HomeScreenSyncError.apiError("User ID is empty.")
+        }
+        
+        // Delete existing
+        let deleteQuery = [URLQueryItem(name: "user_id", value: "eq.\(userId)")]
+        do {
+            try await requestNoResponse(endpoint: "custom_json_hubs", method: "DELETE", queryItems: deleteQuery)
+        } catch {
+            print("Warning: Could not delete existing custom_json_hubs: \(error)")
+        }
+        
+        guard !hubs.isEmpty else { return }
+        
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        
+        let syncItems = hubs.map { hub in
+            SyncedCustomJSONHub(
+                userId: userId,
+                hubId: hub.id,
+                name: hub.name,
+                jsonUrl: hub.jsonURL,
+                iconUrl: hub.iconURL,
+                brandColor: hub.brandColor,
+                isEnabled: hub.isEnabled,
+                sortOrder: hub.sortOrder,
+                lastSynced: hub.lastSynced,
+                createdAt: hub.createdAt
+            )
+        }
+        
+        let body = try encoder.encode(syncItems)
+        try await requestNoResponse(endpoint: "custom_json_hubs", method: "POST", body: body)
+    }
+    
+    func downloadCustomJSONHubs() async throws -> [CustomJSONHub] {
+        let userId = await getUserId()
+        let queryItems = [
+            URLQueryItem(name: "user_id", value: "eq.\(userId)"),
+            URLQueryItem(name: "order", value: "sort_order.asc")
+        ]
+        
+        let items: [SyncedCustomJSONHub] = try await request(endpoint: "custom_json_hubs", queryItems: queryItems)
+        
+        // For each hub, re-fetch items from the JSON URL
+        var hubs: [CustomJSONHub] = []
+        for item in items {
+            var hub = CustomJSONHub(
+                name: item.name,
+                jsonURL: item.jsonUrl,
+                iconURL: item.iconUrl,
+                brandColor: item.brandColor
+            )
+            // Preserve the original ID
+            hub = CustomJSONHub(
+                id: item.hubId,
+                name: item.name,
+                jsonURL: item.jsonUrl,
+                iconURL: item.iconUrl,
+                brandColor: item.brandColor,
+                isEnabled: item.isEnabled,
+                sortOrder: item.sortOrder,
+                lastSynced: item.lastSynced,
+                createdAt: item.createdAt ?? Date()
+            )
+            
+            // Re-fetch items from the JSON URL
+            do {
+                let result = try await JSONHubService.shared.fetchAndResolve(from: item.jsonUrl)
+                hub.items = result.items
+                hub.lastSynced = Date()
+            } catch {
+                print("Warning: Could not fetch items for hub \(hub.name): \(error)")
+            }
+            
+            hubs.append(hub)
+        }
+        
+        return hubs
+    }
+    
     // MARK: - Full Sync
     
     func uploadAllHomeScreenConfig(
@@ -447,6 +533,10 @@ actor HomeScreenSyncService {
         try await uploadExtensionLists(extensionLists)
         try await uploadCustomHomeRows(customHomeRows)
         try await uploadNetworkHubsConfig(networkHubs)
+        
+        // Also upload custom JSON hubs
+        let jsonHubs = await MainActor.run { StorageService.shared.customJSONHubs }
+        try await uploadCustomJSONHubs(jsonHubs)
     }
     
     func downloadAllHomeScreenConfig() async throws -> HomeScreenConfig {
@@ -454,12 +544,14 @@ actor HomeScreenSyncService {
         async let extensionLists = downloadExtensionLists()
         async let customHomeRows = downloadCustomHomeRows()
         async let networkHubsConfig = downloadNetworkHubsConfig()
+        async let customJSONHubs = downloadCustomJSONHubs()
         
         return try await HomeScreenConfig(
             browseRows: browseRows,
             extensionLists: extensionLists,
             customHomeRows: customHomeRows,
-            networkHubsConfig: networkHubsConfig
+            networkHubsConfig: networkHubsConfig,
+            customJSONHubs: customJSONHubs
         )
     }
 }
@@ -619,6 +711,55 @@ struct HomeScreenConfig {
     let extensionLists: [ImportedListItem]
     let customHomeRows: [CustomHomeRow]
     let networkHubsConfig: [SyncedNetworkHubConfig]
+    let customJSONHubs: [CustomJSONHub]
+    
+    init(browseRows: [BrowseRowConfig], extensionLists: [ImportedListItem], customHomeRows: [CustomHomeRow], networkHubsConfig: [SyncedNetworkHubConfig], customJSONHubs: [CustomJSONHub] = []) {
+        self.browseRows = browseRows
+        self.extensionLists = extensionLists
+        self.customHomeRows = customHomeRows
+        self.networkHubsConfig = networkHubsConfig
+        self.customJSONHubs = customJSONHubs
+    }
+}
+
+struct SyncedCustomJSONHub: Codable {
+    let userId: String
+    let hubId: String
+    let name: String
+    let jsonUrl: String
+    let iconUrl: String?
+    let brandColor: String?
+    let isEnabled: Bool
+    let sortOrder: Int
+    let lastSynced: Date?
+    let createdAt: Date?
+    
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case hubId = "hub_id"
+        case name
+        case jsonUrl = "json_url"
+        case iconUrl = "icon_url"
+        case brandColor = "brand_color"
+        case isEnabled = "is_enabled"
+        case sortOrder = "sort_order"
+        case lastSynced = "last_synced"
+        case createdAt = "created_at"
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(userId, forKey: .userId)
+        try container.encode(hubId, forKey: .hubId)
+        try container.encode(name, forKey: .name)
+        try container.encode(jsonUrl, forKey: .jsonUrl)
+        try container.encode(iconUrl, forKey: .iconUrl)
+        try container.encode(brandColor, forKey: .brandColor)
+        try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(sortOrder, forKey: .sortOrder)
+        try container.encode(lastSynced, forKey: .lastSynced)
+        try container.encode(createdAt, forKey: .createdAt)
+    }
 }
 
 // MARK: - Custom Home Row Extension for full init

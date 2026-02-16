@@ -652,6 +652,14 @@ struct HeroCarouselSlide: View {
         .onDisappear {
             stopTrailer()
         }
+        // Fix: when the trailer key arrives *after* the first slide is already active,
+        // onChange(of: isActive) won't re-fire because isActive was always true.
+        // Watch for the trailer key itself so the first slide starts its trailer.
+        .onChange(of: trailerKey) { _, newKey in
+            if isActive && newKey != nil && !showTrailer {
+                startTrailerIfNeeded()
+            }
+        }
     }
     
     /// Large text fallback for backdrop view when logo isn't available

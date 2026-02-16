@@ -414,6 +414,67 @@ struct BrowseRowConfig: Identifiable, Codable {
     }
 }
 
+// MARK: - Custom JSON Hub
+/// Represents a user-defined hub loaded from an external JSON URL.
+/// The JSON file is expected to contain an array of objects with TMDB IDs.
+struct CustomJSONHub: Identifiable, Codable {
+    let id: String
+    var name: String
+    var jsonURL: String
+    var iconURL: String?
+    var brandColor: String?
+    var items: [SavedMediaItem]
+    var isEnabled: Bool
+    var sortOrder: Int
+    var lastSynced: Date?
+    let createdAt: Date
+    
+    init(name: String, jsonURL: String, iconURL: String? = nil, brandColor: String? = nil) {
+        self.id = UUID().uuidString
+        self.name = name
+        self.jsonURL = jsonURL
+        self.iconURL = iconURL
+        self.brandColor = brandColor
+        self.items = []
+        self.isEnabled = true
+        self.sortOrder = 0
+        self.lastSynced = nil
+        self.createdAt = Date()
+    }
+    
+    /// Full init used when restoring from cloud sync
+    init(id: String, name: String, jsonURL: String, iconURL: String?, brandColor: String?, isEnabled: Bool, sortOrder: Int, lastSynced: Date?, createdAt: Date) {
+        self.id = id
+        self.name = name
+        self.jsonURL = jsonURL
+        self.iconURL = iconURL
+        self.brandColor = brandColor
+        self.items = []
+        self.isEnabled = isEnabled
+        self.sortOrder = sortOrder
+        self.lastSynced = lastSynced
+        self.createdAt = createdAt
+    }
+}
+
+/// A single entry from the external JSON file.
+/// Supports flexible formats: { "tmdb_id": 123, "media_type": "movie", "title": "..." }
+struct ExternalJSONEntry: Codable {
+    let tmdbId: Int?
+    let mediaType: String?
+    let title: String?
+    let imdbId: String?
+    let year: Int?
+    
+    enum CodingKeys: String, CodingKey {
+        case tmdbId = "tmdb_id"
+        case mediaType = "media_type"
+        case title
+        case imdbId = "imdb_id"
+        case year
+    }
+}
+
 // MARK: - Search History
 struct SearchHistoryItem: Identifiable, Codable {
     let id: String

@@ -286,6 +286,19 @@ struct SettingsView: View {
                     }
                     .foregroundColor(.primary)
                 }
+                
+                NavigationLink(destination: CustomJSONHubsSettingsView()) {
+                    HStack {
+                        Image(systemName: "doc.badge.plus")
+                            .foregroundColor(.orange)
+                            .frame(width: 24)
+                        Text("Custom Hubs")
+                        Spacer()
+                        Text("\(storage.customJSONHubs.filter { $0.isEnabled }.count) active")
+                            .foregroundColor(.secondary)
+                    }
+                    .foregroundColor(.primary)
+                }
             }
             
             // Cloud Sync
@@ -2071,6 +2084,342 @@ struct ParentPasscodeEntrySheet: View {
                 }
             }
             .onAppear { isFocused = true }
+        }
+    }
+}
+
+// MARK: - Custom JSON Hubs Settings
+struct CustomJSONHubsSettingsView: View {
+    @ObservedObject private var storage = StorageService.shared
+    @State private var showAddHub = false
+    
+    var body: some View {
+        List {
+            // Info section
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.badge.plus")
+                            .font(.title3)
+                            .foregroundColor(.orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Custom Hubs")
+                                .font(.headline)
+                            Text("Add your own hubs using external JSON URLs")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    Text("Provide a JSON URL containing TMDB IDs to create a custom hub on your Browse page.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+            
+            // Existing hubs
+            if !storage.customJSONHubs.isEmpty {
+                Section("Your Hubs") {
+                    ForEach(storage.customJSONHubs.sorted { $0.sortOrder < $1.sortOrder }) { hub in
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(hub.name)
+                                    .fontWeight(.medium)
+                                
+                                HStack(spacing: 8) {
+                                    Text("\(hub.items.count) items")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    
+                                    if let synced = hub.lastSynced {
+                                        Text("Updated \(synced.formatted(.relative(presentation: .named)))")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                            }
+                            
+                            Spacer()
+                            
+                            Toggle("", isOn: Binding(
+                                get: { hub.isEnabled },
+                                set: { newValue in
+                                    var updatedHub = hub
+                                    updatedHub.isEnabled = newValue
+                                    storage.updateCustomJSONHub(updatedHub)
+                                }
+                            ))
+                            .labelsHidden()
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                storage.deleteCustomJSONHub(id: hub.id)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            
+                            Button {
+                                Task {
+                                    await refreshHub(hub)
+                                }
+                            } label: {
+                                Label("Refresh", systemImage: "arrow.clockwise")
+                            }
+                            .tint(.blue)
+                        }
+                    }
+                    .onMove { from, to in
+                        var hubs = storage.customJSONHubs.sorted { $0.sortOrder < $1.sortOrder }
+                        hubs.move(fromOffsets: from, toOffset: to)
+                        storage.reorderCustomJSONHubs(hubs)
+                    }
+                }
+            }
+            
+            // Add button
+            Section {
+                Button {
+                    showAddHub = true
+                } label: {
+                    Label("Add Custom Hub", systemImage: "plus.circle")
+                }
+            }
+        }
+        .navigationTitle("Custom Hubs")
+        .toolbar {
+            if !storage.customJSONHubs.isEmpty {
+                EditButton()
+            }
+        }
+        .sheet(isPresented: $showAddHub) {
+            AddCustomJSONHubSheet()
+        }
+    }
+    
+    private func refreshHub(_ hub: CustomJSONHub) async {
+        do {
+            let result = try await JSONHubService.shared.fetchAndResolve(from: hub.jsonURL)
+            await MainActor.run {
+                var updatedHub = hub
+                updatedHub.items = result.items
+                updatedHub.lastSynced = Date()
+                storage.updateCustomJSONHub(updatedHub)
+            }
+        } catch {
+            print("Error refreshing hub \(hub.name): \(error)")
+        }
+    }
+}
+
+// MARK: - Add Custom JSON Hub Sheet
+struct AddCustomJSONHubSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var storage = StorageService.shared
+    @State private var jsonURL = ""
+    @State private var customName = ""
+    @State private var brandColor = ""
+    @State private var isLoading = false
+    @State private var error: String?
+    @State private var previewName: String?
+    @State private var previewCount = 0
+    @State private var previewSamples: [ExternalJSONEntry] = []
+    @State private var isImporting = false
+    
+    private var hasPreview: Bool { previewCount > 0 }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("https://example.com/list.json", text: $jsonURL)
+                        .textContentType(.URL)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .onChange(of: jsonURL) { _, _ in
+                            previewCount = 0
+                            previewSamples = []
+                            previewName = nil
+                            error = nil
+                        }
+                    
+                    Button {
+                        Task { await previewJSON() }
+                    } label: {
+                        HStack {
+                            Text("Preview")
+                            if isLoading && !isImporting {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(jsonURL.isEmpty || isLoading)
+                } header: {
+                    Text("JSON File URL")
+                } footer: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Paste a URL to a .json file containing movie/TV entries.")
+                        Text("Format: [{\"tmdb_id\": 123, \"media_type\": \"movie\", \"title\": \"...\"}]")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                if let error = error {
+                    Section {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                
+                if hasPreview {
+                    Section("Preview") {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("\(previewCount) entries found")
+                                .fontWeight(.medium)
+                        }
+                        
+                        if !previewSamples.isEmpty {
+                            ForEach(previewSamples.indices, id: \.self) { index in
+                                let sample = previewSamples[index]
+                                HStack(spacing: 8) {
+                                    Image(systemName: sample.mediaType == "tv" || sample.mediaType == "show" ? "tv" : "film")
+                                        .foregroundColor(.secondary)
+                                        .frame(width: 20)
+                                    
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(sample.title ?? "ID: \(sample.tmdbId ?? 0)")
+                                            .font(.subheadline)
+                                            .lineLimit(1)
+                                        if let year = sample.year {
+                                            Text("\(year)")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if previewCount > 5 {
+                                Text("...and \(previewCount - 5) more")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    
+                    Section("Options") {
+                        TextField("Hub Name", text: $customName)
+                            .onAppear {
+                                if customName.isEmpty, let name = previewName {
+                                    customName = name
+                                }
+                            }
+                        
+                        TextField("Brand Color (optional, e.g. #FF6600)", text: $brandColor)
+                            .autocapitalization(.none)
+                            .autocorrectionDisabled()
+                    }
+                }
+            }
+            .navigationTitle("Add Custom Hub")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Import") {
+                        Task { await importHub() }
+                    }
+                    .disabled(!hasPreview || customName.isEmpty || isImporting)
+                }
+            }
+            .overlay {
+                if isImporting {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("Importing...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(24)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                }
+            }
+        }
+    }
+    
+    private func previewJSON() async {
+        isLoading = true
+        error = nil
+        
+        do {
+            let result = try await JSONHubService.shared.preview(from: jsonURL)
+            await MainActor.run {
+                previewName = result.name
+                previewCount = result.count
+                previewSamples = result.sampleEntries
+                
+                if customName.isEmpty {
+                    // Try to derive a name from the URL or JSON
+                    if let name = result.name {
+                        customName = name
+                    } else {
+                        // Extract from URL filename
+                        if let urlObj = URL(string: jsonURL) {
+                            let filename = urlObj.deletingPathExtension().lastPathComponent
+                            customName = filename
+                                .replacingOccurrences(of: "-", with: " ")
+                                .replacingOccurrences(of: "_", with: " ")
+                                .capitalized
+                        }
+                    }
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.error = error.localizedDescription
+            }
+        }
+        
+        await MainActor.run { isLoading = false }
+    }
+    
+    private func importHub() async {
+        isImporting = true
+        
+        do {
+            let result = try await JSONHubService.shared.fetchAndResolve(from: jsonURL)
+            
+            await MainActor.run {
+                var hub = CustomJSONHub(
+                    name: customName,
+                    jsonURL: jsonURL,
+                    brandColor: brandColor.isEmpty ? nil : brandColor
+                )
+                hub.items = result.items
+                hub.lastSynced = Date()
+                
+                storage.addCustomJSONHub(hub)
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                self.error = "Import failed: \(error.localizedDescription)"
+                isImporting = false
+            }
         }
     }
 }
