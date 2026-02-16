@@ -289,10 +289,10 @@ struct SettingsView: View {
                 
                 NavigationLink(destination: CustomJSONHubsSettingsView()) {
                     HStack {
-                        Image(systemName: "doc.badge.plus")
+                        Image(systemName: "square.grid.3x3.fill")
                             .foregroundColor(.orange)
                             .frame(width: 24)
-                        Text("Custom Hubs")
+                        Text("Hub Customisation")
                         Spacer()
                         Text("\(storage.customJSONHubs.filter { $0.isEnabled }.count) active")
                             .foregroundColor(.secondary)
@@ -2092,6 +2092,9 @@ struct ParentPasscodeEntrySheet: View {
 struct CustomJSONHubsSettingsView: View {
     @ObservedObject private var storage = StorageService.shared
     @State private var showAddHub = false
+    @State private var showExportSheet = false
+    @State private var exportHub: CustomJSONHub?
+    @State private var exportedJSON: String?
     
     var body: some View {
         List {
@@ -2099,19 +2102,19 @@ struct CustomJSONHubsSettingsView: View {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 10) {
-                        Image(systemName: "doc.badge.plus")
+                        Image(systemName: "square.grid.3x3.fill")
                             .font(.title3)
                             .foregroundColor(.orange)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Custom Hubs")
+                            Text("Hub Customisation")
                                 .font(.headline)
-                            Text("Add your own hubs using external JSON URLs")
+                            Text("Create your own hubs using MDBList or JSON URLs")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }
                     
-                    Text("Provide a JSON URL containing TMDB IDs to create a custom hub on your Browse page.")
+                    Text("Add custom collections to your Browse page. Use an MDBList URL, search for lists, or provide a JSON file.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -2123,6 +2126,24 @@ struct CustomJSONHubsSettingsView: View {
                 Section("Your Hubs") {
                     ForEach(storage.customJSONHubs.sorted { $0.sortOrder < $1.sortOrder }) { hub in
                         HStack(spacing: 12) {
+                            // Hub image thumbnail
+                            if let imageURL = hub.imageURL, !imageURL.isEmpty, let url = URL(string: imageURL) {
+                                AsyncImage(url: url) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                            .frame(width: 40, height: 40)
+                                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    default:
+                                        hubPlaceholder(hub)
+                                    }
+                                }
+                            } else {
+                                hubPlaceholder(hub)
+                            }
+                            
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(hub.name)
                                     .fontWeight(.medium)
@@ -2132,8 +2153,15 @@ struct CustomJSONHubsSettingsView: View {
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                     
+                                    Text(hub.source.displayName)
+                                        .font(.caption2)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Capsule().fill(hub.source == .mdblist ? Color.purple : Color.blue))
+                                    
                                     if let synced = hub.lastSynced {
-                                        Text("Updated \(synced.formatted(.relative(presentation: .named)))")
+                                        Text(synced.formatted(.relative(presentation: .named)))
                                             .font(.caption2)
                                             .foregroundColor(.secondary)
                                     }
@@ -2168,6 +2196,16 @@ struct CustomJSONHubsSettingsView: View {
                             }
                             .tint(.blue)
                         }
+                        .swipeActions(edge: .leading) {
+                            Button {
+                                exportHub = hub
+                                generateExportJSON(hub)
+                                showExportSheet = true
+                            } label: {
+                                Label("Export", systemImage: "square.and.arrow.up")
+                            }
+                            .tint(.green)
+                        }
                     }
                     .onMove { from, to in
                         var hubs = storage.customJSONHubs.sorted { $0.sortOrder < $1.sortOrder }
@@ -2184,89 +2222,277 @@ struct CustomJSONHubsSettingsView: View {
                 } label: {
                     Label("Add Custom Hub", systemImage: "plus.circle")
                 }
+            } footer: {
+                Text("Swipe right on a hub to export it as shareable JSON")
             }
         }
-        .navigationTitle("Custom Hubs")
+        .navigationTitle("Hub Customisation")
         .toolbar {
             if !storage.customJSONHubs.isEmpty {
                 EditButton()
             }
         }
         .sheet(isPresented: $showAddHub) {
-            AddCustomJSONHubSheet()
+            AddCustomHubSheet()
+        }
+        .sheet(isPresented: $showExportSheet) {
+            if let hub = exportHub, let json = exportedJSON {
+                ExportHubSheet(hub: hub, jsonString: json)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func hubPlaceholder(_ hub: CustomJSONHub) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(hex: hub.brandColor ?? "#FF6600").opacity(0.2))
+                .frame(width: 40, height: 40)
+            Image(systemName: hub.source == .mdblist ? "list.star" : "doc.text")
+                .font(.caption)
+                .foregroundColor(Color(hex: hub.brandColor ?? "#FF6600"))
         }
     }
     
     private func refreshHub(_ hub: CustomJSONHub) async {
-        do {
-            let result = try await JSONHubService.shared.fetchAndResolve(from: hub.jsonURL)
-            await MainActor.run {
-                var updatedHub = hub
-                updatedHub.items = result.items
-                updatedHub.lastSynced = Date()
-                storage.updateCustomJSONHub(updatedHub)
+        if hub.source == .mdblist, let listId = hub.mdblistId {
+            do {
+                let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
+                await MainActor.run {
+                    var updatedHub = hub
+                    updatedHub.items = items
+                    updatedHub.lastSynced = Date()
+                    storage.updateCustomJSONHub(updatedHub)
+                }
+            } catch {
+                print("Error refreshing MDBList hub \(hub.name): \(error)")
             }
-        } catch {
-            print("Error refreshing hub \(hub.name): \(error)")
+        } else {
+            do {
+                let result = try await JSONHubService.shared.fetchAndResolve(from: hub.jsonURL)
+                await MainActor.run {
+                    var updatedHub = hub
+                    updatedHub.items = result.items
+                    updatedHub.lastSynced = Date()
+                    storage.updateCustomJSONHub(updatedHub)
+                }
+            } catch {
+                print("Error refreshing hub \(hub.name): \(error)")
+            }
+        }
+    }
+    
+    private func generateExportJSON(_ hub: CustomJSONHub) {
+        let exportItems: [[String: Any]] = hub.items.map { item in
+            var dict: [String: Any] = [
+                "tmdb_id": item.mediaId,
+                "media_type": item.mediaType.rawValue,
+                "title": item.title
+            ]
+            if let year = item.year { dict["year"] = year }
+            return dict
+        }
+        
+        let wrapper: [String: Any] = [
+            "name": hub.name,
+            "items": exportItems
+        ]
+        
+        if let data = try? JSONSerialization.data(withJSONObject: wrapper, options: [.prettyPrinted, .sortedKeys]),
+           let string = String(data: data, encoding: .utf8) {
+            exportedJSON = string
         }
     }
 }
 
-// MARK: - Add Custom JSON Hub Sheet
-struct AddCustomJSONHubSheet: View {
+// MARK: - Export Hub Sheet
+struct ExportHubSheet: View {
+    let hub: CustomJSONHub
+    let jsonString: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var copied = false
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                // Header
+                VStack(spacing: 8) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.largeTitle)
+                        .foregroundColor(.green)
+                    Text("Export \"\(hub.name)\"")
+                        .font(.headline)
+                    Text("\(hub.items.count) items as JSON")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 8)
+                
+                // JSON preview
+                ScrollView {
+                    Text(jsonString)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(12)
+                }
+                .frame(maxHeight: 300)
+                .padding(.horizontal)
+                
+                // Actions
+                VStack(spacing: 12) {
+                    Button {
+                        UIPasteboard.general.string = jsonString
+                        withAnimation { copied = true }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            withAnimation { copied = false }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            Text(copied ? "Copied!" : "Copy JSON")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    
+                    Button {
+                        shareJSON()
+                    } label: {
+                        HStack {
+                            Image(systemName: "square.and.arrow.up")
+                            Text("Share")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+    
+    private func shareJSON() {
+        guard let data = jsonString.data(using: .utf8) else { return }
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(hub.name.replacingOccurrences(of: " ", with: "_")).json")
+        try? data.write(to: tempURL)
+        
+        let activityVC = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
+        
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootVC = windowScene.windows.first?.rootViewController {
+            var topVC = rootVC
+            while let presented = topVC.presentedViewController {
+                topVC = presented
+            }
+            activityVC.popoverPresentationController?.sourceView = topVC.view
+            topVC.present(activityVC, animated: true)
+        }
+    }
+}
+
+// MARK: - Add Custom Hub Sheet (Revamped)
+struct AddCustomHubSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var storage = StorageService.shared
-    @State private var jsonURL = ""
-    @State private var customName = ""
+    
+    enum HubSourceTab: String, CaseIterable {
+        case mdblist = "MDBList"
+        case json = "JSON URL"
+    }
+    
+    // General
+    @State private var selectedSource: HubSourceTab = .mdblist
+    @State private var hubName = ""
+    @State private var imageURL = ""
+    @State private var rowName = ""
     @State private var brandColor = ""
-    @State private var isLoading = false
     @State private var error: String?
-    @State private var previewName: String?
-    @State private var previewCount = 0
-    @State private var previewSamples: [ExternalJSONEntry] = []
     @State private var isImporting = false
     
-    private var hasPreview: Bool { previewCount > 0 }
+    // MDBList
+    @State private var mdblistInput = ""
+    @State private var isSearching = false
+    @State private var searchResults: [MDBListSearchResult] = []
+    @State private var selectedList: MDBListSearchResult?
+    @State private var mdblistPreviewItems: [SavedMediaItem] = []
+    @State private var isLoadingPreview = false
+    @State private var hasSearched = false
+    
+    // JSON
+    @State private var jsonURL = ""
+    @State private var jsonPreviewCount = 0
+    @State private var jsonPreviewSamples: [ExternalJSONEntry] = []
+    @State private var jsonPreviewName: String?
+    @State private var isLoadingJSON = false
+    
+    private var hasValidContent: Bool {
+        if selectedSource == .mdblist {
+            return selectedList != nil && !mdblistPreviewItems.isEmpty
+        } else {
+            return jsonPreviewCount > 0
+        }
+    }
+    
+    private var effectiveName: String {
+        if !hubName.isEmpty { return hubName }
+        if selectedSource == .mdblist, let list = selectedList {
+            return list.displayName
+        }
+        if selectedSource == .json, let name = jsonPreviewName {
+            return name
+        }
+        return ""
+    }
     
     var body: some View {
         NavigationStack {
             Form {
+                // Step 1: Hub Name
                 Section {
-                    TextField("https://example.com/list.json", text: $jsonURL)
-                        .textContentType(.URL)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                        .onChange(of: jsonURL) { _, _ in
-                            previewCount = 0
-                            previewSamples = []
-                            previewName = nil
-                            error = nil
-                        }
-                    
-                    Button {
-                        Task { await previewJSON() }
-                    } label: {
-                        HStack {
-                            Text("Preview")
-                            if isLoading && !isImporting {
-                                Spacer()
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(jsonURL.isEmpty || isLoading)
+                    TextField("Hub Name", text: $hubName)
                 } header: {
-                    Text("JSON File URL")
-                } footer: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Paste a URL to a .json file containing movie/TV entries.")
-                        Text("Format: [{\"tmdb_id\": 123, \"media_type\": \"movie\", \"title\": \"...\"}]")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+                    HStack(spacing: 6) {
+                        StepBadge(number: 1)
+                        Text("Name Your Hub")
                     }
                 }
                 
+                // Step 2: Source Selection
+                Section {
+                    Picker("Source", selection: $selectedSource) {
+                        ForEach(HubSourceTab.allCases, id: \.rawValue) { tab in
+                            Text(tab.rawValue).tag(tab)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: selectedSource) { _, _ in
+                        error = nil
+                    }
+                    
+                    if selectedSource == .mdblist {
+                        mdblistSection
+                    } else {
+                        jsonSection
+                    }
+                } header: {
+                    HStack(spacing: 6) {
+                        StepBadge(number: 2)
+                        Text("Add Content")
+                    }
+                }
+                
+                // Error
                 if let error = error {
                     Section {
                         HStack {
@@ -2279,55 +2505,113 @@ struct AddCustomJSONHubSheet: View {
                     }
                 }
                 
-                if hasPreview {
-                    Section("Preview") {
-                        HStack {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                            Text("\(previewCount) entries found")
-                                .fontWeight(.medium)
-                        }
-                        
-                        if !previewSamples.isEmpty {
-                            ForEach(previewSamples.indices, id: \.self) { index in
-                                let sample = previewSamples[index]
-                                HStack(spacing: 8) {
-                                    Image(systemName: sample.mediaType == "tv" || sample.mediaType == "show" ? "tv" : "film")
-                                        .foregroundColor(.secondary)
-                                        .frame(width: 20)
-                                    
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(sample.title ?? "ID: \(sample.tmdbId ?? 0)")
-                                            .font(.subheadline)
+                // Preview (MDBList)
+                if selectedSource == .mdblist && !mdblistPreviewItems.isEmpty {
+                    Section("Preview (\(mdblistPreviewItems.count) items)") {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(mdblistPreviewItems.prefix(8)) { item in
+                                    VStack(spacing: 4) {
+                                        PosterImageView(posterPath: item.posterPath, size: .small)
+                                            .frame(width: 50, height: 75)
+                                        Text(item.title)
+                                            .font(.caption2)
                                             .lineLimit(1)
-                                        if let year = sample.year {
-                                            Text("\(year)")
-                                                .font(.caption2)
-                                                .foregroundColor(.secondary)
-                                        }
+                                            .frame(width: 50)
                                     }
                                 }
                             }
-                            
-                            if previewCount > 5 {
-                                Text("...and \(previewCount - 5) more")
-                                    .font(.caption)
+                            .padding(.vertical, 4)
+                        }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    }
+                }
+                
+                // Preview (JSON)
+                if selectedSource == .json && jsonPreviewCount > 0 {
+                    Section("Preview (\(jsonPreviewCount) entries)") {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("\(jsonPreviewCount) entries found")
+                                .fontWeight(.medium)
+                        }
+                        
+                        ForEach(jsonPreviewSamples.indices, id: \.self) { index in
+                            let sample = jsonPreviewSamples[index]
+                            HStack(spacing: 8) {
+                                Image(systemName: sample.mediaType == "tv" || sample.mediaType == "show" ? "tv" : "film")
                                     .foregroundColor(.secondary)
+                                    .frame(width: 20)
+                                Text(sample.title ?? "ID: \(sample.tmdbId ?? 0)")
+                                    .font(.subheadline)
+                                    .lineLimit(1)
                             }
                         }
+                        
+                        if jsonPreviewCount > 5 {
+                            Text("...and \(jsonPreviewCount - 5) more")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
-                    
-                    Section("Options") {
-                        TextField("Hub Name", text: $customName)
-                            .onAppear {
-                                if customName.isEmpty, let name = previewName {
-                                    customName = name
+                }
+                
+                // Step 3: Customisation
+                if hasValidContent {
+                    Section {
+                        TextField("https://example.com/image.png", text: $imageURL)
+                            .textContentType(.URL)
+                            .autocapitalization(.none)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                        
+                        // Image preview
+                        if !imageURL.isEmpty, let url = URL(string: imageURL) {
+                            AsyncImage(url: url) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(height: 50)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                case .failure:
+                                    HStack {
+                                        Image(systemName: "exclamationmark.triangle")
+                                            .foregroundColor(.orange)
+                                        Text("Invalid image URL")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                default:
+                                    ProgressView()
+                                        .frame(height: 50)
                                 }
                             }
+                        }
+                    } header: {
+                        HStack(spacing: 6) {
+                            StepBadge(number: 3)
+                            Text("Hub Image (optional)")
+                        }
+                    } footer: {
+                        Text("Paste a hosted image link for your hub's icon")
+                    }
+                    
+                    Section {
+                        TextField("Row Name (shown on Browse)", text: $rowName)
                         
                         TextField("Brand Color (optional, e.g. #FF6600)", text: $brandColor)
                             .autocapitalization(.none)
                             .autocorrectionDisabled()
+                    } header: {
+                        HStack(spacing: 6) {
+                            StepBadge(number: 4)
+                            Text("Row Name & Style")
+                        }
+                    } footer: {
+                        Text("The row name appears on the Browse page button. Leave blank to use the hub name.")
                     }
                 }
             }
@@ -2339,10 +2623,11 @@ struct AddCustomJSONHubSheet: View {
                 }
                 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Import") {
+                    Button("Done") {
                         Task { await importHub() }
                     }
-                    .disabled(!hasPreview || customName.isEmpty || isImporting)
+                    .fontWeight(.semibold)
+                    .disabled(!hasValidContent || effectiveName.isEmpty || isImporting)
                 }
             }
             .overlay {
@@ -2361,30 +2646,262 @@ struct AddCustomJSONHubSheet: View {
         }
     }
     
+    // MARK: - MDBList Section
+    @ViewBuilder
+    private var mdblistSection: some View {
+        // URL or search input
+        TextField("Paste MDBList URL or search...", text: $mdblistInput)
+            .textContentType(.URL)
+            .autocapitalization(.none)
+            .autocorrectionDisabled()
+            .onChange(of: mdblistInput) { _, _ in
+                selectedList = nil
+                mdblistPreviewItems = []
+                error = nil
+                hasSearched = false
+            }
+        
+        HStack(spacing: 12) {
+            // Load button (for direct URL/ID)
+            Button {
+                Task { await loadMDBList() }
+            } label: {
+                HStack {
+                    Image(systemName: "link")
+                    Text("Load")
+                }
+            }
+            .disabled(mdblistInput.isEmpty || isLoadingPreview)
+            
+            // Search button
+            Button {
+                Task { await searchMDBLists() }
+            } label: {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                    Text("Search")
+                    if isSearching {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                    }
+                }
+            }
+            .disabled(mdblistInput.isEmpty || isSearching)
+        }
+        
+        // Search Results
+        if !searchResults.isEmpty {
+            ForEach(searchResults) { result in
+                Button {
+                    selectSearchResult(result)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: selectedList?.id == result.id ? "checkmark.circle.fill" : "circle")
+                            .foregroundColor(selectedList?.id == result.id ? .green : .secondary)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(result.displayName)
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundColor(.primary)
+                            
+                            HStack(spacing: 8) {
+                                if result.itemCount > 0 {
+                                    Label("\(result.itemCount)", systemImage: "film.stack")
+                                }
+                                if result.likeCount > 0 {
+                                    Label("\(result.likeCount)", systemImage: "heart")
+                                }
+                                if let username = result.username {
+                                    Text("by \(username)")
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                    }
+                }
+            }
+        } else if hasSearched && searchResults.isEmpty && !isSearching {
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                Text("No lists found")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        
+        // Loading preview indicator
+        if isLoadingPreview {
+            HStack {
+                ProgressView()
+                Text("Loading list...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        
+        // Selected list info
+        if let list = selectedList, !mdblistPreviewItems.isEmpty {
+            HStack {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(list.displayName)
+                        .fontWeight(.medium)
+                    Text("\(mdblistPreviewItems.count) items loaded")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+    
+    // MARK: - JSON Section
+    @ViewBuilder
+    private var jsonSection: some View {
+        TextField("https://example.com/list.json", text: $jsonURL)
+            .textContentType(.URL)
+            .autocapitalization(.none)
+            .autocorrectionDisabled()
+            .keyboardType(.URL)
+            .onChange(of: jsonURL) { _, _ in
+                jsonPreviewCount = 0
+                jsonPreviewSamples = []
+                jsonPreviewName = nil
+                error = nil
+            }
+        
+        Button {
+            Task { await previewJSON() }
+        } label: {
+            HStack {
+                Text("Preview")
+                if isLoadingJSON {
+                    Spacer()
+                    ProgressView()
+                }
+            }
+        }
+        .disabled(jsonURL.isEmpty || isLoadingJSON)
+    }
+    
+    // MARK: - Actions
+    
+    private func searchMDBLists() async {
+        isSearching = true
+        error = nil
+        hasSearched = true
+        
+        do {
+            searchResults = try await MDBListService.shared.searchLists(query: mdblistInput)
+        } catch {
+            self.error = "Search failed: \(error.localizedDescription)"
+        }
+        
+        isSearching = false
+    }
+    
+    private func loadMDBList() async {
+        isLoadingPreview = true
+        error = nil
+        
+        let listId = MDBListService.shared.parseListId(from: mdblistInput)
+        
+        // Extract name from URL
+        var derivedName = ""
+        if listId.contains("/") {
+            let components = listId.split(separator: "/")
+            if components.count >= 2 {
+                derivedName = String(components.last ?? "MDBList")
+                    .replacingOccurrences(of: "-", with: " ")
+                    .capitalized
+            }
+        }
+        
+        do {
+            let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
+            
+            await MainActor.run {
+                if items.isEmpty {
+                    error = "List is empty or could not be found."
+                } else {
+                    mdblistPreviewItems = items
+                    selectedList = MDBListSearchResult(
+                        id: listId.hashValue,
+                        name: derivedName.isEmpty ? listId : derivedName,
+                        slug: listId.contains("/") ? String(listId.split(separator: "/").last ?? "") : listId,
+                        items: items.count,
+                        likes: nil,
+                        username: listId.contains("/") ? String(listId.split(separator: "/").first ?? "") : nil,
+                        description: nil,
+                        mediatype: nil
+                    )
+                    
+                    if hubName.isEmpty {
+                        hubName = derivedName.isEmpty ? listId : derivedName
+                    }
+                }
+            }
+        } catch {
+            self.error = "Failed to load list. Check the URL or ID."
+        }
+        
+        isLoadingPreview = false
+    }
+    
+    private func selectSearchResult(_ result: MDBListSearchResult) {
+        selectedList = result
+        if hubName.isEmpty {
+            hubName = result.displayName
+        }
+        
+        // Load list items
+        Task {
+            isLoadingPreview = true
+            error = nil
+            
+            do {
+                let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: result.listPath)
+                await MainActor.run {
+                    mdblistPreviewItems = items
+                    if items.isEmpty {
+                        error = "This list appears to be empty."
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.error = "Failed to load list items."
+                }
+            }
+            
+            await MainActor.run { isLoadingPreview = false }
+        }
+    }
+    
     private func previewJSON() async {
-        isLoading = true
+        isLoadingJSON = true
         error = nil
         
         do {
             let result = try await JSONHubService.shared.preview(from: jsonURL)
             await MainActor.run {
-                previewName = result.name
-                previewCount = result.count
-                previewSamples = result.sampleEntries
+                jsonPreviewName = result.name
+                jsonPreviewCount = result.count
+                jsonPreviewSamples = result.sampleEntries
                 
-                if customName.isEmpty {
-                    // Try to derive a name from the URL or JSON
+                if hubName.isEmpty {
                     if let name = result.name {
-                        customName = name
-                    } else {
-                        // Extract from URL filename
-                        if let urlObj = URL(string: jsonURL) {
-                            let filename = urlObj.deletingPathExtension().lastPathComponent
-                            customName = filename
-                                .replacingOccurrences(of: "-", with: " ")
-                                .replacingOccurrences(of: "_", with: " ")
-                                .capitalized
-                        }
+                        hubName = name
+                    } else if let urlObj = URL(string: jsonURL) {
+                        let filename = urlObj.deletingPathExtension().lastPathComponent
+                        hubName = filename
+                            .replacingOccurrences(of: "-", with: " ")
+                            .replacingOccurrences(of: "_", with: " ")
+                            .capitalized
                     }
                 }
             }
@@ -2394,33 +2911,74 @@ struct AddCustomJSONHubSheet: View {
             }
         }
         
-        await MainActor.run { isLoading = false }
+        await MainActor.run { isLoadingJSON = false }
     }
     
     private func importHub() async {
         isImporting = true
+        let finalName = effectiveName
         
-        do {
-            let result = try await JSONHubService.shared.fetchAndResolve(from: jsonURL)
+        if selectedSource == .mdblist {
+            guard let list = selectedList else { return }
             
             await MainActor.run {
                 var hub = CustomJSONHub(
-                    name: customName,
-                    jsonURL: jsonURL,
-                    brandColor: brandColor.isEmpty ? nil : brandColor
+                    name: finalName,
+                    jsonURL: "mdblist://\(list.listPath)",
+                    brandColor: brandColor.isEmpty ? nil : brandColor,
+                    source: .mdblist
                 )
-                hub.items = result.items
+                hub.items = mdblistPreviewItems
                 hub.lastSynced = Date()
+                hub.mdblistId = list.listPath
+                hub.imageURL = imageURL.isEmpty ? nil : imageURL
+                hub.rowName = rowName.isEmpty ? nil : rowName
                 
                 storage.addCustomJSONHub(hub)
                 dismiss()
             }
-        } catch {
-            await MainActor.run {
-                self.error = "Import failed: \(error.localizedDescription)"
-                isImporting = false
+        } else {
+            // JSON source
+            do {
+                let result = try await JSONHubService.shared.fetchAndResolve(from: jsonURL)
+                
+                await MainActor.run {
+                    var hub = CustomJSONHub(
+                        name: finalName,
+                        jsonURL: jsonURL,
+                        brandColor: brandColor.isEmpty ? nil : brandColor,
+                        source: .json
+                    )
+                    hub.items = result.items
+                    hub.lastSynced = Date()
+                    hub.imageURL = imageURL.isEmpty ? nil : imageURL
+                    hub.rowName = rowName.isEmpty ? nil : rowName
+                    
+                    storage.addCustomJSONHub(hub)
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    self.error = "Import failed: \(error.localizedDescription)"
+                    isImporting = false
+                }
+                return
             }
         }
+    }
+}
+
+// MARK: - Step Badge
+private struct StepBadge: View {
+    let number: Int
+    
+    var body: some View {
+        Text("\(number)")
+            .font(.caption2)
+            .fontWeight(.bold)
+            .foregroundColor(.white)
+            .frame(width: 18, height: 18)
+            .background(Circle().fill(Color.accentColor))
     }
 }
 

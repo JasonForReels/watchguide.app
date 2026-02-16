@@ -192,7 +192,7 @@ struct HomeCustomizationView: View {
             }
         }
         .sheet(isPresented: $showAddJSONHub) {
-            AddCustomJSONHubSheet()
+            AddCustomHubSheet()
         }
     }
     

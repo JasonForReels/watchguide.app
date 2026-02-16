@@ -2534,18 +2534,36 @@ struct CustomJSONHubButton: View {
     
     var body: some View {
         Button(action: action) {
-            Text(hub.name)
-                .font(.caption)
-                .fontWeight(.bold)
-                .foregroundColor(.white)
-                .lineLimit(1)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .frame(minWidth: 80)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(resolvedColor)
-                )
+            HStack(spacing: 8) {
+                // Hub image if available
+                if let imageURL = hub.imageURL, !imageURL.isEmpty, let url = URL(string: imageURL) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 22, height: 22)
+                                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        default:
+                            EmptyView()
+                        }
+                    }
+                }
+                
+                Text(hub.displayRowName)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(minWidth: 80)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(resolvedColor)
+            )
         }
         .buttonStyle(.plain)
         .shadow(color: resolvedColor.opacity(0.35), radius: isPressed ? 2 : 5, y: isPressed ? 1 : 3)

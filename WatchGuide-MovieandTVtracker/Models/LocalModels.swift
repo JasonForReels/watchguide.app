@@ -414,32 +414,53 @@ struct BrowseRowConfig: Identifiable, Codable {
     }
 }
 
+// MARK: - Custom Hub Source
+enum CustomHubSource: String, Codable {
+    case json = "json"
+    case mdblist = "mdblist"
+    
+    var displayName: String {
+        switch self {
+        case .json: return "JSON URL"
+        case .mdblist: return "MDBList"
+        }
+    }
+}
+
 // MARK: - Custom JSON Hub
-/// Represents a user-defined hub loaded from an external JSON URL.
+/// Represents a user-defined hub loaded from an external JSON URL or MDBList.
 /// The JSON file is expected to contain an array of objects with TMDB IDs.
 struct CustomJSONHub: Identifiable, Codable {
     let id: String
     var name: String
     var jsonURL: String
     var iconURL: String?
+    var imageURL: String?
     var brandColor: String?
     var items: [SavedMediaItem]
     var isEnabled: Bool
     var sortOrder: Int
     var lastSynced: Date?
     let createdAt: Date
+    var source: CustomHubSource
+    var mdblistId: String?
+    var rowName: String?
     
-    init(name: String, jsonURL: String, iconURL: String? = nil, brandColor: String? = nil) {
+    init(name: String, jsonURL: String, iconURL: String? = nil, brandColor: String? = nil, source: CustomHubSource = .json) {
         self.id = UUID().uuidString
         self.name = name
         self.jsonURL = jsonURL
         self.iconURL = iconURL
+        self.imageURL = nil
         self.brandColor = brandColor
         self.items = []
         self.isEnabled = true
         self.sortOrder = 0
         self.lastSynced = nil
         self.createdAt = Date()
+        self.source = source
+        self.mdblistId = nil
+        self.rowName = nil
     }
     
     /// Full init used when restoring from cloud sync
@@ -448,12 +469,21 @@ struct CustomJSONHub: Identifiable, Codable {
         self.name = name
         self.jsonURL = jsonURL
         self.iconURL = iconURL
+        self.imageURL = nil
         self.brandColor = brandColor
         self.items = []
         self.isEnabled = isEnabled
         self.sortOrder = sortOrder
         self.lastSynced = lastSynced
         self.createdAt = createdAt
+        self.source = .json
+        self.mdblistId = nil
+        self.rowName = nil
+    }
+    
+    /// The label displayed on the Browse page hub button
+    var displayRowName: String {
+        rowName?.isEmpty == false ? rowName! : name
     }
 }
 

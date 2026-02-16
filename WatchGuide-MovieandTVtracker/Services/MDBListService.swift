@@ -266,6 +266,59 @@ actor MDBListService {
         
         return id
     }
+    
+    // MARK: - Search Lists
+    
+    /// Search public MDBList lists by query string.
+    func searchLists(query: String) async throws -> [MDBListSearchResult] {
+        guard !apiKey.isEmpty else { throw MDBListError.notConfigured }
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let urlString = "\(baseURL)/api/lists/search?s=\(encoded)&apikey=\(apiKey)"
+        
+        guard let url = URL(string: urlString) else { throw MDBListError.invalidURL }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else { throw MDBListError.networkError }
+        guard (200...299).contains(httpResponse.statusCode) else { throw MDBListError.apiError(httpResponse.statusCode) }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        
+        // The search endpoint returns an array of list objects
+        let results = try decoder.decode([MDBListSearchResult].self, from: data)
+        return results
+    }
+    
+    /// Get top/popular MDBList lists.
+    func getTopLists() async throws -> [MDBListSearchResult] {
+        guard !apiKey.isEmpty else { throw MDBListError.notConfigured }
+        
+        let urlString = "\(baseURL)/api/lists/top?apikey=\(apiKey)"
+        
+        guard let url = URL(string: urlString) else { throw MDBListError.invalidURL }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else { throw MDBListError.networkError }
+        guard (200...299).contains(httpResponse.statusCode) else { throw MDBListError.apiError(httpResponse.statusCode) }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        
+        let results = try decoder.decode([MDBListSearchResult].self, from: data)
+        return results
+    }
 }
 
 // MARK: - MDBList Response Models
@@ -370,6 +423,39 @@ private func formatVotes(_ votes: Int) -> String {
     let formatter = NumberFormatter()
     formatter.numberStyle = .decimal
     return formatter.string(from: NSNumber(value: votes)) ?? "\(votes)"
+}
+
+// MARK: - MDBList Search Result
+
+struct MDBListSearchResult: Codable, Identifiable {
+    let id: Int
+    let name: String?
+    let slug: String?
+    let items: Int?
+    let likes: Int?
+    let username: String?
+    let description: String?
+    let mediatype: String?
+    
+    /// The list path used to fetch items (username/slug)
+    var listPath: String {
+        if let username = username, let slug = slug {
+            return "\(username)/\(slug)"
+        }
+        return slug ?? "\(id)"
+    }
+    
+    var displayName: String {
+        name ?? slug ?? "Untitled"
+    }
+    
+    var itemCount: Int {
+        items ?? 0
+    }
+    
+    var likeCount: Int {
+        likes ?? 0
+    }
 }
 
 // MARK: - Errors

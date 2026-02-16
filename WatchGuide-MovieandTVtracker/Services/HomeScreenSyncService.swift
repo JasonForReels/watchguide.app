@@ -484,17 +484,10 @@ actor HomeScreenSyncService {
         
         let items: [SyncedCustomJSONHub] = try await request(endpoint: "custom_json_hubs", queryItems: queryItems)
         
-        // For each hub, re-fetch items from the JSON URL
+        // For each hub, re-fetch items from the source
         var hubs: [CustomJSONHub] = []
         for item in items {
             var hub = CustomJSONHub(
-                name: item.name,
-                jsonURL: item.jsonUrl,
-                iconURL: item.iconUrl,
-                brandColor: item.brandColor
-            )
-            // Preserve the original ID
-            hub = CustomJSONHub(
                 id: item.hubId,
                 name: item.name,
                 jsonURL: item.jsonUrl,
@@ -506,13 +499,28 @@ actor HomeScreenSyncService {
                 createdAt: item.createdAt ?? Date()
             )
             
-            // Re-fetch items from the JSON URL
-            do {
-                let result = try await JSONHubService.shared.fetchAndResolve(from: item.jsonUrl)
-                hub.items = result.items
-                hub.lastSynced = Date()
-            } catch {
-                print("Warning: Could not fetch items for hub \(hub.name): \(error)")
+            // Check if this is an MDBList-sourced hub
+            if item.jsonUrl.hasPrefix("mdblist://") {
+                let mdblistId = String(item.jsonUrl.dropFirst("mdblist://".count))
+                hub.source = .mdblist
+                hub.mdblistId = mdblistId
+                
+                do {
+                    let fetchedItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: mdblistId)
+                    hub.items = fetchedItems
+                    hub.lastSynced = Date()
+                } catch {
+                    print("Warning: Could not fetch MDBList items for hub \(hub.name): \(error)")
+                }
+            } else {
+                // Re-fetch items from the JSON URL
+                do {
+                    let result = try await JSONHubService.shared.fetchAndResolve(from: item.jsonUrl)
+                    hub.items = result.items
+                    hub.lastSynced = Date()
+                } catch {
+                    print("Warning: Could not fetch items for hub \(hub.name): \(error)")
+                }
             }
             
             hubs.append(hub)
