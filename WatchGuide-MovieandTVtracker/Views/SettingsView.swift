@@ -2861,8 +2861,10 @@ struct AddCustomHubSheet: View {
         
         // Load list items
         Task {
-            isLoadingPreview = true
-            error = nil
+            await MainActor.run {
+                isLoadingPreview = true
+                error = nil
+            }
             
             do {
                 let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: result.listPath)
@@ -2873,8 +2875,9 @@ struct AddCustomHubSheet: View {
                     }
                 }
             } catch {
+                print("MDBList selectSearchResult error for '\(result.listPath)': \(error)")
                 await MainActor.run {
-                    self.error = "Failed to load list items."
+                    self.error = "Failed to load list items: \(error.localizedDescription)"
                 }
             }
             

@@ -2773,44 +2773,46 @@ struct CustomJSONHubSheet: View {
         isLoading = true
         error = nil
         
-        // If items are already cached, use them
+        // If items are already cached locally, use them
         if !hub.items.isEmpty {
             allItems = hub.items
             isLoading = false
             return
         }
         
-        // Otherwise, re-fetch from source
+        // Determine the MDBList ID from multiple sources
+        let mdblistId: String? = {
+            if let id = hub.mdblistId, !id.isEmpty { return id }
+            if hub.jsonURL.hasPrefix("mdblist://") {
+                return String(hub.jsonURL.dropFirst("mdblist://".count))
+            }
+            return nil
+        }()
+        
+        // Re-fetch from source
         do {
-            if hub.source == .mdblist, let listId = hub.mdblistId, !listId.isEmpty {
-                let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
-                allItems = items
-                // Update cache in storage
-                await MainActor.run {
-                    var updatedHub = hub
-                    updatedHub.items = items
-                    updatedHub.lastSynced = Date()
-                    StorageService.shared.updateCustomJSONHub(updatedHub)
+            if hub.source == .mdblist || mdblistId != nil {
+                // MDBList source — use the resolved list ID
+                if let listId = mdblistId, !listId.isEmpty {
+                    let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
+                    allItems = items
+                    await MainActor.run {
+                        var updatedHub = hub
+                        updatedHub.items = items
+                        updatedHub.mdblistId = listId
+                        updatedHub.lastSynced = Date()
+                        StorageService.shared.updateCustomJSONHub(updatedHub)
+                    }
+                } else {
+                    error = "No MDBList ID found for this hub."
                 }
-            } else if !hub.jsonURL.isEmpty && !hub.jsonURL.hasPrefix("mdblist://") {
+            } else if !hub.jsonURL.isEmpty {
+                // JSON URL source
                 let result = try await JSONHubService.shared.fetchAndResolve(from: hub.jsonURL)
                 allItems = result.items
-                // Update cache in storage
                 await MainActor.run {
                     var updatedHub = hub
                     updatedHub.items = result.items
-                    updatedHub.lastSynced = Date()
-                    StorageService.shared.updateCustomJSONHub(updatedHub)
-                }
-            } else if hub.jsonURL.hasPrefix("mdblist://") {
-                // Extract MDBList ID from mdblist:// URL
-                let listId = String(hub.jsonURL.dropFirst("mdblist://".count))
-                let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
-                allItems = items
-                await MainActor.run {
-                    var updatedHub = hub
-                    updatedHub.items = items
-                    updatedHub.mdblistId = listId
                     updatedHub.lastSynced = Date()
                     StorageService.shared.updateCustomJSONHub(updatedHub)
                 }

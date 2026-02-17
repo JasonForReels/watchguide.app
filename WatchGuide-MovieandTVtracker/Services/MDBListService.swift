@@ -49,7 +49,41 @@ actor MDBListService {
             return cached.items
         }
         
-        // Use the JSON export endpoint which is more reliable
+        // Try the public JSON export endpoint first (no API key needed, flat array)
+        // Format: /lists/username/listname/json
+        let publicURLString = "\(baseURL)/lists/\(listId)/json"
+        
+        guard let publicURL = URL(string: publicURLString) else {
+            throw MDBListError.invalidURL
+        }
+        
+        var request = URLRequest(url: publicURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw MDBListError.networkError
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            // Fallback: try the API endpoint with key
+            return try await getListItemsViaAPI(listId: listId)
+        }
+        
+        let items = try decodeListItems(from: data)
+        
+        // Cache the result
+        if !items.isEmpty {
+            listCache[listId] = (items: items, timestamp: Date())
+        }
+        
+        return items
+    }
+    
+    /// Fallback: use the API endpoint with apikey parameter
+    private func getListItemsViaAPI(listId: String) async throws -> [MDBListItem] {
         let urlString = "\(baseURL)/lists/\(listId)/json?apikey=\(apiKey)"
         
         guard let url = URL(string: urlString) else {
@@ -70,14 +104,53 @@ actor MDBListService {
             throw MDBListError.apiError(httpResponse.statusCode)
         }
         
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let items = try decoder.decode([MDBListItem].self, from: data)
+        let items = try decodeListItems(from: data)
         
-        // Cache the result
-        listCache[listId] = (items: items, timestamp: Date())
+        if !items.isEmpty {
+            listCache[listId] = (items: items, timestamp: Date())
+        }
         
         return items
+    }
+    
+    /// Decode list items supporting multiple response formats:
+    /// 1. Flat array: [{ "id": 123, "title": "...", ... }]
+    /// 2. Wrapped: { "movies": [...], "shows": [...] }
+    private func decodeListItems(from data: Data) throws -> [MDBListItem] {
+        // First try: flat array (public /json endpoint format)
+        if let items = try? JSONDecoder().decode([MDBListItem].self, from: data), !items.isEmpty {
+            return items
+        }
+        
+        // Second try: wrapped { "movies": [...], "shows": [...] } (API endpoint format)
+        if let wrapped = try? JSONDecoder().decode(MDBListWrappedResponse.self, from: data) {
+            var combined: [MDBListItem] = []
+            combined.append(contentsOf: wrapped.movies ?? [])
+            combined.append(contentsOf: wrapped.shows ?? [])
+            if !combined.isEmpty {
+                return combined
+            }
+        }
+        
+        // Third try: snake_case decoding for flat array
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        if let items = try? decoder.decode([MDBListItem].self, from: data), !items.isEmpty {
+            return items
+        }
+        
+        // Fourth try: snake_case decoding for wrapped response
+        if let wrapped = try? decoder.decode(MDBListWrappedResponse.self, from: data) {
+            var combined: [MDBListItem] = []
+            combined.append(contentsOf: wrapped.movies ?? [])
+            combined.append(contentsOf: wrapped.shows ?? [])
+            if !combined.isEmpty {
+                return combined
+            }
+        }
+        
+        // If nothing worked, throw
+        throw MDBListError.invalidList
     }
     
     // MARK: - Ratings Lookup
@@ -323,11 +396,24 @@ actor MDBListService {
 
 // MARK: - MDBList Response Models
 
+/// Wrapped response format from MDBList API: { "movies": [...], "shows": [...] }
+struct MDBListWrappedResponse: Codable {
+    let movies: [MDBListItem]?
+    let shows: [MDBListItem]?
+}
+
 /// Item from MDBList JSON export
+/// Supports both flat array and wrapped response fields:
+/// - `id` = TMDB ID
+/// - `year` or `release_year` = release year
+/// - `imdb_id` = IMDb ID
+/// - `tvdb_id` = TVDB ID
+/// - `mediatype` = "movie" or "show"
 struct MDBListItem: Codable, Identifiable {
     let id: Int?
     let title: String?
     let year: Int?
+    let releaseYear: Int?
     let imdbId: String?
     let tvdbId: Int?
     let mediatype: String?
@@ -335,14 +421,21 @@ struct MDBListItem: Codable, Identifiable {
     
     enum CodingKeys: String, CodingKey {
         case id, title, year, rank, mediatype
+        case releaseYear = "release_year"
         case imdbId = "imdb_id"
         case tvdbId = "tvdb_id"
+    }
+    
+    /// Resolved year from either `year` or `release_year`
+    var resolvedYear: Int? {
+        year ?? releaseYear
     }
     
     func toSavedMediaItem() -> SavedMediaItem? {
         guard let title = title, let itemId = id, itemId > 0 else { return nil }
         
         let type: MediaType = mediatype == "show" ? .tv : .movie
+        let yearStr = resolvedYear.map { "\($0)" }
         
         let mediaItem = MediaItem(
             id: itemId,
@@ -353,8 +446,8 @@ struct MDBListItem: Codable, Identifiable {
             overview: nil,
             posterPath: nil,
             backdropPath: nil,
-            releaseDate: year != nil ? "\(year!)" : nil,
-            firstAirDate: year != nil ? "\(year!)" : nil,
+            releaseDate: yearStr,
+            firstAirDate: yearStr,
             voteAverage: nil,
             voteCount: nil,
             popularity: nil,
