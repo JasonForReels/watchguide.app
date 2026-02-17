@@ -2500,30 +2500,38 @@ struct BrowseCustomizeSheet: View {
     }
 }
 
-// MARK: - Custom JSON Hubs Row
+// MARK: - Custom JSON Hubs Row (Network-style with image thumbnails)
 struct CustomJSONHubsRow: View {
     let hubs: [CustomJSONHub]
     let onHubTap: (CustomJSONHub) -> Void
     
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(hubs) { hub in
-                    CustomJSONHubButton(hub: hub, action: { onHubTap(hub) })
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Your Hubs")
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(hubs) { hub in
+                        CustomJSONHubCard(hub: hub)
+                            .onTapGesture {
+                                onHubTap(hub)
+                            }
+                    }
                 }
+                .padding(.horizontal)
             }
-            .padding(.horizontal)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8)
     }
 }
 
-// MARK: - Custom JSON Hub Button
-struct CustomJSONHubButton: View {
+// MARK: - Custom JSON Hub Card (Network-style with image thumbnail)
+struct CustomJSONHubCard: View {
     let hub: CustomJSONHub
-    let action: () -> Void
     @State private var isPressed = false
+    @Environment(\.colorScheme) private var colorScheme
     
     private var resolvedColor: Color {
         if let hex = hub.brandColor, !hex.isEmpty {
@@ -2532,46 +2540,73 @@ struct CustomJSONHubButton: View {
         return Color.orange
     }
     
+    private var hasImage: Bool {
+        if let imageURL = hub.imageURL, !imageURL.isEmpty { return true }
+        return false
+    }
+    
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                // Hub image if available
-                if let imageURL = hub.imageURL, !imageURL.isEmpty, let url = URL(string: imageURL) {
+        VStack(spacing: 8) {
+            ZStack {
+                // Background circle with brand color
+                Circle()
+                    .fill(resolvedColor.opacity(colorScheme == .dark ? 0.2 : 0.12))
+                    .frame(width: 68, height: 68)
+                
+                if hasImage, let imageURL = hub.imageURL, let url = URL(string: imageURL) {
                     AsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let image):
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
-                                .frame(width: 22, height: 22)
-                                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                .frame(width: 58, height: 58)
+                                .clipShape(Circle())
+                        case .failure:
+                            hubFallbackIcon
                         default:
-                            EmptyView()
+                            ProgressView()
+                                .frame(width: 58, height: 58)
                         }
                     }
+                } else {
+                    hubFallbackIcon
                 }
                 
-                Text(hub.displayRowName)
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .lineLimit(1)
+                // Subtle border ring
+                Circle()
+                    .stroke(
+                        resolvedColor.opacity(colorScheme == .dark ? 0.3 : 0.2),
+                        lineWidth: 1.5
+                    )
+                    .frame(width: 68, height: 68)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .frame(minWidth: 80)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(resolvedColor)
-            )
+            .shadow(color: resolvedColor.opacity(0.25), radius: isPressed ? 2 : 5, y: isPressed ? 1 : 3)
+            .scaleEffect(isPressed ? 0.92 : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
+            
+            Text(hub.displayRowName)
+                .font(.caption2)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(width: 72)
         }
-        .buttonStyle(.plain)
-        .shadow(color: resolvedColor.opacity(0.35), radius: isPressed ? 2 : 5, y: isPressed ? 1 : 3)
-        .scaleEffect(isPressed ? 0.94 : 1.0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
         .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
             isPressed = pressing
         }, perform: {})
+    }
+    
+    private var hubFallbackIcon: some View {
+        ZStack {
+            Circle()
+                .fill(resolvedColor)
+                .frame(width: 58, height: 58)
+            
+            Image(systemName: hub.source == .mdblist ? "list.star" : "doc.text.fill")
+                .font(.title3)
+                .foregroundColor(.white)
+        }
     }
 }
 
@@ -2598,23 +2633,43 @@ struct CustomJSONHubSheet: View {
     @Binding var selectedItem: MediaItem?
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTab = 0
+    @State private var allItems: [SavedMediaItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
     
     private var movies: [SavedMediaItem] {
-        hub.items.filter { $0.mediaType == .movie }
+        allItems.filter { $0.mediaType == .movie }
     }
     
     private var tvShows: [SavedMediaItem] {
-        hub.items.filter { $0.mediaType == .tv }
+        allItems.filter { $0.mediaType == .tv }
     }
     
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Header
-                Text(hub.name)
-                    .font(.title3)
-                    .fontWeight(.bold)
+                // Header image or name
+                if let imageURL = hub.imageURL, !imageURL.isEmpty, let url = URL(string: imageURL) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(height: 60)
+                        default:
+                            Text(hub.name)
+                                .font(.title3)
+                                .fontWeight(.bold)
+                        }
+                    }
                     .padding(.vertical, 12)
+                } else {
+                    Text(hub.name)
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .padding(.vertical, 12)
+                }
                 
                 // Tab picker (only show if both types exist)
                 if !movies.isEmpty && !tvShows.isEmpty {
@@ -2627,56 +2682,76 @@ struct CustomJSONHubSheet: View {
                     .padding(.bottom, 16)
                 }
                 
-                let items: [SavedMediaItem] = {
-                    if movies.isEmpty && !tvShows.isEmpty { return tvShows }
-                    if tvShows.isEmpty && !movies.isEmpty { return movies }
-                    return selectedTab == 0 ? movies : tvShows
-                }()
-                
-                if items.isEmpty {
+                if isLoading {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Spacer()
+                } else if let error = error {
                     Spacer()
                     VStack(spacing: 12) {
-                        Image(systemName: "film.stack")
+                        Image(systemName: "exclamationmark.triangle")
                             .font(.largeTitle)
-                            .foregroundColor(.secondary)
-                        Text("No items found")
+                            .foregroundColor(.orange)
+                        Text(error)
                             .font(.subheadline)
                             .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
                     }
+                    .padding()
                     Spacer()
                 } else {
-                    ScrollView {
-                        LazyVGrid(columns: [
-                            GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
-                        ], spacing: 20) {
-                            ForEach(items) { item in
-                                SavedMediaPosterCard(item: item)
-                                    .onTapGesture {
-                                        let mediaItem = MediaItem(
-                                            id: item.mediaId,
-                                            title: item.mediaType == .movie ? item.title : nil,
-                                            name: item.mediaType == .tv ? item.title : nil,
-                                            originalTitle: nil,
-                                            originalName: nil,
-                                            overview: item.overview,
-                                            posterPath: item.posterPath,
-                                            backdropPath: item.backdropPath,
-                                            releaseDate: item.year,
-                                            firstAirDate: item.year,
-                                            voteAverage: item.voteAverage,
-                                            voteCount: nil,
-                                            popularity: nil,
-                                            genreIds: nil,
-                                            mediaType: item.mediaType.rawValue,
-                                            adult: nil,
-                                            originalLanguage: nil
-                                        )
-                                        selectedItem = mediaItem
-                                        dismiss()
-                                    }
-                            }
+                    let items: [SavedMediaItem] = {
+                        if movies.isEmpty && !tvShows.isEmpty { return tvShows }
+                        if tvShows.isEmpty && !movies.isEmpty { return movies }
+                        return selectedTab == 0 ? movies : tvShows
+                    }()
+                    
+                    if items.isEmpty {
+                        Spacer()
+                        VStack(spacing: 12) {
+                            Image(systemName: "film.stack")
+                                .font(.largeTitle)
+                                .foregroundColor(.secondary)
+                            Text("No items found")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
                         }
-                        .padding()
+                        Spacer()
+                    } else {
+                        ScrollView {
+                            LazyVGrid(columns: [
+                                GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                            ], spacing: 20) {
+                                ForEach(items) { item in
+                                    SavedMediaPosterCard(item: item)
+                                        .onTapGesture {
+                                            let mediaItem = MediaItem(
+                                                id: item.mediaId,
+                                                title: item.mediaType == .movie ? item.title : nil,
+                                                name: item.mediaType == .tv ? item.title : nil,
+                                                originalTitle: nil,
+                                                originalName: nil,
+                                                overview: item.overview,
+                                                posterPath: item.posterPath,
+                                                backdropPath: item.backdropPath,
+                                                releaseDate: item.year,
+                                                firstAirDate: item.year,
+                                                voteAverage: item.voteAverage,
+                                                voteCount: nil,
+                                                popularity: nil,
+                                                genreIds: nil,
+                                                mediaType: item.mediaType.rawValue,
+                                                adult: nil,
+                                                originalLanguage: nil
+                                            )
+                                            selectedItem = mediaItem
+                                            dismiss()
+                                        }
+                                }
+                            }
+                            .padding()
+                        }
                     }
                 }
             }
@@ -2689,6 +2764,69 @@ struct CustomJSONHubSheet: View {
                 }
             }
         }
+        .task {
+            await loadContent()
+        }
+    }
+    
+    private func loadContent() async {
+        isLoading = true
+        error = nil
+        
+        // If items are already cached, use them
+        if !hub.items.isEmpty {
+            allItems = hub.items
+            isLoading = false
+            return
+        }
+        
+        // Otherwise, re-fetch from source
+        do {
+            if hub.source == .mdblist, let listId = hub.mdblistId, !listId.isEmpty {
+                let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
+                allItems = items
+                // Update cache in storage
+                await MainActor.run {
+                    var updatedHub = hub
+                    updatedHub.items = items
+                    updatedHub.lastSynced = Date()
+                    StorageService.shared.updateCustomJSONHub(updatedHub)
+                }
+            } else if !hub.jsonURL.isEmpty && !hub.jsonURL.hasPrefix("mdblist://") {
+                let result = try await JSONHubService.shared.fetchAndResolve(from: hub.jsonURL)
+                allItems = result.items
+                // Update cache in storage
+                await MainActor.run {
+                    var updatedHub = hub
+                    updatedHub.items = result.items
+                    updatedHub.lastSynced = Date()
+                    StorageService.shared.updateCustomJSONHub(updatedHub)
+                }
+            } else if hub.jsonURL.hasPrefix("mdblist://") {
+                // Extract MDBList ID from mdblist:// URL
+                let listId = String(hub.jsonURL.dropFirst("mdblist://".count))
+                let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
+                allItems = items
+                await MainActor.run {
+                    var updatedHub = hub
+                    updatedHub.items = items
+                    updatedHub.mdblistId = listId
+                    updatedHub.lastSynced = Date()
+                    StorageService.shared.updateCustomJSONHub(updatedHub)
+                }
+            } else {
+                error = "No valid source URL found for this hub."
+            }
+            
+            if allItems.isEmpty && error == nil {
+                error = "No content found in this list."
+            }
+        } catch {
+            self.error = "Failed to load content. Please try again."
+            print("Custom hub load error for '\(hub.name)': \(error)")
+        }
+        
+        isLoading = false
     }
 }
 
