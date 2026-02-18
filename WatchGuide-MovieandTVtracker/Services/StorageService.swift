@@ -212,6 +212,7 @@ class StorageService: ObservableObject {
         if let index = networkHubs.firstIndex(where: { $0.id == hub.id }) {
             networkHubs[index] = hub
             save(networkHubs, to: networkHubsURL)
+            syncNetworkHubsToCloud()
         }
     }
     
@@ -222,6 +223,7 @@ class StorageService: ObservableObject {
         }
         networkHubs = updatedHubs
         save(networkHubs, to: networkHubsURL)
+        syncNetworkHubsToCloud()
     }
     
     func getEnabledNetworkHubs() -> [NetworkHub] {
@@ -496,6 +498,60 @@ class StorageService: ObservableObject {
         }
     }
     
+    // MARK: - Browse Customization Cloud Sync
+    
+    /// Sync browse row config to cloud (background)
+    private func syncBrowseConfigToCloud() {
+        guard cloudSyncEnabled && isCloudConfigured else { return }
+        let rowsCopy = browseRows
+        Task {
+            do {
+                try await HomeScreenSyncService.shared.uploadBrowseConfig(rowsCopy)
+            } catch {
+                print("Cloud sync browse config failed: \(error)")
+            }
+        }
+    }
+    
+    /// Sync network hubs config to cloud (background)
+    private func syncNetworkHubsToCloud() {
+        guard cloudSyncEnabled && isCloudConfigured else { return }
+        let hubsCopy = networkHubs
+        Task {
+            do {
+                try await HomeScreenSyncService.shared.uploadNetworkHubsConfig(hubsCopy)
+            } catch {
+                print("Cloud sync network hubs failed: \(error)")
+            }
+        }
+    }
+    
+    /// Sync hidden sections to cloud (background)
+    private func syncHiddenSectionsToCloud() {
+        guard cloudSyncEnabled && isCloudConfigured else { return }
+        let sectionsCopy = hiddenSections
+        Task {
+            do {
+                try await HomeScreenSyncService.shared.uploadHiddenSections(sectionsCopy)
+            } catch {
+                print("Cloud sync hidden sections failed: \(error)")
+            }
+        }
+    }
+    
+    /// Sync custom JSON hubs to cloud (background)
+    private func syncCustomJSONHubsToCloud() {
+        guard cloudSyncEnabled && isCloudConfigured else { return }
+        let hubsCopy = customJSONHubs
+        Task {
+            do {
+                try await HomeScreenSyncService.shared.uploadCustomJSONHubs(hubsCopy)
+            } catch {
+                print("Cloud sync custom JSON hubs failed: \(error)")
+            }
+        }
+    }
+    
     // MARK: - Custom Lists
     func createCustomList(name: String, description: String? = nil, iconName: String = "folder.fill", displayStyle: CustomList.DisplayStyle = .row) {
         let list = CustomList(name: name, description: description, iconName: iconName, displayStyle: displayStyle)
@@ -619,18 +675,21 @@ class StorageService: ObservableObject {
         newHub.sortOrder = customJSONHubs.count
         customJSONHubs.append(newHub)
         save(customJSONHubs, to: customJSONHubsURL)
+        syncCustomJSONHubsToCloud()
     }
     
     func updateCustomJSONHub(_ hub: CustomJSONHub) {
         if let index = customJSONHubs.firstIndex(where: { $0.id == hub.id }) {
             customJSONHubs[index] = hub
             save(customJSONHubs, to: customJSONHubsURL)
+            syncCustomJSONHubsToCloud()
         }
     }
     
     func deleteCustomJSONHub(id: String) {
         customJSONHubs.removeAll { $0.id == id }
         save(customJSONHubs, to: customJSONHubsURL)
+        syncCustomJSONHubsToCloud()
     }
     
     func getEnabledCustomJSONHubs() -> [CustomJSONHub] {
@@ -682,12 +741,14 @@ class StorageService: ObservableObject {
     func updateBrowseRows(_ rows: [BrowseRowConfig]) {
         browseRows = rows
         save(browseRows, to: browseRowsURL)
+        syncBrowseConfigToCloud()
     }
     
     // MARK: - Hidden Default Sections
     func updateHiddenSections(_ sections: HiddenDefaultSections) {
         hiddenSections = sections
         save(hiddenSections, to: hiddenSectionsURL)
+        syncHiddenSectionsToCloud()
     }
     
     // MARK: - Clear All Data
