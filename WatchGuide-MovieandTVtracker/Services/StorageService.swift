@@ -388,8 +388,19 @@ class StorageService: ObservableObject {
         lastSyncError = nil
         
         do {
-            // Download media items
-            let data = try await SupabaseService.shared.downloadAllData()
+            // Fetch all cloud data in parallel
+            async let mediaDataTask = SupabaseService.shared.downloadAllData()
+            async let settingsTask = SupabaseService.shared.downloadSettings()
+            async let customListsTask = SupabaseService.shared.downloadCustomLists()
+            async let homeConfigTask = HomeScreenSyncService.shared.downloadAllHomeScreenConfig()
+            
+            // Await all results
+            let data = try await mediaDataTask
+            let cloudSettings = try await settingsTask
+            let cloudCustomLists = try await customListsTask
+            let homeConfig = try await homeConfigTask
+            
+            // Apply media items
             wantToWatch = data.wantToWatch
             watched = data.watched
             liked = data.liked
@@ -397,21 +408,19 @@ class StorageService: ObservableObject {
             save(watched, to: watchedURL)
             save(liked, to: likedURL)
             
-            // Download user settings
-            if let cloudSettings = try await SupabaseService.shared.downloadSettings() {
+            // Apply user settings
+            if let cloudSettings = cloudSettings {
                 settings = cloudSettings
                 save(settings, to: settingsURL)
             }
             
-            // Download custom lists
-            let cloudCustomLists = try await SupabaseService.shared.downloadCustomLists()
+            // Apply custom lists
             if !cloudCustomLists.isEmpty {
                 customLists = cloudCustomLists
                 save(customLists, to: customListsURL)
             }
             
-            // Download home screen config
-            let homeConfig = try await HomeScreenSyncService.shared.downloadAllHomeScreenConfig()
+            // Apply home screen config
             if !homeConfig.browseRows.isEmpty {
                 browseRows = homeConfig.browseRows
                 save(browseRows, to: browseRowsURL)

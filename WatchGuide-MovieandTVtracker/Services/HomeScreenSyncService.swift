@@ -489,9 +489,8 @@ actor HomeScreenSyncService {
         
         let items: [SyncedCustomJSONHub] = try await request(endpoint: "custom_json_hubs", queryItems: queryItems)
         
-        // For each hub, re-fetch items from the source
-        var hubs: [CustomJSONHub] = []
-        for item in items {
+        // Build hub shells first (no network calls)
+        var hubShells: [CustomJSONHub] = items.map { item in
             var hub = CustomJSONHub(
                 id: item.hubId,
                 name: item.name,
@@ -506,45 +505,55 @@ actor HomeScreenSyncService {
             hub.imageURL = item.imageUrl
             hub.rowName = item.rowName
             
-            // Restore source type
             if let sourceRaw = item.source, let source = CustomHubSource(rawValue: sourceRaw) {
                 hub.source = source
             } else if item.jsonUrl.hasPrefix("mdblist://") {
                 hub.source = .mdblist
             }
             
-            // Restore MDBList IDs
             hub.mdblistId = item.mdblistId
             hub.mdblistIds = item.mdblistIds
-            
-            // Resolve all MDBList IDs for fetching
-            let listIds = hub.resolvedMDBListIds
-            
-            if hub.source == .mdblist || !listIds.isEmpty {
-                if !listIds.isEmpty {
-                    do {
-                        let fetchedItems = try await MDBListService.shared.fetchMultipleListsAsSavedMedia(inputs: listIds)
-                        hub.items = fetchedItems
-                        hub.lastSynced = Date()
-                    } catch {
-                        print("Warning: Could not fetch MDBList items for hub \(hub.name): \(error)")
+            return hub
+        }
+        
+        // Fetch all hub items in parallel using a TaskGroup
+        await withTaskGroup(of: (Int, [SavedMediaItem]).self) { group in
+            for (index, hub) in hubShells.enumerated() {
+                group.addTask {
+                    let listIds = hub.resolvedMDBListIds
+                    
+                    if hub.source == .mdblist || !listIds.isEmpty {
+                        if !listIds.isEmpty {
+                            do {
+                                let fetchedItems = try await MDBListService.shared.fetchMultipleListsAsSavedMedia(inputs: listIds)
+                                return (index, fetchedItems)
+                            } catch {
+                                print("Warning: Could not fetch MDBList items for hub \(hub.name): \(error)")
+                                return (index, [])
+                            }
+                        }
+                    } else {
+                        do {
+                            let result = try await JSONHubService.shared.fetchAndResolve(from: hub.jsonURL)
+                            return (index, result.items)
+                        } catch {
+                            print("Warning: Could not fetch items for hub \(hub.name): \(error)")
+                            return (index, [])
+                        }
                     }
-                }
-            } else {
-                // Re-fetch items from the JSON URL
-                do {
-                    let result = try await JSONHubService.shared.fetchAndResolve(from: item.jsonUrl)
-                    hub.items = result.items
-                    hub.lastSynced = Date()
-                } catch {
-                    print("Warning: Could not fetch items for hub \(hub.name): \(error)")
+                    return (index, [])
                 }
             }
             
-            hubs.append(hub)
+            for await (index, fetchedItems) in group {
+                hubShells[index].items = fetchedItems
+                if !fetchedItems.isEmpty {
+                    hubShells[index].lastSynced = Date()
+                }
+            }
         }
         
-        return hubs
+        return hubShells
     }
     
     // MARK: - Hidden Sections Sync
@@ -643,13 +652,14 @@ actor HomeScreenSyncService {
         async let customHomeRows = downloadCustomHomeRows()
         async let networkHubsConfig = downloadNetworkHubsConfig()
         async let customJSONHubs = downloadCustomJSONHubs()
-        
-        var hiddenSections: HiddenDefaultSections? = nil
-        do {
-            hiddenSections = try await downloadHiddenSections()
-        } catch {
-            print("Warning: Could not download hidden sections: \(error)")
-        }
+        async let hiddenSectionsResult: HiddenDefaultSections? = {
+            do {
+                return try await self.downloadHiddenSections()
+            } catch {
+                print("Warning: Could not download hidden sections: \(error)")
+                return nil
+            }
+        }()
         
         return try await HomeScreenConfig(
             browseRows: browseRows,
@@ -657,7 +667,7 @@ actor HomeScreenSyncService {
             customHomeRows: customHomeRows,
             networkHubsConfig: networkHubsConfig,
             customJSONHubs: customJSONHubs,
-            hiddenSections: hiddenSections
+            hiddenSections: hiddenSectionsResult
         )
     }
 }
