@@ -1526,7 +1526,17 @@ struct SupabaseSetupGuideView: View {
             UNIQUE(user_id, hub_id)
         );
 
-        -- 10. Profiles (user profiles with age verification)
+        -- 10. Hidden Sections (which default browse sections are hidden)
+        CREATE TABLE IF NOT EXISTS hidden_sections (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL UNIQUE,
+            hide_studios_row BOOLEAN DEFAULT FALSE,
+            hide_networks_row BOOLEAN DEFAULT FALSE,
+            hide_for_you_row BOOLEAN DEFAULT FALSE,
+            hide_discover_section BOOLEAN DEFAULT FALSE
+        );
+
+        -- 11. Profiles (user profiles with age verification)
         CREATE TABLE IF NOT EXISTS profiles (
             id SERIAL PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -1554,6 +1564,7 @@ struct SupabaseSetupGuideView: View {
         ALTER TABLE extension_list_items ENABLE ROW LEVEL SECURITY;
         ALTER TABLE custom_home_rows ENABLE ROW LEVEL SECURITY;
         ALTER TABLE network_hubs_config ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE hidden_sections ENABLE ROW LEVEL SECURITY;
         ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
         -- ===================================================
@@ -1585,6 +1596,9 @@ struct SupabaseSetupGuideView: View {
 
         CREATE POLICY "Allow all for anon" ON network_hubs_config FOR ALL TO anon USING (true) WITH CHECK (true);
         CREATE POLICY "Allow all for auth" ON network_hubs_config FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+        CREATE POLICY "Allow all for anon" ON hidden_sections FOR ALL TO anon USING (true) WITH CHECK (true);
+        CREATE POLICY "Allow all for auth" ON hidden_sections FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
         CREATE POLICY "Allow all for anon" ON profiles FOR ALL TO anon USING (true) WITH CHECK (true);
         CREATE POLICY "Allow all for auth" ON profiles FOR ALL TO authenticated USING (true) WITH CHECK (true);

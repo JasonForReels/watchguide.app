@@ -13,15 +13,16 @@ struct HomeCustomizationView: View {
     
     @State private var browseRows: [BrowseRowConfig] = []
     @State private var networkHubs: [NetworkHub] = []
+    @State private var hiddenSections: HiddenDefaultSections = .default
     
-    @State private var selectedSection: HomeSection = .browseRows
+    @State private var selectedSection: HomeSection = .sections
     
     @State private var showAddJSONHub = false
     
     enum HomeSection: String, CaseIterable {
-        case browseRows = "Browse Rows"
-        case networks = "Networks"
-        case customHubs = "Custom Hubs"
+        case sections = "Sections"
+        case browseRows = "Rows"
+        case customHubs = "Hubs"
     }
     
     var body: some View {
@@ -39,10 +40,10 @@ struct HomeCustomizationView: View {
                 // Content
                 List {
                     switch selectedSection {
+                    case .sections:
+                        defaultSectionsSection
                     case .browseRows:
                         browseRowsSection
-                    case .networks:
-                        networksSection
                     case .customHubs:
                         customHubsSection
                     }
@@ -66,6 +67,62 @@ struct HomeCustomizationView: View {
             }
             .onAppear {
                 loadData()
+            }
+        }
+    }
+    
+    // MARK: - Default Sections Visibility
+    private var defaultSectionsSection: some View {
+        Group {
+            Section {
+                Toggle("Networks (Streaming)", isOn: Binding(
+                    get: { !hiddenSections.hideNetworksRow },
+                    set: { hiddenSections.hideNetworksRow = !$0 }
+                ))
+                
+                Toggle("Studios", isOn: Binding(
+                    get: { !hiddenSections.hideStudiosRow },
+                    set: { hiddenSections.hideStudiosRow = !$0 }
+                ))
+                
+                Toggle("For You (AI Picks)", isOn: Binding(
+                    get: { !hiddenSections.hideForYouRow },
+                    set: { hiddenSections.hideForYouRow = !$0 }
+                ))
+                
+                Toggle("Discover Section", isOn: Binding(
+                    get: { !hiddenSections.hideDiscoverSection },
+                    set: { hiddenSections.hideDiscoverSection = !$0 }
+                ))
+            } header: {
+                Text("Default Sections")
+            } footer: {
+                Text("Toggle off any built-in section you don't want on the Browse page. Your custom hubs will still appear.")
+            }
+            
+            // Networks sub-section (quick toggles)
+            if !hiddenSections.hideNetworksRow {
+                Section {
+                    ForEach($networkHubs.filter { storage.settings.region.isEmpty || $0.wrappedValue.regions.contains(storage.settings.region) || $0.wrappedValue.regions.isEmpty }) { $hub in
+                        HStack {
+                            Text(hub.name)
+                                .fontWeight(.medium)
+                            
+                            Spacer()
+                            
+                            Toggle("", isOn: $hub.isEnabled)
+                                .labelsHidden()
+                        }
+                    }
+                    .onMove { from, to in
+                        networkHubs.move(fromOffsets: from, toOffset: to)
+                        updateNetworkHubsSortOrder()
+                    }
+                } header: {
+                    Text("Networks")
+                } footer: {
+                    Text("Drag to reorder, toggle to show/hide individual networks.")
+                }
             }
         }
     }
@@ -100,31 +157,6 @@ struct HomeCustomizationView: View {
         }
     }
     
-    // MARK: - Networks Section
-    private var networksSection: some View {
-        Section {
-            ForEach($networkHubs.filter { storage.settings.region.isEmpty || $0.wrappedValue.regions.contains(storage.settings.region) || $0.wrappedValue.regions.isEmpty }) { $hub in
-                HStack {
-                    Text(hub.name)
-                        .fontWeight(.medium)
-                    
-                    Spacer()
-                    
-                    Toggle("", isOn: $hub.isEnabled)
-                        .labelsHidden()
-                }
-            }
-            .onMove { from, to in
-                networkHubs.move(fromOffsets: from, toOffset: to)
-                updateNetworkHubsSortOrder()
-            }
-        } header: {
-            Text("Streaming Networks")
-        } footer: {
-            Text("Drag to reorder, toggle to show/hide. Only networks available in your region are shown.")
-        }
-    }
-    
     // MARK: - Custom Hubs Section
     private var customHubsSection: some View {
         Group {
@@ -137,7 +169,7 @@ struct HomeCustomizationView: View {
                         Text("No Custom Hubs")
                             .font(.subheadline)
                             .fontWeight(.medium)
-                        Text("Add hubs from external JSON URLs in Settings")
+                        Text("Add hubs from MDBList or JSON URLs")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -152,9 +184,17 @@ struct HomeCustomizationView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(hub.name)
                                     .fontWeight(.medium)
-                                Text("\(hub.items.count) items")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                HStack(spacing: 6) {
+                                    Text("\(hub.items.count) items")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    let listCount = hub.resolvedMDBListIds.count
+                                    if listCount > 1 {
+                                        Text("\(listCount) lists")
+                                            .font(.caption2)
+                                            .foregroundColor(.orange)
+                                    }
+                                }
                             }
                             
                             Spacer()
@@ -179,7 +219,7 @@ struct HomeCustomizationView: View {
                 } header: {
                     Text("Custom Hubs")
                 } footer: {
-                    Text("Toggle to show/hide on Browse. Manage hubs in Settings > Custom Hubs.")
+                    Text("Toggle to show/hide on Browse. Swipe to delete.")
                 }
             }
             
@@ -201,6 +241,7 @@ struct HomeCustomizationView: View {
     private func loadData() {
         browseRows = storage.browseRows.sorted { $0.sortOrder < $1.sortOrder }
         networkHubs = storage.networkHubs.sorted { $0.sortOrder < $1.sortOrder }
+        hiddenSections = storage.hiddenSections
     }
     
     private func saveChanges() {
@@ -211,6 +252,7 @@ struct HomeCustomizationView: View {
         // Save to storage
         storage.updateBrowseRows(browseRows)
         storage.reorderNetworkHubs(networkHubs)
+        storage.updateHiddenSections(hiddenSections)
     }
     
     private func updateBrowseSortOrder() {

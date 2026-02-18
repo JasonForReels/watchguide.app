@@ -23,6 +23,7 @@ class StorageService: ObservableObject {
     @Published private(set) var settings: UserSettings = UserSettings()
     @Published private(set) var searchHistory: [SearchHistoryItem] = []
     @Published private(set) var browseRows: [BrowseRowConfig] = BrowseRowConfig.defaultRows
+    @Published private(set) var hiddenSections: HiddenDefaultSections = .default
     
     // MARK: - Sync State
     @Published var isSyncing = false
@@ -53,6 +54,7 @@ class StorageService: ObservableObject {
     private let settingsURL: URL
     private let searchHistoryURL: URL
     private let browseRowsURL: URL
+    private let hiddenSectionsURL: URL
     
     private init() {
         documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
@@ -68,6 +70,7 @@ class StorageService: ObservableObject {
         settingsURL = documentsDirectory.appendingPathComponent("settings.json")
         searchHistoryURL = documentsDirectory.appendingPathComponent("search_history.json")
         browseRowsURL = documentsDirectory.appendingPathComponent("browse_rows.json")
+        hiddenSectionsURL = documentsDirectory.appendingPathComponent("hidden_sections.json")
         
         loadAll()
         migrateBrowseRowsIfNeeded()
@@ -92,6 +95,7 @@ class StorageService: ObservableObject {
         settings = load(from: settingsURL) ?? UserSettings()
         searchHistory = load(from: searchHistoryURL) ?? []
         browseRows = load(from: browseRowsURL) ?? BrowseRowConfig.defaultRows
+        hiddenSections = load(from: hiddenSectionsURL) ?? .default
     }
     
     private func load<T: Decodable>(from url: URL) -> T? {
@@ -356,7 +360,8 @@ class StorageService: ObservableObject {
                 browseRows: browseRows,
                 extensionLists: importedLists,
                 customHomeRows: customHomeRows,
-                networkHubs: networkHubs
+                networkHubs: networkHubs,
+                hiddenSections: hiddenSections
             )
             
             // Upload profiles
@@ -435,6 +440,12 @@ class StorageService: ObservableObject {
             if !homeConfig.customJSONHubs.isEmpty {
                 customJSONHubs = homeConfig.customJSONHubs
                 save(customJSONHubs, to: customJSONHubsURL)
+            }
+            
+            // Apply hidden sections
+            if let syncedHidden = homeConfig.hiddenSections {
+                hiddenSections = syncedHidden
+                save(hiddenSections, to: hiddenSectionsURL)
             }
             
             // Download profiles
@@ -664,6 +675,12 @@ class StorageService: ObservableObject {
         save(browseRows, to: browseRowsURL)
     }
     
+    // MARK: - Hidden Default Sections
+    func updateHiddenSections(_ sections: HiddenDefaultSections) {
+        hiddenSections = sections
+        save(hiddenSections, to: hiddenSectionsURL)
+    }
+    
     // MARK: - Clear All Data
     /// Removes all user-generated data (lists, history, settings, etc.)
     func clearAllData() {
@@ -684,6 +701,10 @@ class StorageService: ObservableObject {
         save(importedLists, to: importedListsURL)
         save(customHomeRows, to: customHomeRowsURL)
         save(customJSONHubs, to: customJSONHubsURL)
+        
+        // Reset hidden sections
+        hiddenSections = .default
+        save(hiddenSections, to: hiddenSectionsURL)
         
         // Reset settings to defaults
         settings = UserSettings()

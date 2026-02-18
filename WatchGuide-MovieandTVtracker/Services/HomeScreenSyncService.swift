@@ -463,11 +463,16 @@ actor HomeScreenSyncService {
                 name: hub.name,
                 jsonUrl: hub.jsonURL,
                 iconUrl: hub.iconURL,
+                imageUrl: hub.imageURL,
                 brandColor: hub.brandColor,
                 isEnabled: hub.isEnabled,
                 sortOrder: hub.sortOrder,
                 lastSynced: hub.lastSynced,
-                createdAt: hub.createdAt
+                createdAt: hub.createdAt,
+                source: hub.source.rawValue,
+                mdblistId: hub.mdblistId,
+                mdblistIds: hub.mdblistIds,
+                rowName: hub.rowName
             )
         }
         
@@ -498,19 +503,32 @@ actor HomeScreenSyncService {
                 lastSynced: item.lastSynced,
                 createdAt: item.createdAt ?? Date()
             )
+            hub.imageURL = item.imageUrl
+            hub.rowName = item.rowName
             
-            // Check if this is an MDBList-sourced hub
-            if item.jsonUrl.hasPrefix("mdblist://") {
-                let mdblistId = String(item.jsonUrl.dropFirst("mdblist://".count))
+            // Restore source type
+            if let sourceRaw = item.source, let source = CustomHubSource(rawValue: sourceRaw) {
+                hub.source = source
+            } else if item.jsonUrl.hasPrefix("mdblist://") {
                 hub.source = .mdblist
-                hub.mdblistId = mdblistId
-                
-                do {
-                    let fetchedItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: mdblistId)
-                    hub.items = fetchedItems
-                    hub.lastSynced = Date()
-                } catch {
-                    print("Warning: Could not fetch MDBList items for hub \(hub.name): \(error)")
+            }
+            
+            // Restore MDBList IDs
+            hub.mdblistId = item.mdblistId
+            hub.mdblistIds = item.mdblistIds
+            
+            // Resolve all MDBList IDs for fetching
+            let listIds = hub.resolvedMDBListIds
+            
+            if hub.source == .mdblist || !listIds.isEmpty {
+                if !listIds.isEmpty {
+                    do {
+                        let fetchedItems = try await MDBListService.shared.fetchMultipleListsAsSavedMedia(inputs: listIds)
+                        hub.items = fetchedItems
+                        hub.lastSynced = Date()
+                    } catch {
+                        print("Warning: Could not fetch MDBList items for hub \(hub.name): \(error)")
+                    }
                 }
             } else {
                 // Re-fetch items from the JSON URL
@@ -529,13 +547,78 @@ actor HomeScreenSyncService {
         return hubs
     }
     
+    // MARK: - Hidden Sections Sync
+    
+    func uploadHiddenSections(_ sections: HiddenDefaultSections) async throws {
+        let userId = await getUserId()
+        guard !userId.isEmpty else {
+            throw HomeScreenSyncError.apiError("User ID is empty.")
+        }
+        
+        let syncItem = SyncedHiddenSections(
+            userId: userId,
+            hideStudiosRow: sections.hideStudiosRow,
+            hideNetworksRow: sections.hideNetworksRow,
+            hideForYouRow: sections.hideForYouRow,
+            hideDiscoverSection: sections.hideDiscoverSection
+        )
+        
+        // Upsert on user_id
+        guard var components = URLComponents(string: "\(supabaseURL)/rest/v1/hidden_sections") else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "on_conflict", value: "user_id")]
+        
+        guard let url = components.url else { throw URLError(.badURL) }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.addValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
+        if let token = await getAccessToken() {
+            request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        } else {
+            request.addValue("Bearer \(supabaseAnonKey)", forHTTPHeaderField: "Authorization")
+        }
+        request.addValue("resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+        
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(syncItem)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            let errorStr = String(data: data, encoding: .utf8) ?? "Unknown"
+            throw HomeScreenSyncError.apiError("Hidden sections upload failed: \(errorStr)")
+        }
+    }
+    
+    func downloadHiddenSections() async throws -> HiddenDefaultSections? {
+        let userId = await getUserId()
+        let queryItems = [
+            URLQueryItem(name: "user_id", value: "eq.\(userId)"),
+            URLQueryItem(name: "limit", value: "1")
+        ]
+        
+        let items: [SyncedHiddenSections] = try await request(endpoint: "hidden_sections", queryItems: queryItems)
+        guard let synced = items.first else { return nil }
+        
+        return HiddenDefaultSections(
+            hideStudiosRow: synced.hideStudiosRow ?? false,
+            hideNetworksRow: synced.hideNetworksRow ?? false,
+            hideForYouRow: synced.hideForYouRow ?? false,
+            hideDiscoverSection: synced.hideDiscoverSection ?? false
+        )
+    }
+    
     // MARK: - Full Sync
     
     func uploadAllHomeScreenConfig(
         browseRows: [BrowseRowConfig],
         extensionLists: [ImportedListItem],
         customHomeRows: [CustomHomeRow],
-        networkHubs: [NetworkHub]
+        networkHubs: [NetworkHub],
+        hiddenSections: HiddenDefaultSections = .default
     ) async throws {
         try await uploadBrowseConfig(browseRows)
         try await uploadExtensionLists(extensionLists)
@@ -545,6 +628,13 @@ actor HomeScreenSyncService {
         // Also upload custom JSON hubs
         let jsonHubs = await MainActor.run { StorageService.shared.customJSONHubs }
         try await uploadCustomJSONHubs(jsonHubs)
+        
+        // Upload hidden sections
+        do {
+            try await uploadHiddenSections(hiddenSections)
+        } catch {
+            print("Warning: Could not upload hidden sections: \(error)")
+        }
     }
     
     func downloadAllHomeScreenConfig() async throws -> HomeScreenConfig {
@@ -554,12 +644,20 @@ actor HomeScreenSyncService {
         async let networkHubsConfig = downloadNetworkHubsConfig()
         async let customJSONHubs = downloadCustomJSONHubs()
         
+        var hiddenSections: HiddenDefaultSections? = nil
+        do {
+            hiddenSections = try await downloadHiddenSections()
+        } catch {
+            print("Warning: Could not download hidden sections: \(error)")
+        }
+        
         return try await HomeScreenConfig(
             browseRows: browseRows,
             extensionLists: extensionLists,
             customHomeRows: customHomeRows,
             networkHubsConfig: networkHubsConfig,
-            customJSONHubs: customJSONHubs
+            customJSONHubs: customJSONHubs,
+            hiddenSections: hiddenSections
         )
     }
 }
@@ -720,13 +818,15 @@ struct HomeScreenConfig {
     let customHomeRows: [CustomHomeRow]
     let networkHubsConfig: [SyncedNetworkHubConfig]
     let customJSONHubs: [CustomJSONHub]
+    let hiddenSections: HiddenDefaultSections?
     
-    init(browseRows: [BrowseRowConfig], extensionLists: [ImportedListItem], customHomeRows: [CustomHomeRow], networkHubsConfig: [SyncedNetworkHubConfig], customJSONHubs: [CustomJSONHub] = []) {
+    init(browseRows: [BrowseRowConfig], extensionLists: [ImportedListItem], customHomeRows: [CustomHomeRow], networkHubsConfig: [SyncedNetworkHubConfig], customJSONHubs: [CustomJSONHub] = [], hiddenSections: HiddenDefaultSections? = nil) {
         self.browseRows = browseRows
         self.extensionLists = extensionLists
         self.customHomeRows = customHomeRows
         self.networkHubsConfig = networkHubsConfig
         self.customJSONHubs = customJSONHubs
+        self.hiddenSections = hiddenSections
     }
 }
 
@@ -736,11 +836,16 @@ struct SyncedCustomJSONHub: Codable {
     let name: String
     let jsonUrl: String
     let iconUrl: String?
+    let imageUrl: String?
     let brandColor: String?
     let isEnabled: Bool
     let sortOrder: Int
     let lastSynced: Date?
     let createdAt: Date?
+    let source: String?
+    let mdblistId: String?
+    let mdblistIds: [String]?
+    let rowName: String?
     
     enum CodingKeys: String, CodingKey {
         case userId = "user_id"
@@ -748,11 +853,16 @@ struct SyncedCustomJSONHub: Codable {
         case name
         case jsonUrl = "json_url"
         case iconUrl = "icon_url"
+        case imageUrl = "image_url"
         case brandColor = "brand_color"
         case isEnabled = "is_enabled"
         case sortOrder = "sort_order"
         case lastSynced = "last_synced"
         case createdAt = "created_at"
+        case source
+        case mdblistId = "mdblist_id"
+        case mdblistIds = "mdblist_ids"
+        case rowName = "row_name"
     }
     
     func encode(to encoder: Encoder) throws {
@@ -762,11 +872,41 @@ struct SyncedCustomJSONHub: Codable {
         try container.encode(name, forKey: .name)
         try container.encode(jsonUrl, forKey: .jsonUrl)
         try container.encode(iconUrl, forKey: .iconUrl)
+        try container.encode(imageUrl, forKey: .imageUrl)
         try container.encode(brandColor, forKey: .brandColor)
         try container.encode(isEnabled, forKey: .isEnabled)
         try container.encode(sortOrder, forKey: .sortOrder)
         try container.encode(lastSynced, forKey: .lastSynced)
         try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(source, forKey: .source)
+        try container.encode(mdblistId, forKey: .mdblistId)
+        try container.encode(mdblistIds, forKey: .mdblistIds)
+        try container.encode(rowName, forKey: .rowName)
+    }
+}
+
+struct SyncedHiddenSections: Codable {
+    let userId: String
+    let hideStudiosRow: Bool?
+    let hideNetworksRow: Bool?
+    let hideForYouRow: Bool?
+    let hideDiscoverSection: Bool?
+    
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case hideStudiosRow = "hide_studios_row"
+        case hideNetworksRow = "hide_networks_row"
+        case hideForYouRow = "hide_for_you_row"
+        case hideDiscoverSection = "hide_discover_section"
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(userId, forKey: .userId)
+        try container.encode(hideStudiosRow, forKey: .hideStudiosRow)
+        try container.encode(hideNetworksRow, forKey: .hideNetworksRow)
+        try container.encode(hideForYouRow, forKey: .hideForYouRow)
+        try container.encode(hideDiscoverSection, forKey: .hideDiscoverSection)
     }
 }
 

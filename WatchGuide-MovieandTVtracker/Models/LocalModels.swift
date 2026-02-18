@@ -523,6 +523,17 @@ struct ExternalJSONEntry: Codable {
     }
 }
 
+// MARK: - Hidden Default Sections
+/// Tracks which built-in browse page sections are hidden by the user.
+struct HiddenDefaultSections: Codable, Equatable {
+    var hideStudiosRow: Bool = false
+    var hideNetworksRow: Bool = false
+    var hideForYouRow: Bool = false
+    var hideDiscoverSection: Bool = false
+    
+    static let `default` = HiddenDefaultSections()
+}
+
 // MARK: - Search History
 struct SearchHistoryItem: Identifiable, Codable {
     let id: String

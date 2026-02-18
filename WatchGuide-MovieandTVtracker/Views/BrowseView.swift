@@ -51,8 +51,8 @@ struct BrowseView: View {
                         })
                     }
                     
-                    // Networks Section (Streaming Services) — hidden for kids profiles
-                    if !isKidsProfile && !viewModel.networkHubs.isEmpty {
+                    // Networks Section (Streaming Services) — hidden for kids profiles or if user disabled
+                    if !isKidsProfile && !viewModel.networkHubs.isEmpty && !StorageService.shared.hiddenSections.hideNetworksRow {
                         NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
                             selectedNetworkHub = hub
                         }
@@ -80,7 +80,7 @@ struct BrowseView: View {
                         
                         // Insert Studios buttons after Trending TV Shows row — hidden for kids profiles
                         if row.title == "Trending TV Shows" || (isKidsProfile && row.title == "Kids TV Shows") {
-                            if !isKidsProfile {
+                            if !isKidsProfile && !StorageService.shared.hiddenSections.hideStudiosRow {
                                 StudiosHubRow(
                                     onTwentiethCenturyTap: { activeStudioSheet = .twentiethCentury },
                                     onWarnerBrosTap: { activeStudioSheet = .warnerBros },
@@ -102,7 +102,7 @@ struct BrowseView: View {
                             }
                             
                             // For You Row (AI-powered, based on likes) — only for signed-in adult (18+) users
-                            if authService.isAuthenticated && isAdultProfile {
+                            if authService.isAuthenticated && isAdultProfile && !StorageService.shared.hiddenSections.hideForYouRow {
                                 ForYouRow(viewModel: forYouVM) { item in
                                     selectedItem = item
                                 }
@@ -111,7 +111,7 @@ struct BrowseView: View {
                     }
                     
                     // MARK: - Discover Section (only for 18+ adult profiles — contains AI and mature discovery features)
-                    if isAdultProfile {
+                    if isAdultProfile && !StorageService.shared.hiddenSections.hideDiscoverSection {
                         BrowseDiscoverSection()
                     }
                 }
