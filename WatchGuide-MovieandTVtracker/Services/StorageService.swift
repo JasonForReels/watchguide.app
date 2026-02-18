@@ -447,9 +447,10 @@ class StorageService: ObservableObject {
             
             // Apply network hub config — always apply (even empty means user reset to defaults)
             // Merge cloud config into local hubs to preserve hub metadata (logos, providers, etc.)
+            // hubId in cloud is the lowercased hub name (consistent across devices).
             if !homeConfig.networkHubsConfig.isEmpty {
                 for config in homeConfig.networkHubsConfig {
-                    if let idx = networkHubs.firstIndex(where: { $0.id == config.hubId }) {
+                    if let idx = networkHubs.firstIndex(where: { $0.name.lowercased() == config.hubId.lowercased() }) {
                         networkHubs[idx].isEnabled = config.isEnabled
                         networkHubs[idx].sortOrder = config.sortOrder
                     }

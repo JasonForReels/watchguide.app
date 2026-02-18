@@ -410,11 +410,12 @@ actor HomeScreenSyncService {
         let deleteQuery = [URLQueryItem(name: "user_id", value: "eq.\(userId)")]
         try await requestNoResponse(endpoint: "network_hubs_config", method: "DELETE", queryItems: deleteQuery)
         
-        // Upload new
+        // Upload new — use hub name (lowercased) as hubId so it's consistent across devices
+        // (each device generates different random UUIDs for hub.id, but the name is always the same)
         let syncItems = hubs.map { hub in
             SyncedNetworkHubConfig(
                 userId: userId,
-                hubId: hub.id,
+                hubId: hub.name.lowercased(),
                 isEnabled: hub.isEnabled,
                 sortOrder: hub.sortOrder
             )
