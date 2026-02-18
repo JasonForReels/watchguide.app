@@ -422,19 +422,31 @@ class StorageService: ObservableObject {
                 save(customLists, to: customListsURL)
             }
             
-            // Apply home screen config
+            // Apply home screen config — always apply cloud state (even empty = user cleared everything)
+            // Browse rows: merge cloud state with local defaults so new default rows aren't lost
             if !homeConfig.browseRows.isEmpty {
-                browseRows = homeConfig.browseRows
+                // Start with cloud rows
+                var merged = homeConfig.browseRows
+                // Add any local default rows that don't exist in cloud (e.g. newly added default rows)
+                let cloudRowIds = Set(merged.map { $0.id })
+                for defaultRow in BrowseRowConfig.defaultRows where !cloudRowIds.contains(defaultRow.id) {
+                    var newRow = defaultRow
+                    newRow.sortOrder = merged.count
+                    newRow.isEnabled = false // New defaults start disabled when coming from cloud
+                    merged.append(newRow)
+                }
+                browseRows = merged
                 save(browseRows, to: browseRowsURL)
             }
-            if !homeConfig.extensionLists.isEmpty {
-                importedLists = homeConfig.extensionLists
-                save(importedLists, to: importedListsURL)
-            }
-            if !homeConfig.customHomeRows.isEmpty {
-                customHomeRows = homeConfig.customHomeRows
-                save(customHomeRows, to: customHomeRowsURL)
-            }
+            
+            // Extension lists: apply even if empty (user may have removed all)
+            importedLists = homeConfig.extensionLists
+            save(importedLists, to: importedListsURL)
+            
+            // Custom home rows: apply even if empty
+            customHomeRows = homeConfig.customHomeRows
+            save(customHomeRows, to: customHomeRowsURL)
+            
             // Apply network hub config
             if !homeConfig.networkHubsConfig.isEmpty {
                 for config in homeConfig.networkHubsConfig {
@@ -447,11 +459,9 @@ class StorageService: ObservableObject {
                 save(networkHubs, to: networkHubsURL)
             }
             
-            // Apply custom JSON hubs
-            if !homeConfig.customJSONHubs.isEmpty {
-                customJSONHubs = homeConfig.customJSONHubs
-                save(customJSONHubs, to: customJSONHubsURL)
-            }
+            // Apply custom JSON hubs: apply even if empty (user may have removed all)
+            customJSONHubs = homeConfig.customJSONHubs
+            save(customJSONHubs, to: customJSONHubsURL)
             
             // Apply hidden sections
             if let syncedHidden = homeConfig.hiddenSections {
