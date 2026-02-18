@@ -424,20 +424,18 @@ class StorageService: ObservableObject {
             
             // Apply home screen config — always apply cloud state (even empty = user cleared everything)
             // Browse rows: merge cloud state with local defaults so new default rows aren't lost
-            if !homeConfig.browseRows.isEmpty {
-                // Start with cloud rows
-                var merged = homeConfig.browseRows
-                // Add any local default rows that don't exist in cloud (e.g. newly added default rows)
-                let cloudRowIds = Set(merged.map { $0.id })
-                for defaultRow in BrowseRowConfig.defaultRows where !cloudRowIds.contains(defaultRow.id) {
-                    var newRow = defaultRow
-                    newRow.sortOrder = merged.count
-                    newRow.isEnabled = false // New defaults start disabled when coming from cloud
-                    merged.append(newRow)
-                }
-                browseRows = merged
-                save(browseRows, to: browseRowsURL)
+            // Always apply, even if empty — empty means user disabled/removed all rows on another device
+            var mergedBrowseRows = homeConfig.browseRows
+            let cloudRowIds = Set(mergedBrowseRows.map { $0.id })
+            for defaultRow in BrowseRowConfig.defaultRows where !cloudRowIds.contains(defaultRow.id) {
+                var newRow = defaultRow
+                newRow.sortOrder = mergedBrowseRows.count
+                // New defaults start disabled when coming from cloud (cloud is source of truth)
+                newRow.isEnabled = homeConfig.browseRows.isEmpty ? defaultRow.isEnabled : false
+                mergedBrowseRows.append(newRow)
             }
+            browseRows = mergedBrowseRows
+            save(browseRows, to: browseRowsURL)
             
             // Extension lists: apply even if empty (user may have removed all)
             importedLists = homeConfig.extensionLists
@@ -447,7 +445,8 @@ class StorageService: ObservableObject {
             customHomeRows = homeConfig.customHomeRows
             save(customHomeRows, to: customHomeRowsURL)
             
-            // Apply network hub config
+            // Apply network hub config — always apply (even empty means user reset to defaults)
+            // Merge cloud config into local hubs to preserve hub metadata (logos, providers, etc.)
             if !homeConfig.networkHubsConfig.isEmpty {
                 for config in homeConfig.networkHubsConfig {
                     if let idx = networkHubs.firstIndex(where: { $0.id == config.hubId }) {
@@ -463,7 +462,7 @@ class StorageService: ObservableObject {
             customJSONHubs = homeConfig.customJSONHubs
             save(customJSONHubs, to: customJSONHubsURL)
             
-            // Apply hidden sections
+            // Apply hidden sections — always apply from cloud (source of truth)
             if let syncedHidden = homeConfig.hiddenSections {
                 hiddenSections = syncedHidden
                 save(hiddenSections, to: hiddenSectionsURL)
@@ -510,9 +509,18 @@ class StorageService: ObservableObject {
     
     // MARK: - Browse Customization Cloud Sync
     
+    /// Whether browse customization should auto-sync to cloud.
+    /// Syncs if cloud sync is explicitly enabled, OR if user is authenticated with Supabase configured.
+    private var shouldAutoSyncHomeConfig: Bool {
+        guard isCloudConfigured else { return false }
+        if cloudSyncEnabled { return true }
+        // Also auto-sync if user is authenticated (even without explicit toggle)
+        return AuthService.shared.isAuthenticated
+    }
+    
     /// Sync browse row config to cloud (background)
     private func syncBrowseConfigToCloud() {
-        guard cloudSyncEnabled && isCloudConfigured else { return }
+        guard shouldAutoSyncHomeConfig else { return }
         let rowsCopy = browseRows
         Task {
             do {
@@ -525,7 +533,7 @@ class StorageService: ObservableObject {
     
     /// Sync network hubs config to cloud (background)
     private func syncNetworkHubsToCloud() {
-        guard cloudSyncEnabled && isCloudConfigured else { return }
+        guard shouldAutoSyncHomeConfig else { return }
         let hubsCopy = networkHubs
         Task {
             do {
@@ -538,7 +546,7 @@ class StorageService: ObservableObject {
     
     /// Sync hidden sections to cloud (background)
     private func syncHiddenSectionsToCloud() {
-        guard cloudSyncEnabled && isCloudConfigured else { return }
+        guard shouldAutoSyncHomeConfig else { return }
         let sectionsCopy = hiddenSections
         Task {
             do {
@@ -551,13 +559,39 @@ class StorageService: ObservableObject {
     
     /// Sync custom JSON hubs to cloud (background)
     private func syncCustomJSONHubsToCloud() {
-        guard cloudSyncEnabled && isCloudConfigured else { return }
+        guard shouldAutoSyncHomeConfig else { return }
         let hubsCopy = customJSONHubs
         Task {
             do {
                 try await HomeScreenSyncService.shared.uploadCustomJSONHubs(hubsCopy)
             } catch {
                 print("Cloud sync custom JSON hubs failed: \(error)")
+            }
+        }
+    }
+    
+    /// Sync extension lists to cloud (background)
+    private func syncExtensionListsToCloud() {
+        guard shouldAutoSyncHomeConfig else { return }
+        let listsCopy = importedLists
+        Task {
+            do {
+                try await HomeScreenSyncService.shared.uploadExtensionLists(listsCopy)
+            } catch {
+                print("Cloud sync extension lists failed: \(error)")
+            }
+        }
+    }
+    
+    /// Sync custom home rows to cloud (background)
+    private func syncCustomHomeRowsToCloud() {
+        guard shouldAutoSyncHomeConfig else { return }
+        let rowsCopy = customHomeRows
+        Task {
+            do {
+                try await HomeScreenSyncService.shared.uploadCustomHomeRows(rowsCopy)
+            } catch {
+                print("Cloud sync custom home rows failed: \(error)")
             }
         }
     }
@@ -625,12 +659,14 @@ class StorageService: ObservableObject {
     func addImportedList(_ list: ImportedListItem) {
         importedLists.append(list)
         save(importedLists, to: importedListsURL)
+        syncExtensionListsToCloud()
     }
     
     func updateImportedList(_ list: ImportedListItem) {
         if let index = importedLists.firstIndex(where: { $0.id == list.id }) {
             importedLists[index] = list
             save(importedLists, to: importedListsURL)
+            syncExtensionListsToCloud()
         }
     }
     
@@ -640,6 +676,8 @@ class StorageService: ObservableObject {
         // Also remove any custom home rows that use this list
         customHomeRows.removeAll { $0.importedListId == id }
         save(customHomeRows, to: customHomeRowsURL)
+        syncExtensionListsToCloud()
+        syncCustomHomeRowsToCloud()
     }
     
     func getImportedListsForHome() -> [ImportedListItem] {
@@ -652,18 +690,21 @@ class StorageService: ObservableObject {
         newRow.sortOrder = customHomeRows.count
         customHomeRows.append(newRow)
         save(customHomeRows, to: customHomeRowsURL)
+        syncCustomHomeRowsToCloud()
     }
     
     func updateCustomHomeRow(_ row: CustomHomeRow) {
         if let index = customHomeRows.firstIndex(where: { $0.id == row.id }) {
             customHomeRows[index] = row
             save(customHomeRows, to: customHomeRowsURL)
+            syncCustomHomeRowsToCloud()
         }
     }
     
     func deleteCustomHomeRow(id: String) {
         customHomeRows.removeAll { $0.id == id }
         save(customHomeRows, to: customHomeRowsURL)
+        syncCustomHomeRowsToCloud()
     }
     
     func reorderCustomHomeRows(_ rows: [CustomHomeRow]) {
@@ -673,6 +714,7 @@ class StorageService: ObservableObject {
         }
         customHomeRows = updatedRows
         save(customHomeRows, to: customHomeRowsURL)
+        syncCustomHomeRowsToCloud()
     }
     
     func getEnabledCustomHomeRows() -> [CustomHomeRow] {
@@ -715,6 +757,7 @@ class StorageService: ObservableObject {
         }
         customJSONHubs = updated
         save(customJSONHubs, to: customJSONHubsURL)
+        syncCustomJSONHubsToCloud()
     }
     
     // MARK: - Settings
