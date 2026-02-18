@@ -3,7 +3,7 @@
 //  WatchGuide-MovieandTVtracker
 //
 //  MDBList service for fetching curated movie & TV lists
-//  Uses the JSON export endpoint for reliable list fetching
+//  Uses public JSON export first, then API /lists/{id}/items fallback
 //
 
 import Foundation
@@ -11,7 +11,7 @@ import Foundation
 actor MDBListService {
     static let shared = MDBListService()
     
-    private let baseURL = "https://mdblist.com"
+    private let baseURL = "https://mdblist.com/api"
     
     private let apiKey = "mi46uequ1wi40i8fxp4789jxz"
     
@@ -29,18 +29,109 @@ actor MDBListService {
     private var listCache: [String: (items: [MDBListItem], timestamp: Date)] = [:]
     private let cacheTTL: TimeInterval = 600 // 10 minutes
     
+    // In-memory cache for list path resolution (slugOrId -> username/slug)
+    private var listPathCache: [String: String] = [:] // slugOrId -> username/slug
+    
     private init() {}
     
     var isConfigured: Bool {
         !apiKey.isEmpty
     }
     
+    /// Resolve an input (slug, numeric id, or username/slug) to a fetchable path for list items.
+    /// Returns username/slug when possible. Caches results.
+    private func resolveListPath(from input: String) async -> String {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return input }
+        
+        // If it's a full URL, return parsed username/slug directly to avoid API calls
+        if trimmed.lowercased().contains("mdblist.com/lists/") {
+            return parseListId(from: trimmed)
+        }
+        
+        // If already in username/slug format (has a slash), return as-is
+        if trimmed.contains("/") { return trimmed }
+        
+        // If cached, return
+        if let cached = listPathCache[trimmed] { return cached }
+        
+        // Try search API to find a matching list by slug or name
+        do {
+            let results = try await searchLists(query: trimmed)
+            // Prefer exact slug match, else first result
+            if let exact = results.first(where: { ($0.slug ?? "").lowercased() == trimmed.lowercased() }) {
+                let path = exact.listPath
+                listPathCache[trimmed] = path
+                return path
+            }
+            if let first = results.first {
+                let path = first.listPath
+                listPathCache[trimmed] = path
+                return path
+            }
+        } catch {
+            print("resolveListPath search error: \(error)")
+        }
+        
+        // Fallback: return input as-is
+        return trimmed
+    }
+    
     // MARK: - List Endpoints
+    
+    /// Fetch list items from a full list URL or username/slug using only the public JSON export (no API key).
+    /// This avoids API rate limiting. Input can be a full URL like
+    /// https://mdblist.com/lists/{username}/{slug} or just "username/slug".
+    func getListItemsFromURL(_ input: String) async throws -> [MDBListItem] {
+        let path = parseListId(from: input)
+        guard !path.isEmpty else { throw MDBListError.invalidList }
+
+        let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
+        let publicURLString = "https://mdblist.com/lists/\(encoded)/json"
+        guard let url = URL(string: publicURLString) else { throw MDBListError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { throw MDBListError.networkError }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            print("MDBList public URL fetch failed (\(httpResponse.statusCode)): \(body.prefix(300))")
+            throw MDBListError.apiError(httpResponse.statusCode)
+        }
+
+        let items = try decodeListItems(from: data)
+        return items
+    }
     
     /// Get list items by list ID using the JSON export endpoint
     func getListItems(listId: String) async throws -> [MDBListItem] {
         guard !apiKey.isEmpty else {
             throw MDBListError.notConfigured
+        }
+        
+        // If input is a full URL, bypass search/API and use public export only to avoid rate limits
+        if listId.lowercased().contains("mdblist.com/lists/") {
+            let path = parseListId(from: listId)
+            let encodedListId = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
+            let publicURLString = "https://mdblist.com/lists/\(encodedListId)/json"
+            print("MDBList public URL (direct): \(publicURLString)")
+            guard let publicURL = URL(string: publicURLString) else { throw MDBListError.invalidURL }
+            var request = URLRequest(url: publicURL)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 15
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else { throw MDBListError.networkError }
+            guard (200...299).contains(httpResponse.statusCode) else {
+                let bodyPreview = String(data: data, encoding: .utf8) ?? ""
+                print("MDBList public (direct) failed (\(httpResponse.statusCode)): \(bodyPreview.prefix(300))")
+                throw MDBListError.apiError(httpResponse.statusCode)
+            }
+            let items = try decodeListItems(from: data)
+            if !items.isEmpty { listCache[listId] = (items: items, timestamp: Date()) }
+            return items
         }
         
         // Check in-memory cache
@@ -49,9 +140,14 @@ actor MDBListService {
             return cached.items
         }
         
+        let resolvedPath = await resolveListPath(from: listId)
+        print("MDBList resolved path: \(resolvedPath) from input: \(listId)")
+        
         // Try the public JSON export endpoint first (no API key needed, flat array)
-        // Format: /lists/username/listname/json
-        let publicURLString = "\(baseURL)/lists/\(listId)/json"
+        // Format: https://mdblist.com/lists/username/listname/json
+        let encodedListId = resolvedPath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? resolvedPath
+        let publicURLString = "https://mdblist.com/lists/\(encodedListId)/json"
+        print("MDBList public URL: \(publicURLString)")
         
         guard let publicURL = URL(string: publicURLString) else {
             throw MDBListError.invalidURL
@@ -68,8 +164,10 @@ actor MDBListService {
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
+            let bodyPreview = String(data: data, encoding: .utf8) ?? ""
+            print("MDBList public export failed (\(httpResponse.statusCode)): \(bodyPreview.prefix(300)) — falling back to API")
             // Fallback: try the API endpoint with key
-            return try await getListItemsViaAPI(listId: listId)
+            return try await getListItemsViaAPI(listId: listId, resolvedPath: resolvedPath)
         }
         
         let items = try decodeListItems(from: data)
@@ -83,34 +181,76 @@ actor MDBListService {
     }
     
     /// Fallback: use the API endpoint with apikey parameter
-    private func getListItemsViaAPI(listId: String) async throws -> [MDBListItem] {
-        let urlString = "\(baseURL)/lists/\(listId)/json?apikey=\(apiKey)"
-        
-        guard let url = URL(string: urlString) else {
-            throw MDBListError.invalidURL
+    private func getListItemsViaAPI(listId: String, resolvedPath: String? = nil) async throws -> [MDBListItem] {
+        let pathId = (resolvedPath ?? listId)
+        let encodedListId = pathId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? pathId
+
+        // Try multiple endpoint variants in order
+        let paths = [
+            "/lists/\(encodedListId)/items",   // plural
+            "/list/\(encodedListId)/items",    // singular (in case docs differ)
+            "/lists/\(encodedListId)/json"     // legacy json path under API (unlikely, but try)
+        ]
+
+        // Try both auth mechanisms: query apikey and Authorization header
+        enum AuthStyle { case query, header }
+        let authStyles: [AuthStyle] = [.query, .header]
+
+        var lastError: (code: Int, body: String)? = nil
+
+        for path in paths {
+            for style in authStyles {
+                var components = URLComponents(string: "\(baseURL)\(path)")!
+                if style == .query {
+                    components.queryItems = [URLQueryItem(name: "apikey", value: apiKey)]
+                }
+                guard let url = components.url else { continue }
+
+                var request = URLRequest(url: url)
+                request.httpMethod = "GET"
+                request.timeoutInterval = 15
+                if style == .header {
+                    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                }
+
+                print("MDBList API URL: \(url.absoluteString) [auth=\(style == .query ? "query" : "header")]")
+
+                do {
+                    let (data, response) = try await session.data(for: request)
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continue
+                    }
+
+                    if (200...299).contains(httpResponse.statusCode) {
+                        // Decode
+                        do {
+                            let items = try decodeListItems(from: data)
+                            if !items.isEmpty {
+                                listCache[listId] = (items: items, timestamp: Date())
+                                return items
+                            }
+                        } catch {
+                            // Try next variant
+                            let bodyPreview = String(data: data, encoding: .utf8) ?? ""
+                            print("MDBList decode error on \(path): \(error) body: \(bodyPreview.prefix(200))")
+                        }
+                    } else {
+                        let body = String(data: data, encoding: .utf8) ?? ""
+                        lastError = (httpResponse.statusCode, body)
+                        print("MDBList API error \(httpResponse.statusCode) on \(path): \(body.prefix(300))")
+                    }
+                } catch {
+                    print("MDBList request failed for \(path): \(error)")
+                    continue
+                }
+            }
         }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 15
-        
-        let (data, response) = try await session.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw MDBListError.networkError
+
+        if let last = lastError {
+            throw MDBListError.apiError(last.code)
+        } else {
+            throw MDBListError.invalidList
         }
-        
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw MDBListError.apiError(httpResponse.statusCode)
-        }
-        
-        let items = try decodeListItems(from: data)
-        
-        if !items.isEmpty {
-            listCache[listId] = (items: items, timestamp: Date())
-        }
-        
-        return items
     }
     
     /// Decode list items supporting multiple response formats:
@@ -149,6 +289,23 @@ actor MDBListService {
             }
         }
         
+        // Fifth try: { "items": [...] }
+        struct ItemsWrapper: Codable { let items: [MDBListItem]? }
+        if let iw = try? JSONDecoder().decode(ItemsWrapper.self, from: data),
+           let arr = iw.items, !arr.isEmpty {
+            return arr
+        }
+        
+        // Additional try: wrapped with "items" key
+        /*
+        struct ItemsWrapper: Codable {
+            let items: [MDBListItem]?
+        }
+        if let iw = try? JSONDecoder().decode(ItemsWrapper.self, from: data),
+           let arr = iw.items, !arr.isEmpty {
+            return arr
+        }
+        */
         // If nothing worked, throw
         throw MDBListError.invalidList
     }
@@ -167,7 +324,7 @@ actor MDBListService {
             return cached.info
         }
         
-        var urlString = "\(baseURL)/api/?apikey=\(apiKey)&tm=\(tmdbId)"
+        var urlString = "https://mdblist.com/api/?apikey=\(apiKey)&tm=\(tmdbId)"
         if mediaType == .tv {
             urlString += "&m=show"
         }
@@ -218,11 +375,12 @@ actor MDBListService {
     // MARK: - Convenience Methods
     
     /// Fetch list items and convert to MediaItem format (for hero carousel, etc.)
-    func fetchListItemsAsMediaItems(listId: String) async throws -> [MediaItem] {
+    func fetchListItemsAsMediaItems(listId: String, limit: Int? = nil) async throws -> [MediaItem] {
         let items = try await getListItems(listId: listId)
         var mediaItems: [MediaItem] = []
         
-        for item in items.prefix(15) {
+        let sequence = (limit != nil) ? Array(items.prefix(limit!)) : items
+        for item in sequence {
             if let tmdbId = item.id, tmdbId > 0 {
                 do {
                     let mediaType: MediaType = item.mediatype == "show" ? .tv : .movie
@@ -275,11 +433,11 @@ actor MDBListService {
                 } catch {
                     // Fall back to basic item from MDBList data
                     if let basicItem = item.toSavedMediaItem() {
-                        mediaItems.append(basicItem.toMediaItem())
+                        mediaItems.append(basicItem.asMediaItem())
                     }
                 }
             } else if let basicItem = item.toSavedMediaItem() {
-                mediaItems.append(basicItem.toMediaItem())
+                mediaItems.append(basicItem.asMediaItem())
             }
         }
         
@@ -287,11 +445,12 @@ actor MDBListService {
     }
     
     /// Fetch list items and convert to app's SavedMediaItem format
-    func fetchListItemsAsSavedMedia(listId: String) async throws -> [SavedMediaItem] {
+    func fetchListItemsAsSavedMedia(listId: String, limit: Int? = nil) async throws -> [SavedMediaItem] {
         let items = try await getListItems(listId: listId)
         var savedItems: [SavedMediaItem] = []
         
-        for item in items.prefix(50) { // Limit to 50 to avoid too many API calls
+        let sequence = (limit != nil) ? Array(items.prefix(limit!)) : items
+        for item in sequence {
             // Try to look up in TMDB for full details
             if let tmdbId = item.id, tmdbId > 0 {
                 do {
@@ -321,22 +480,32 @@ actor MDBListService {
     /// Parse list ID from URL or return as-is
     nonisolated func parseListId(from input: String) -> String {
         var id = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // Handle URL formats like https://mdblist.com/lists/username/listname
-        if id.contains("mdblist.com/lists/") {
-            // Extract the path after /lists/
-            if let url = URL(string: id) {
-                let pathComponents = url.pathComponents
-                if let listsIndex = pathComponents.firstIndex(of: "lists"),
-                   listsIndex + 2 < pathComponents.count {
-                    // Return username/listname format
+        guard !id.isEmpty else { return id }
+
+        // If it's a URL, extract username/slug after /lists/
+        if id.lowercased().contains("mdblist.com/lists/") {
+            if let url = URL(string: id), let host = url.host, host.contains("mdblist.com") {
+                let pathComponents = url.pathComponents.filter { $0 != "/" }
+                if let listsIndex = pathComponents.firstIndex(of: "lists"), listsIndex + 2 < pathComponents.count {
                     let username = pathComponents[listsIndex + 1]
                     let listname = pathComponents[listsIndex + 2]
-                    id = "\(username)/\(listname)"
+                    return "\(username)/\(listname)"
+                }
+            } else {
+                // Fallback simple parsing for malformed URL strings
+                if let range = id.range(of: "/lists/") {
+                    let tail = id[range.upperBound...]
+                    let parts = tail.split(separator: "/").map(String.init)
+                    if parts.count >= 2 {
+                        return "\(parts[0])/\(parts[1])"
+                    }
                 }
             }
         }
-        
+
+        // Already username/slug
+        if id.contains("/") { return id }
+
         return id
     }
     
@@ -348,7 +517,7 @@ actor MDBListService {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
         
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-        let urlString = "\(baseURL)/api/lists/search?s=\(encoded)&apikey=\(apiKey)"
+        let urlString = "\(baseURL)/lists/search?s=\(encoded)&apikey=\(apiKey)"
         
         guard let url = URL(string: urlString) else { throw MDBListError.invalidURL }
         
@@ -373,7 +542,7 @@ actor MDBListService {
     func getTopLists() async throws -> [MDBListSearchResult] {
         guard !apiKey.isEmpty else { throw MDBListError.notConfigured }
         
-        let urlString = "\(baseURL)/api/lists/top?apikey=\(apiKey)"
+        let urlString = "\(baseURL)/lists/top?apikey=\(apiKey)"
         
         guard let url = URL(string: urlString) else { throw MDBListError.invalidURL }
         
@@ -391,6 +560,121 @@ actor MDBListService {
         
         let results = try decoder.decode([MDBListSearchResult].self, from: data)
         return results
+    }
+    
+    // MARK: - New Convenience Methods for Multiple Lists
+    
+    /// Combine multiple MDBList inputs (URLs or username/slug) into a single array of SavedMediaItem.
+    /// - Parameters:
+    ///   - inputs: Array of list identifiers or full URLs
+    ///   - perListLimit: Optional cap per list before merging (nil = all)
+    ///   - totalLimit: Optional cap after merging (nil = all)
+    ///   - preferTMDBDetails: If true, attempts TMDB lookups for richer data; otherwise uses MDBList basics
+    func fetchMultipleListsAsSavedMedia(inputs: [String], perListLimit: Int? = nil, totalLimit: Int? = nil, preferTMDBDetails: Bool = true) async throws -> [SavedMediaItem] {
+        var combined: [SavedMediaItem] = []
+        var seenKeys = Set<String>() // mediaType-mediaId
+
+        for input in inputs {
+            // Use public JSON export when input is a URL to avoid rate limiting
+            let items: [MDBListItem]
+            if input.lowercased().contains("mdblist.com/lists/") {
+                items = try await getListItemsFromURL(input)
+            } else {
+                items = try await getListItems(listId: input)
+            }
+            let sequence = (perListLimit != nil) ? Array(items.prefix(perListLimit!)) : items
+
+            for item in sequence {
+                // If we have a TMDB id, we can optionally enrich
+                if preferTMDBDetails, let tmdbId = item.id, tmdbId > 0 {
+                    let mediaType: MediaType = item.mediatype == "show" ? .tv : .movie
+                    do {
+                        if mediaType == .movie {
+                            let details = try await TMDBService.shared.getMovieDetails(id: tmdbId)
+                            let saved = SavedMediaItem(from: details)
+                            let key = "\(saved.mediaType.rawValue)-\(saved.mediaId)"
+                            if !seenKeys.contains(key) {
+                                seenKeys.insert(key)
+                                combined.append(saved)
+                            }
+                        } else {
+                            let details = try await TMDBService.shared.getTVShowDetails(id: tmdbId)
+                            let saved = SavedMediaItem(from: details)
+                            let key = "\(saved.mediaType.rawValue)-\(saved.mediaId)"
+                            if !seenKeys.contains(key) {
+                                seenKeys.insert(key)
+                                combined.append(saved)
+                            }
+                        }
+                    } catch {
+                        if let basic = item.toSavedMediaItem() {
+                            let key = "\(basic.mediaType.rawValue)-\(basic.mediaId)"
+                            if !seenKeys.contains(key) {
+                                seenKeys.insert(key)
+                                combined.append(basic)
+                            }
+                        }
+                    }
+                } else if let basic = item.toSavedMediaItem() {
+                    let key = "\(basic.mediaType.rawValue)-\(basic.mediaId)"
+                    if !seenKeys.contains(key) {
+                        seenKeys.insert(key)
+                        combined.append(basic)
+                    }
+                }
+
+                if let totalLimit, combined.count >= totalLimit { return combined }
+            }
+        }
+
+        return combined
+    }
+    
+    /// Combine multiple MDBList inputs (URLs or username/slug) into a single array of MediaItem.
+    /// - Parameters:
+    ///   - inputs: Array of list identifiers or full URLs
+    ///   - perListLimit: Optional cap per list before merging (nil = all)
+    ///   - totalLimit: Optional cap after merging (nil = all)
+    ///   - preferTMDBDetails: If true, attempts TMDB lookups for richer data; otherwise uses MDBList basics
+    func fetchMultipleListsAsMediaItems(inputs: [String], perListLimit: Int? = nil, totalLimit: Int? = nil, preferTMDBDetails: Bool = true) async throws -> [MediaItem] {
+        let saved = try await fetchMultipleListsAsSavedMedia(inputs: inputs, perListLimit: perListLimit, totalLimit: totalLimit, preferTMDBDetails: preferTMDBDetails)
+        return saved.map { $0.asMediaItem() }
+    }
+
+    /// Convenience: load exactly two lists (IDs or URLs) and merge into a single array of SavedMediaItem.
+    /// - Parameters:
+    ///   - first: First list identifier or full URL
+    ///   - second: Second list identifier or full URL
+    ///   - perListLimit: Optional cap per list before merging (nil = all)
+    ///   - totalLimit: Optional cap after merging (nil = all)
+    ///   - preferTMDBDetails: If true, attempts TMDB lookups for richer data; otherwise uses MDBList basics
+    /// - Returns: De-duplicated merged SavedMediaItem array
+    func fetchTwoListsAsSavedMedia(first: String, second: String, perListLimit: Int? = nil, totalLimit: Int? = nil, preferTMDBDetails: Bool = true) async throws -> [SavedMediaItem] {
+        return try await fetchMultipleListsAsSavedMedia(
+            inputs: [first, second],
+            perListLimit: perListLimit,
+            totalLimit: totalLimit,
+            preferTMDBDetails: preferTMDBDetails
+        )
+    }
+
+    /// Convenience: load exactly two lists (IDs or URLs) and merge into a single array of MediaItem.
+    /// - Parameters:
+    ///   - first: First list identifier or full URL
+    ///   - second: Second list identifier or full URL
+    ///   - perListLimit: Optional cap per list before merging (nil = all)
+    ///   - totalLimit: Optional cap after merging (nil = all)
+    ///   - preferTMDBDetails: If true, attempts TMDB lookups for richer data; otherwise uses MDBList basics
+    /// - Returns: De-duplicated merged MediaItem array
+    func fetchTwoListsAsMediaItems(first: String, second: String, perListLimit: Int? = nil, totalLimit: Int? = nil, preferTMDBDetails: Bool = true) async throws -> [MediaItem] {
+        let saved = try await fetchTwoListsAsSavedMedia(
+            first: first,
+            second: second,
+            perListLimit: perListLimit,
+            totalLimit: totalLimit,
+            preferTMDBDetails: preferTMDBDetails
+        )
+        return saved.map { $0.asMediaItem() }
     }
 }
 
@@ -575,3 +859,29 @@ enum MDBListError: LocalizedError {
         }
     }
 }
+
+// MARK: - SavedMediaItem extension for conversion
+extension SavedMediaItem {
+    func asMediaItem() -> MediaItem {
+        MediaItem(
+            id: mediaId,
+            title: mediaType == .movie ? title : nil,
+            name: mediaType == .tv ? title : nil,
+            originalTitle: nil,
+            originalName: nil,
+            overview: overview,
+            posterPath: posterPath,
+            backdropPath: backdropPath,
+            releaseDate: year,
+            firstAirDate: year,
+            voteAverage: voteAverage,
+            voteCount: nil,
+            popularity: nil,
+            genreIds: nil,
+            mediaType: mediaType.rawValue,
+            adult: nil,
+            originalLanguage: nil
+        )
+    }
+}
+

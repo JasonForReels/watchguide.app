@@ -2153,6 +2153,16 @@ struct CustomJSONHubsSettingsView: View {
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                     
+                                    let listCount = hub.resolvedMDBListIds.count
+                                    if listCount > 1 {
+                                        Text("\(listCount) lists")
+                                            .font(.caption2)
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 1)
+                                            .background(Capsule().fill(Color.orange))
+                                    }
+                                    
                                     Text(hub.source.displayName)
                                         .font(.caption2)
                                         .foregroundColor(.white)
@@ -2255,9 +2265,10 @@ struct CustomJSONHubsSettingsView: View {
     }
     
     private func refreshHub(_ hub: CustomJSONHub) async {
-        if hub.source == .mdblist, let listId = hub.mdblistId {
+        let listIds = hub.resolvedMDBListIds
+        if hub.source == .mdblist, !listIds.isEmpty {
             do {
-                let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
+                let items = try await MDBListService.shared.fetchMultipleListsAsSavedMedia(inputs: listIds)
                 await MainActor.run {
                     var updatedHub = hub
                     updatedHub.items = items
@@ -2411,6 +2422,15 @@ struct AddCustomHubSheet: View {
         case json = "JSON URL"
     }
     
+    // MARK: - MDBList List Entry (for multi-list support)
+    struct MDBListEntry: Identifiable {
+        let id = UUID()
+        let listPath: String
+        let displayName: String
+        var itemCount: Int
+        var items: [SavedMediaItem]
+    }
+    
     // General
     @State private var selectedSource: HubSourceTab = .mdblist
     @State private var hubName = ""
@@ -2420,12 +2440,11 @@ struct AddCustomHubSheet: View {
     @State private var error: String?
     @State private var isImporting = false
     
-    // MDBList
+    // MDBList — multiple lists support
     @State private var mdblistInput = ""
     @State private var isSearching = false
     @State private var searchResults: [MDBListSearchResult] = []
-    @State private var selectedList: MDBListSearchResult?
-    @State private var mdblistPreviewItems: [SavedMediaItem] = []
+    @State private var addedLists: [MDBListEntry] = []
     @State private var isLoadingPreview = false
     @State private var hasSearched = false
     
@@ -2438,16 +2457,24 @@ struct AddCustomHubSheet: View {
     
     private var hasValidContent: Bool {
         if selectedSource == .mdblist {
-            return selectedList != nil && !mdblistPreviewItems.isEmpty
+            return !addedLists.isEmpty
         } else {
             return jsonPreviewCount > 0
         }
     }
     
+    private var allMDBListPreviewItems: [SavedMediaItem] {
+        addedLists.flatMap { $0.items }
+    }
+    
+    private var totalItemCount: Int {
+        addedLists.reduce(0) { $0 + $1.itemCount }
+    }
+    
     private var effectiveName: String {
         if !hubName.isEmpty { return hubName }
-        if selectedSource == .mdblist, let list = selectedList {
-            return list.displayName
+        if selectedSource == .mdblist, addedLists.count == 1 {
+            return addedLists.first?.displayName ?? ""
         }
         if selectedSource == .json, let name = jsonPreviewName {
             return name
@@ -2505,12 +2532,49 @@ struct AddCustomHubSheet: View {
                     }
                 }
                 
-                // Preview (MDBList)
-                if selectedSource == .mdblist && !mdblistPreviewItems.isEmpty {
-                    Section("Preview (\(mdblistPreviewItems.count) items)") {
+                // Added lists summary (MDBList multi-list)
+                if selectedSource == .mdblist && !addedLists.isEmpty {
+                    Section {
+                        ForEach(addedLists) { entry in
+                            HStack(spacing: 10) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entry.displayName)
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                    Text("\(entry.itemCount) items")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Button {
+                                    addedLists.removeAll { $0.id == entry.id }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    } header: {
+                        HStack {
+                            Text("Added Lists (\(addedLists.count))")
+                            Spacer()
+                            Text("\(totalItemCount) total items")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    // Preview
+                    Section("Preview") {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
-                                ForEach(mdblistPreviewItems.prefix(8)) { item in
+                                ForEach(allMDBListPreviewItems.prefix(10)) { item in
                                     VStack(spacing: 4) {
                                         PosterImageView(posterPath: item.posterPath, size: .small)
                                             .frame(width: 50, height: 75)
@@ -2655,10 +2719,9 @@ struct AddCustomHubSheet: View {
             .autocapitalization(.none)
             .autocorrectionDisabled()
             .onChange(of: mdblistInput) { _, _ in
-                selectedList = nil
-                mdblistPreviewItems = []
                 error = nil
                 hasSearched = false
+                searchResults = []
             }
         
         HStack(spacing: 12) {
@@ -2668,7 +2731,7 @@ struct AddCustomHubSheet: View {
             } label: {
                 HStack {
                     Image(systemName: "link")
-                    Text("Load")
+                    Text("Add")
                 }
             }
             .disabled(mdblistInput.isEmpty || isLoadingPreview)
@@ -2689,15 +2752,28 @@ struct AddCustomHubSheet: View {
             .disabled(mdblistInput.isEmpty || isSearching)
         }
         
+        // Loading preview indicator
+        if isLoadingPreview {
+            HStack {
+                ProgressView()
+                Text("Loading list...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        
         // Search Results
         if !searchResults.isEmpty {
             ForEach(searchResults) { result in
+                let isAlreadyAdded = addedLists.contains { $0.listPath == result.listPath }
                 Button {
-                    selectSearchResult(result)
+                    if !isAlreadyAdded {
+                        selectSearchResult(result)
+                    }
                 } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: selectedList?.id == result.id ? "checkmark.circle.fill" : "circle")
-                            .foregroundColor(selectedList?.id == result.id ? .green : .secondary)
+                        Image(systemName: isAlreadyAdded ? "checkmark.circle.fill" : "plus.circle")
+                            .foregroundColor(isAlreadyAdded ? .green : .accentColor)
                         
                         VStack(alignment: .leading, spacing: 2) {
                             Text(result.displayName)
@@ -2721,8 +2797,15 @@ struct AddCustomHubSheet: View {
                         }
                         
                         Spacer()
+                        
+                        if isAlreadyAdded {
+                            Text("Added")
+                                .font(.caption2)
+                                .foregroundColor(.green)
+                        }
                     }
                 }
+                .disabled(isAlreadyAdded)
             }
         } else if hasSearched && searchResults.isEmpty && !isSearching {
             HStack {
@@ -2731,31 +2814,6 @@ struct AddCustomHubSheet: View {
                 Text("No lists found")
                     .font(.caption)
                     .foregroundColor(.secondary)
-            }
-        }
-        
-        // Loading preview indicator
-        if isLoadingPreview {
-            HStack {
-                ProgressView()
-                Text("Loading list...")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        
-        // Selected list info
-        if let list = selectedList, !mdblistPreviewItems.isEmpty {
-            HStack {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(list.displayName)
-                        .fontWeight(.medium)
-                    Text("\(mdblistPreviewItems.count) items loaded")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
             }
         }
     }
@@ -2811,6 +2869,13 @@ struct AddCustomHubSheet: View {
         
         let listId = MDBListService.shared.parseListId(from: mdblistInput)
         
+        // Check if already added
+        if addedLists.contains(where: { $0.listPath == listId }) {
+            error = "This list has already been added."
+            isLoadingPreview = false
+            return
+        }
+        
         // Extract name from URL
         var derivedName = ""
         if listId.contains("/") {
@@ -2829,21 +2894,22 @@ struct AddCustomHubSheet: View {
                 if items.isEmpty {
                     error = "List is empty or could not be found."
                 } else {
-                    mdblistPreviewItems = items
-                    selectedList = MDBListSearchResult(
-                        id: listId.hashValue,
-                        name: derivedName.isEmpty ? listId : derivedName,
-                        slug: listId.contains("/") ? String(listId.split(separator: "/").last ?? "") : listId,
-                        items: items.count,
-                        likes: nil,
-                        username: listId.contains("/") ? String(listId.split(separator: "/").first ?? "") : nil,
-                        description: nil,
-                        mediatype: nil
+                    let entry = MDBListEntry(
+                        listPath: listId,
+                        displayName: derivedName.isEmpty ? listId : derivedName,
+                        itemCount: items.count,
+                        items: items
                     )
+                    addedLists.append(entry)
                     
+                    // Auto-fill hub name with first list name if empty
                     if hubName.isEmpty {
                         hubName = derivedName.isEmpty ? listId : derivedName
                     }
+                    
+                    // Clear input for next list
+                    mdblistInput = ""
+                    searchResults = []
                 }
             }
         } catch {
@@ -2854,8 +2920,11 @@ struct AddCustomHubSheet: View {
     }
     
     private func selectSearchResult(_ result: MDBListSearchResult) {
-        selectedList = result
-        if hubName.isEmpty {
+        // Check if already added
+        guard !addedLists.contains(where: { $0.listPath == result.listPath }) else { return }
+        
+        // Auto-fill hub name with first list name if empty
+        if hubName.isEmpty && addedLists.isEmpty {
             hubName = result.displayName
         }
         
@@ -2869,9 +2938,16 @@ struct AddCustomHubSheet: View {
             do {
                 let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: result.listPath)
                 await MainActor.run {
-                    mdblistPreviewItems = items
                     if items.isEmpty {
                         error = "This list appears to be empty."
+                    } else {
+                        let entry = MDBListEntry(
+                            listPath: result.listPath,
+                            displayName: result.displayName,
+                            itemCount: items.count,
+                            items: items
+                        )
+                        addedLists.append(entry)
                     }
                 }
             } catch {
@@ -2922,18 +2998,35 @@ struct AddCustomHubSheet: View {
         let finalName = effectiveName
         
         if selectedSource == .mdblist {
-            guard let list = selectedList else { return }
+            guard !addedLists.isEmpty else { return }
+            
+            // Merge all items, de-duplicate by mediaType-mediaId
+            var mergedItems: [SavedMediaItem] = []
+            var seenKeys = Set<String>()
+            for entry in addedLists {
+                for item in entry.items {
+                    let key = "\(item.mediaType.rawValue)-\(item.mediaId)"
+                    if !seenKeys.contains(key) {
+                        seenKeys.insert(key)
+                        mergedItems.append(item)
+                    }
+                }
+            }
+            
+            let allListPaths = addedLists.map { $0.listPath }
+            let primaryPath = allListPaths.first ?? ""
             
             await MainActor.run {
                 var hub = CustomJSONHub(
                     name: finalName,
-                    jsonURL: "mdblist://\(list.listPath)",
+                    jsonURL: "mdblist://\(primaryPath)",
                     brandColor: brandColor.isEmpty ? nil : brandColor,
                     source: .mdblist
                 )
-                hub.items = mdblistPreviewItems
+                hub.items = mergedItems
                 hub.lastSynced = Date()
-                hub.mdblistId = list.listPath
+                hub.mdblistId = primaryPath
+                hub.mdblistIds = allListPaths
                 hub.imageURL = imageURL.isEmpty ? nil : imageURL
                 hub.rowName = rowName.isEmpty ? nil : rowName
                 

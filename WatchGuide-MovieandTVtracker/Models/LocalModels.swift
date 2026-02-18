@@ -430,6 +430,7 @@ enum CustomHubSource: String, Codable {
 // MARK: - Custom JSON Hub
 /// Represents a user-defined hub loaded from an external JSON URL or MDBList.
 /// The JSON file is expected to contain an array of objects with TMDB IDs.
+/// Supports multiple MDBList sources that are merged into a single hub.
 struct CustomJSONHub: Identifiable, Codable {
     let id: String
     var name: String
@@ -444,6 +445,8 @@ struct CustomJSONHub: Identifiable, Codable {
     let createdAt: Date
     var source: CustomHubSource
     var mdblistId: String?
+    /// Multiple MDBList list paths (e.g. ["garycrawfordgc/disney-shows", "garycrawfordgc/disney-movies"])
+    var mdblistIds: [String]?
     var rowName: String?
     
     init(name: String, jsonURL: String, iconURL: String? = nil, brandColor: String? = nil, source: CustomHubSource = .json) {
@@ -460,6 +463,7 @@ struct CustomJSONHub: Identifiable, Codable {
         self.createdAt = Date()
         self.source = source
         self.mdblistId = nil
+        self.mdblistIds = nil
         self.rowName = nil
     }
     
@@ -478,7 +482,21 @@ struct CustomJSONHub: Identifiable, Codable {
         self.createdAt = createdAt
         self.source = .json
         self.mdblistId = nil
+        self.mdblistIds = nil
         self.rowName = nil
+    }
+    
+    /// All resolved MDBList list paths for this hub (backward-compatible).
+    /// Prefers `mdblistIds` if present; falls back to single `mdblistId`.
+    var resolvedMDBListIds: [String] {
+        if let ids = mdblistIds, !ids.isEmpty { return ids }
+        if let single = mdblistId, !single.isEmpty { return [single] }
+        // Try extracting from legacy mdblist:// URL
+        if jsonURL.hasPrefix("mdblist://") {
+            let path = String(jsonURL.dropFirst("mdblist://".count))
+            if !path.isEmpty { return [path] }
+        }
+        return []
     }
     
     /// The label displayed on the Browse page hub button

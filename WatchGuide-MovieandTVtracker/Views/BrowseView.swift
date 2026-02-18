@@ -2780,26 +2780,19 @@ struct CustomJSONHubSheet: View {
             return
         }
         
-        // Determine the MDBList ID from multiple sources
-        let mdblistId: String? = {
-            if let id = hub.mdblistId, !id.isEmpty { return id }
-            if hub.jsonURL.hasPrefix("mdblist://") {
-                return String(hub.jsonURL.dropFirst("mdblist://".count))
-            }
-            return nil
-        }()
+        // Use the new resolvedMDBListIds which handles single/multi/legacy sources
+        let listIds = hub.resolvedMDBListIds
         
         // Re-fetch from source
         do {
-            if hub.source == .mdblist || mdblistId != nil {
-                // MDBList source — use the resolved list ID
-                if let listId = mdblistId, !listId.isEmpty {
-                    let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
+            if hub.source == .mdblist || !listIds.isEmpty {
+                // MDBList source — fetch from all list IDs and merge
+                if !listIds.isEmpty {
+                    let items = try await MDBListService.shared.fetchMultipleListsAsSavedMedia(inputs: listIds)
                     allItems = items
                     await MainActor.run {
                         var updatedHub = hub
                         updatedHub.items = items
-                        updatedHub.mdblistId = listId
                         updatedHub.lastSynced = Date()
                         StorageService.shared.updateCustomJSONHub(updatedHub)
                     }
