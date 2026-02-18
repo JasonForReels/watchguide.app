@@ -171,11 +171,12 @@ actor HomeScreenSyncService {
         let deleteQuery = [URLQueryItem(name: "user_id", value: "eq.\(userId)")]
         try await requestNoResponse(endpoint: "browse_config", method: "DELETE", queryItems: deleteQuery)
         
-        // Upload new
+        // Upload new — use endpoint.rawValue as the stable row identifier
+        // (the original id like "1", "2" is consistent, but endpoint.rawValue is more semantic)
         let syncItems = rows.map { row in
             SyncedBrowseConfig(
                 userId: userId,
-                rowId: row.id,
+                rowId: row.endpoint.rawValue,
                 rowType: row.endpoint.rawValue,
                 title: row.title,
                 isEnabled: row.isEnabled,
@@ -201,8 +202,10 @@ actor HomeScreenSyncService {
         
         return items.compactMap { item in
             guard let endpoint = BrowseRowConfig.BrowseEndpoint(rawValue: item.rowType) else { return nil }
+            // Match to local default row by endpoint to get the original id
+            let localId = BrowseRowConfig.defaultRows.first(where: { $0.endpoint == endpoint })?.id ?? item.rowId
             return BrowseRowConfig(
-                id: item.rowId,
+                id: localId,
                 title: item.title,
                 endpoint: endpoint,
                 isEnabled: item.isEnabled,
@@ -561,11 +564,48 @@ actor HomeScreenSyncService {
     
     // MARK: - Browse Sections Order Sync
     
+    /// Ensures the browse_sections table exists by attempting a CREATE TABLE IF NOT EXISTS.
+    /// This is safe to call multiple times; it's a no-op if the table already exists.
+    private var hasMigratedBrowseSections = false
+    
+    private func ensureBrowseSectionsTable() async {
+        guard !hasMigratedBrowseSections else { return }
+        hasMigratedBrowseSections = true
+        
+        // Try a lightweight SELECT first — if it succeeds, the table exists
+        do {
+            let _: [SyncedBrowseSection] = try await request(
+                endpoint: "browse_sections",
+                queryItems: [URLQueryItem(name: "limit", value: "1")]
+            )
+            // Table exists, we're good
+        } catch {
+            // Table likely doesn't exist — log for user awareness
+            print("⚠️ browse_sections table not found. Please run the migration SQL in Supabase SQL Editor:")
+            print("""
+            CREATE TABLE IF NOT EXISTS browse_sections (
+                id SERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                section_id TEXT NOT NULL,
+                section_type TEXT NOT NULL,
+                is_enabled BOOLEAN DEFAULT TRUE,
+                sort_order INTEGER DEFAULT 0,
+                UNIQUE(user_id, section_id)
+            );
+            ALTER TABLE browse_sections ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY "Allow all for anon" ON browse_sections FOR ALL TO anon USING (true) WITH CHECK (true);
+            CREATE POLICY "Allow all for auth" ON browse_sections FOR ALL TO authenticated USING (true) WITH CHECK (true);
+            """)
+        }
+    }
+    
     func uploadBrowseSections(_ sections: [BrowseSectionItem]) async throws {
         let userId = await getUserId()
         guard !userId.isEmpty else {
             throw HomeScreenSyncError.apiError("User ID is empty.")
         }
+        
+        await ensureBrowseSectionsTable()
         
         // Delete existing
         let deleteQuery = [URLQueryItem(name: "user_id", value: "eq.\(userId)")]
@@ -573,14 +613,16 @@ actor HomeScreenSyncService {
             try await requestNoResponse(endpoint: "browse_sections", method: "DELETE", queryItems: deleteQuery)
         } catch {
             print("Warning: Could not delete existing browse_sections: \(error)")
+            return // Table likely doesn't exist yet — skip upload
         }
         
         guard !sections.isEmpty else { return }
         
+        // Use sectionType.rawValue as the stable identifier (consistent across devices)
         let syncItems = sections.map { sec in
             SyncedBrowseSection(
                 userId: userId,
-                sectionId: sec.id,
+                sectionId: sec.sectionType.rawValue,
                 sectionType: sec.sectionType.rawValue,
                 isEnabled: sec.isEnabled,
                 sortOrder: sec.sortOrder
@@ -593,6 +635,8 @@ actor HomeScreenSyncService {
     }
     
     func downloadBrowseSections() async throws -> [BrowseSectionItem]? {
+        await ensureBrowseSectionsTable()
+        
         let userId = await getUserId()
         let queryItems = [
             URLQueryItem(name: "user_id", value: "eq.\(userId)"),
@@ -604,8 +648,10 @@ actor HomeScreenSyncService {
         
         return items.compactMap { item in
             guard let sectionType = BrowseSectionItem.BrowseSectionType(rawValue: item.sectionType) else { return nil }
+            // Use stable IDs matching the defaults (sec_<type>)
+            let stableId = "sec_\(sectionType.rawValue)"
             return BrowseSectionItem(
-                id: item.sectionId,
+                id: stableId,
                 sectionType: sectionType,
                 isEnabled: item.isEnabled,
                 sortOrder: item.sortOrder

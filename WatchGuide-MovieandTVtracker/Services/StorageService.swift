@@ -444,10 +444,10 @@ class StorageService: ObservableObject {
             
             // Apply home screen config — always apply cloud state (even empty = user cleared everything)
             // Browse rows: merge cloud state with local defaults so new default rows aren't lost
-            // Always apply, even if empty — empty means user disabled/removed all rows on another device
+            // Match by endpoint (stable across devices) rather than id
             var mergedBrowseRows = homeConfig.browseRows
-            let cloudRowIds = Set(mergedBrowseRows.map { $0.id })
-            for defaultRow in BrowseRowConfig.defaultRows where !cloudRowIds.contains(defaultRow.id) {
+            let cloudEndpoints = Set(mergedBrowseRows.map { $0.endpoint })
+            for defaultRow in BrowseRowConfig.defaultRows where !cloudEndpoints.contains(defaultRow.endpoint) {
                 var newRow = defaultRow
                 newRow.sortOrder = mergedBrowseRows.count
                 // New defaults start disabled when coming from cloud (cloud is source of truth)
