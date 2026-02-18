@@ -235,7 +235,10 @@ class CarouselTimerManager: ObservableObject {
         isTrailerPlaying = false
         trailerPhase = .backdrop
         duration = defaultDuration
+        startTime = CACurrentMediaTime()
         startTimer(interval: defaultDuration)
+        // Always run display link so the dot progress fills during backdrop too
+        startDisplayLink()
     }
     
     func setDuration(_ duration: TimeInterval) {
@@ -298,10 +301,7 @@ class CarouselTimerManager: ObservableObject {
     }
     
     private func updateProgress() {
-        guard isTrailerPlaying else {
-            stopDisplayLink()
-            return
-        }
+        guard !isPaused else { return }
         let elapsed = CACurrentMediaTime() - startTime
         let newProgress = min(CGFloat(elapsed / duration), 1.0)
         progress = newProgress
@@ -859,111 +859,65 @@ class HeroPlayerViewModel: ObservableObject {
     }
 }
 
-// MARK: - Carousel Page Indicator (Dots ↔ Progress Bar)
-/// Seamlessly morphs between page dots and a continuous progress bar
-/// when a trailer is playing. The transition mimics Apple's indicator style.
+// MARK: - Carousel Page Indicator (Disney+ Style — Dots as Progress Bars)
+/// Each dot doubles as a progress indicator. The currently active dot fills up
+/// to show time remaining before auto-advance. During trailer playback the
+/// active dot stretches wider and shows trailer progress. Dots never change
+/// position — only the fill inside them animates.
 struct CarouselPageIndicator: View {
     let totalPages: Int
     let currentPage: Int
+    /// 0…1 progress for the current slide (backdrop timer or trailer playback)
     let progress: CGFloat
     let isTrailerPlaying: Bool
     
-    /// Whether we're showing the progress bar (lags slightly for smooth transition)
-    @State private var showingBar = false
-    
     // Layout constants
-    private let dotSize: CGFloat = 8
-    private let activeDotWidth: CGFloat = 24
-    private let dotSpacing: CGFloat = 8
-    private let barHeight: CGFloat = 4
-    private let barWidth: CGFloat = 200
-    
-    // Transition timing
-    private let morphAnimation: Animation = .spring(response: 0.9, dampingFraction: 0.82, blendDuration: 0.3)
-    private let morphInDelay: Double = 0.35
-    private let morphOutDelay: Double = 0.15
+    private let dotHeight: CGFloat = 4
+    private let inactiveDotWidth: CGFloat = 16
+    private let activeDotWidth: CGFloat = 32
+    private let trailerActiveDotWidth: CGFloat = 48
+    private let dotSpacing: CGFloat = 6
     
     var body: some View {
-        ZStack {
-            // Dots mode
-            if !showingBar {
-                dotsView
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity
-                                .combined(with: .scale(scale: 0.7))
-                                .animation(.easeOut(duration: 0.7)),
-                            removal: .opacity
-                                .combined(with: .scale(scale: 0.85))
-                                .animation(.easeIn(duration: 0.5))
-                        )
-                    )
-            }
-            
-            // Progress bar mode
-            if showingBar {
-                progressBarView
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity
-                                .combined(with: .scale(scale: 0.6, anchor: .center))
-                                .animation(.easeOut(duration: 0.7)),
-                            removal: .opacity
-                                .combined(with: .scale(scale: 0.75, anchor: .center))
-                                .animation(.easeIn(duration: 0.5))
-                        )
-                    )
-            }
-        }
-        .animation(morphAnimation, value: showingBar)
-        .onChange(of: isTrailerPlaying) { _, playing in
-            if playing {
-                // Deliberate delay before morphing to bar — feels intentional
-                DispatchQueue.main.asyncAfter(deadline: .now() + morphInDelay) {
-                    withAnimation(morphAnimation) {
-                        showingBar = true
-                    }
-                }
-            } else {
-                // Slight delay before morphing back to dots
-                DispatchQueue.main.asyncAfter(deadline: .now() + morphOutDelay) {
-                    withAnimation(morphAnimation) {
-                        showingBar = false
-                    }
-                }
-            }
-        }
-    }
-    
-    // MARK: - Dots
-    private var dotsView: some View {
         HStack(spacing: dotSpacing) {
             ForEach(0..<totalPages, id: \.self) { index in
-                Capsule()
-                    .fill(index == currentPage ? Color.white : Color.white.opacity(0.35))
-                    .frame(
-                        width: index == currentPage ? activeDotWidth : dotSize,
-                        height: dotSize
-                    )
+                dotCapsule(for: index)
             }
         }
-        .animation(.spring(response: 0.45, dampingFraction: 0.75), value: currentPage)
+        .animation(.spring(response: 0.4, dampingFraction: 0.78), value: currentPage)
+        .animation(.easeInOut(duration: 0.3), value: isTrailerPlaying)
     }
     
-    // MARK: - Progress Bar
-    private var progressBarView: some View {
+    @ViewBuilder
+    private func dotCapsule(for index: Int) -> some View {
+        let isActive = index == currentPage
+        let isPast = index < currentPage
+        let width: CGFloat = {
+            if isActive && isTrailerPlaying { return trailerActiveDotWidth }
+            if isActive { return activeDotWidth }
+            return inactiveDotWidth
+        }()
+        
         ZStack(alignment: .leading) {
-            // Track
+            // Track (background)
             Capsule()
-                .fill(Color.white.opacity(0.2))
-                .frame(width: barWidth, height: barHeight)
+                .fill(Color.white.opacity(isPast ? 0.55 : 0.25))
+                .frame(width: width, height: dotHeight)
             
-            // Fill
-            Capsule()
-                .fill(Color.white.opacity(0.9))
-                .frame(width: max(barHeight, barWidth * progress), height: barHeight)
-                .animation(.linear(duration: 0.05), value: progress)
+            // Fill (foreground) — only animates for the active dot
+            if isActive {
+                Capsule()
+                    .fill(Color.white.opacity(0.95))
+                    .frame(width: max(dotHeight, width * progress), height: dotHeight)
+                    .animation(.linear(duration: 0.06), value: progress)
+            } else if isPast {
+                // Past dots are fully filled
+                Capsule()
+                    .fill(Color.white.opacity(0.8))
+                    .frame(width: width, height: dotHeight)
+            }
         }
+        .frame(width: width, height: dotHeight)
     }
 }
 

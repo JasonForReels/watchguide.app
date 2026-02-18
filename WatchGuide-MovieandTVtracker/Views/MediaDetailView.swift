@@ -5,6 +5,8 @@
 
 import SwiftUI
 import SafariServices
+import YouTubePlayerKit
+import Combine
 
 // MARK: - Person Selection Model
 struct SelectedPerson: Identifiable {
@@ -224,45 +226,51 @@ struct MediaDetailView: View {
         }
     }
     
-    // MARK: - Header Section (Static)
+    // MARK: - Header Section (Auto-Playing Trailer)
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @StateObject private var headerPlayerVM = DetailHeaderPlayerViewModel()
+    @State private var headerTrailerReady = false
     
     private var headerSection: some View {
-        staticHeaderSection
-    }
-    
-    // MARK: - Header Section (Always Static)
-    private var staticHeaderSection: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let height = width * 9.0 / 16.0
             let isCompact = verticalSizeClass == .compact
             
             ZStack(alignment: .bottomLeading) {
-                // Backdrop — FanArt.tv primary, TMDB fallback
-                if let fanartStr = viewModel.fanartBackdropURL, let fanartURL = URL(string: fanartStr) {
-                    AsyncImage(url: fanartURL) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        default:
-                            // FanArt failed or loading — use TMDB
-                            tmdbBackdropImage
-                        }
-                    }
-                    .frame(width: width, height: height)
-                    .clipped()
-                    .background(Color.black)
-                } else {
-                    tmdbBackdropImage
+                // Layer 0: Black base
+                Color.black
+                
+                // Layer 1: Trailer video (underneath the backdrop)
+                if headerTrailerReady, let player = headerPlayerVM.player {
+                    YouTubePlayerKit.YouTubePlayerView(player)
                         .frame(width: width, height: height)
-                        .clipped()
-                        .background(Color.black)
+                        .allowsHitTesting(false)
                 }
                 
-                // Gradient overlay
+                // Layer 2: Backdrop — fades out when trailer is ready
+                Group {
+                    if let fanartStr = viewModel.fanartBackdropURL, let fanartURL = URL(string: fanartStr) {
+                        AsyncImage(url: fanartURL) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            default:
+                                tmdbBackdropImage
+                            }
+                        }
+                    } else {
+                        tmdbBackdropImage
+                    }
+                }
+                .frame(width: width, height: height)
+                .clipped()
+                .opacity(headerTrailerReady ? 0 : 1)
+                .animation(.easeInOut(duration: 0.8), value: headerTrailerReady)
+                
+                // Layer 3: Gradient overlay
                 LinearGradient(
                     colors: [.clear, .black.opacity(0.7), .black.opacity(0.95)],
                     startPoint: .top,
@@ -270,7 +278,7 @@ struct MediaDetailView: View {
                 )
                 .frame(width: width, height: height)
                 
-                // Content overlay
+                // Layer 4: Content overlay
                 VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
                     // Type badge
                     Text(item.resolvedMediaType == .movie ? "MOVIE" : "TV SHOW")
@@ -294,7 +302,6 @@ struct MediaDetailView: View {
                                     .frame(maxWidth: min(width * 0.55, 280), maxHeight: isCompact ? 50 : 65)
                                     .shadow(color: .black.opacity(0.45), radius: 6, x: 0, y: 3)
                             default:
-                                // Fallback to text while loading / on failure
                                 Text(item.displayTitle)
                                     .font(isCompact ? .title3 : .title2)
                                     .fontWeight(.bold)
@@ -341,10 +348,47 @@ struct MediaDetailView: View {
                 }
                 .padding(isCompact ? 12 : 16)
                 .padding(.bottom, isCompact ? 4 : 8)
+                
+                // Layer 5: Mute button (top-right, only when trailer is playing)
+                if headerTrailerReady {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button {
+                                headerPlayerVM.toggleMute()
+                            } label: {
+                                Image(systemName: headerPlayerVM.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 34, height: 34)
+                                    .background(Circle().fill(.black.opacity(0.5)))
+                            }
+                            .padding(.top, 8)
+                            .padding(.trailing, 12)
+                        }
+                        Spacer()
+                    }
+                    .transition(.opacity)
+                }
             }
             .frame(width: width, height: height)
         }
         .aspectRatio(16.0/9.0, contentMode: .fit)
+        .onChange(of: viewModel.preferredTrailer?.key) { _, newKey in
+            if let key = newKey {
+                headerPlayerVM.setup(videoKey: key)
+            }
+        }
+        .onReceive(headerPlayerVM.$isReady) { ready in
+            if ready {
+                withAnimation(.easeInOut(duration: 0.6)) {
+                    headerTrailerReady = true
+                }
+            }
+        }
+        .onDisappear {
+            headerPlayerVM.teardown()
+        }
     }
     
     /// TMDB backdrop (used as fallback)
@@ -960,6 +1004,84 @@ class MediaDetailViewModel: ObservableObject {
         if let t = anyTrailer { return t }
         let anyTeaser = filtered.first { $0.type.lowercased() == "teaser" }
         return anyTeaser
+    }
+}
+
+// MARK: - Detail Header Player ViewModel
+/// Manages a YouTube player for the detail page header auto-play trailer.
+/// Similar to HeroPlayerViewModel but simplified — always auto-plays muted,
+/// loops, and has no external mute integration.
+class DetailHeaderPlayerViewModel: ObservableObject {
+    @Published var player: YouTubePlayer?
+    @Published var isReady = false
+    @Published var isMuted = true
+    
+    private var stateCancellable: AnyCancellable?
+    
+    @MainActor
+    func setup(videoKey: String) {
+        guard player == nil else { return }
+        
+        let startMuted = StorageService.shared.settings.autoPlayTrailersMuted
+        isMuted = startMuted
+        
+        let ytPlayer = YouTubePlayer(
+            source: .video(id: videoKey),
+            parameters: .init(
+                autoPlay: true,
+                loopEnabled: true,
+                showControls: false,
+                showFullscreenButton: false,
+                keyboardControlsDisabled: true,
+                restrictRelatedVideosToSameChannel: true
+            ),
+            configuration: .init(
+                allowsInlineMediaPlayback: true,
+                openURLAction: .init { _, _ in }
+            )
+        )
+        
+        player = ytPlayer
+        
+        stateCancellable = ytPlayer.statePublisher.sink { [weak self] state in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if case .ready = state {
+                    self.isReady = true
+                    Task {
+                        // Always mute first to satisfy iOS autoplay policy
+                        try? await ytPlayer.mute()
+                        try? await ytPlayer.play()
+                        if !self.isMuted {
+                            try? await ytPlayer.unmute()
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    func teardown() {
+        Task { @MainActor in
+            if let p = player {
+                try? await p.pause()
+            }
+            player = nil
+            isReady = false
+            stateCancellable = nil
+        }
+    }
+    
+    func toggleMute() {
+        isMuted.toggle()
+        guard let p = player else { return }
+        Task {
+            if isMuted {
+                try? await p.mute()
+            } else {
+                try? await p.unmute()
+            }
+        }
     }
 }
 
