@@ -139,8 +139,10 @@ actor HomeScreenSyncService {
             request.addValue("Bearer \(supabaseAnonKey)", forHTTPHeaderField: "Authorization")
         }
         
-        // For upsert
-        request.addValue("resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+        // Only set upsert header for POST/PATCH, not DELETE
+        if method == "POST" || method == "PATCH" {
+            request.addValue("resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+        }
         
         if let body = body {
             request.httpBody = body
@@ -564,6 +566,14 @@ actor HomeScreenSyncService {
             throw HomeScreenSyncError.apiError("User ID is empty.")
         }
         
+        // Delete existing row for this user first (reliable delete-then-insert)
+        let deleteQuery = [URLQueryItem(name: "user_id", value: "eq.\(userId)")]
+        do {
+            try await requestNoResponse(endpoint: "hidden_sections", method: "DELETE", queryItems: deleteQuery)
+        } catch {
+            print("Warning: Could not delete existing hidden_sections: \(error)")
+        }
+        
         let syncItem = SyncedHiddenSections(
             userId: userId,
             hideStudiosRow: sections.hideStudiosRow,
@@ -572,34 +582,10 @@ actor HomeScreenSyncService {
             hideDiscoverSection: sections.hideDiscoverSection
         )
         
-        // Upsert on user_id
-        guard var components = URLComponents(string: "\(supabaseURL)/rest/v1/hidden_sections") else {
-            throw URLError(.badURL)
-        }
-        components.queryItems = [URLQueryItem(name: "on_conflict", value: "user_id")]
-        
-        guard let url = components.url else { throw URLError(.badURL) }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.addValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
-        if let token = await getAccessToken() {
-            request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        } else {
-            request.addValue("Bearer \(supabaseAnonKey)", forHTTPHeaderField: "Authorization")
-        }
-        request.addValue("resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
-        
+        // Insert as array (PostgREST standard)
         let encoder = JSONEncoder()
-        request.httpBody = try encoder.encode(syncItem)
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            let errorStr = String(data: data, encoding: .utf8) ?? "Unknown"
-            throw HomeScreenSyncError.apiError("Hidden sections upload failed: \(errorStr)")
-        }
+        let body = try encoder.encode([syncItem])
+        try await requestNoResponse(endpoint: "hidden_sections", method: "POST", body: body)
     }
     
     func downloadHiddenSections() async throws -> HiddenDefaultSections? {
@@ -652,14 +638,7 @@ actor HomeScreenSyncService {
         async let customHomeRows = downloadCustomHomeRows()
         async let networkHubsConfig = downloadNetworkHubsConfig()
         async let customJSONHubs = downloadCustomJSONHubs()
-        async let hiddenSectionsResult: HiddenDefaultSections? = {
-            do {
-                return try await self.downloadHiddenSections()
-            } catch {
-                print("Warning: Could not download hidden sections: \(error)")
-                return nil
-            }
-        }()
+        async let hiddenSectionsResult = downloadHiddenSectionsSafe()
         
         return try await HomeScreenConfig(
             browseRows: browseRows,
@@ -669,6 +648,16 @@ actor HomeScreenSyncService {
             customJSONHubs: customJSONHubs,
             hiddenSections: hiddenSectionsResult
         )
+    }
+    
+    /// Safe wrapper that never throws — returns nil on any failure
+    private func downloadHiddenSectionsSafe() async -> HiddenDefaultSections? {
+        do {
+            return try await downloadHiddenSections()
+        } catch {
+            print("Warning: Could not download hidden sections: \(error)")
+            return nil
+        }
     }
 }
 
