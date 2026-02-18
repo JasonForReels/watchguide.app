@@ -534,6 +534,58 @@ struct HiddenDefaultSections: Codable, Equatable {
     static let `default` = HiddenDefaultSections()
 }
 
+// MARK: - Browse Section Order
+/// Controls the order and visibility of top-level sections on the Browse page.
+/// Each section has a type, an enabled flag, and a sort order.
+struct BrowseSectionItem: Identifiable, Codable, Equatable {
+    let id: String
+    let sectionType: BrowseSectionType
+    var isEnabled: Bool
+    var sortOrder: Int
+    
+    enum BrowseSectionType: String, Codable, Equatable {
+        case networks = "networks"
+        case rows = "rows"        // The content rows (Trending, Popular, etc.)
+        case studios = "studios"
+        case customHubs = "custom_hubs"
+        case forYou = "for_you"
+        case discover = "discover"
+    }
+    
+    var displayName: String {
+        switch sectionType {
+        case .networks: return "Networks (Streaming)"
+        case .rows: return "Content Rows"
+        case .studios: return "Studios"
+        case .customHubs: return "Custom Hubs"
+        case .forYou: return "For You (AI Picks)"
+        case .discover: return "Discover Section"
+        }
+    }
+    
+    var iconName: String {
+        switch sectionType {
+        case .networks: return "tv.fill"
+        case .rows: return "film.stack"
+        case .studios: return "building.2.fill"
+        case .customHubs: return "star.circle.fill"
+        case .forYou: return "heart.text.square.fill"
+        case .discover: return "safari.fill"
+        }
+    }
+    
+    static var defaultSections: [BrowseSectionItem] {
+        [
+            BrowseSectionItem(id: "sec_networks", sectionType: .networks, isEnabled: true, sortOrder: 0),
+            BrowseSectionItem(id: "sec_rows", sectionType: .rows, isEnabled: true, sortOrder: 1),
+            BrowseSectionItem(id: "sec_studios", sectionType: .studios, isEnabled: true, sortOrder: 2),
+            BrowseSectionItem(id: "sec_custom_hubs", sectionType: .customHubs, isEnabled: true, sortOrder: 3),
+            BrowseSectionItem(id: "sec_for_you", sectionType: .forYou, isEnabled: true, sortOrder: 4),
+            BrowseSectionItem(id: "sec_discover", sectionType: .discover, isEnabled: true, sortOrder: 5),
+        ]
+    }
+}
+
 // MARK: - Search History
 struct SearchHistoryItem: Identifiable, Codable {
     let id: String

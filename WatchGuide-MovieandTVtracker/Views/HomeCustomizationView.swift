@@ -11,9 +11,10 @@ struct HomeCustomizationView: View {
     @ObservedObject private var storage = StorageService.shared
     @Environment(\.dismiss) private var dismiss
     
+    @State private var browseSections: [BrowseSectionItem] = []
     @State private var browseRows: [BrowseRowConfig] = []
     @State private var networkHubs: [NetworkHub] = []
-    @State private var hiddenSections: HiddenDefaultSections = .default
+    @State private var customHubs: [CustomJSONHub] = []
     
     @State private var selectedSection: HomeSection = .sections
     
@@ -21,8 +22,9 @@ struct HomeCustomizationView: View {
     
     enum HomeSection: String, CaseIterable {
         case sections = "Sections"
-        case browseRows = "Rows"
-        case customHubs = "Hubs"
+        case networks = "Networks"
+        case rows = "Rows"
+        case hubs = "Hubs"
     }
     
     var body: some View {
@@ -35,20 +37,24 @@ struct HomeCustomizationView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .padding()
+                .padding(.horizontal)
+                .padding(.vertical, 10)
                 
                 // Content
                 List {
                     switch selectedSection {
                     case .sections:
-                        defaultSectionsSection
-                    case .browseRows:
-                        browseRowsSection
-                    case .customHubs:
-                        customHubsSection
+                        browseSectionsEditor
+                    case .networks:
+                        networksEditor
+                    case .rows:
+                        browseRowsEditor
+                    case .hubs:
+                        customHubsEditor
                     }
                 }
                 .listStyle(.insetGrouped)
+                .environment(\.editMode, .constant(.active))
             }
             .navigationTitle("Customize Home")
             .navigationBarTitleDisplayMode(.inline)
@@ -71,64 +77,66 @@ struct HomeCustomizationView: View {
         }
     }
     
-    // MARK: - Default Sections Visibility
-    private var defaultSectionsSection: some View {
-        Group {
-            Section {
-                Toggle("Networks (Streaming)", isOn: Binding(
-                    get: { !hiddenSections.hideNetworksRow },
-                    set: { hiddenSections.hideNetworksRow = !$0 }
-                ))
-                
-                Toggle("Studios", isOn: Binding(
-                    get: { !hiddenSections.hideStudiosRow },
-                    set: { hiddenSections.hideStudiosRow = !$0 }
-                ))
-                
-                Toggle("For You (AI Picks)", isOn: Binding(
-                    get: { !hiddenSections.hideForYouRow },
-                    set: { hiddenSections.hideForYouRow = !$0 }
-                ))
-                
-                Toggle("Discover Section", isOn: Binding(
-                    get: { !hiddenSections.hideDiscoverSection },
-                    set: { hiddenSections.hideDiscoverSection = !$0 }
-                ))
-            } header: {
-                Text("Default Sections")
-            } footer: {
-                Text("Toggle off any built-in section you don't want on the Browse page. Your custom hubs will still appear.")
-            }
-            
-            // Networks sub-section (quick toggles)
-            if !hiddenSections.hideNetworksRow {
-                Section {
-                    ForEach($networkHubs.filter { storage.settings.region.isEmpty || $0.wrappedValue.regions.contains(storage.settings.region) || $0.wrappedValue.regions.isEmpty }) { $hub in
-                        HStack {
-                            Text(hub.name)
-                                .fontWeight(.medium)
-                            
-                            Spacer()
-                            
-                            Toggle("", isOn: $hub.isEnabled)
-                                .labelsHidden()
-                        }
-                    }
-                    .onMove { from, to in
-                        networkHubs.move(fromOffsets: from, toOffset: to)
-                        updateNetworkHubsSortOrder()
-                    }
-                } header: {
-                    Text("Networks")
-                } footer: {
-                    Text("Drag to reorder, toggle to show/hide individual networks.")
+    // MARK: - Sections (Top-Level Order)
+    private var browseSectionsEditor: some View {
+        Section {
+            ForEach($browseSections) { $section in
+                HStack(spacing: 12) {
+                    Image(systemName: section.iconName)
+                        .font(.body)
+                        .foregroundColor(.accentColor)
+                        .frame(width: 28)
+                    
+                    Text(section.displayName)
+                        .fontWeight(.medium)
+                    
+                    Spacer()
+                    
+                    Toggle("", isOn: $section.isEnabled)
+                        .labelsHidden()
                 }
             }
+            .onMove { from, to in
+                browseSections.move(fromOffsets: from, toOffset: to)
+                updateSectionSortOrder()
+            }
+        } header: {
+            Text("Section Order")
+        } footer: {
+            Text("Drag to reorder how sections appear on the Browse page. Toggle to show or hide.")
         }
     }
     
-    // MARK: - Browse Rows Section
-    private var browseRowsSection: some View {
+    // MARK: - Networks
+    private var networksEditor: some View {
+        Section {
+            let filtered = $networkHubs.filter { hub in
+                storage.settings.region.isEmpty || hub.wrappedValue.regions.contains(storage.settings.region) || hub.wrappedValue.regions.isEmpty
+            }
+            ForEach(filtered) { $hub in
+                HStack {
+                    Text(hub.name)
+                        .fontWeight(.medium)
+                    
+                    Spacer()
+                    
+                    Toggle("", isOn: $hub.isEnabled)
+                        .labelsHidden()
+                }
+            }
+            .onMove { from, to in
+                networkHubs.move(fromOffsets: from, toOffset: to)
+                updateNetworkHubsSortOrder()
+            }
+        } header: {
+            Text("Networks")
+        } footer: {
+            Text("Drag to reorder, toggle to show/hide individual streaming services.")
+        }
+    }
+    
+    // MARK: - Browse Rows
+    private var browseRowsEditor: some View {
         Section {
             ForEach($browseRows) { $row in
                 HStack {
@@ -153,14 +161,14 @@ struct HomeCustomizationView: View {
         } header: {
             Text("Content Rows")
         } footer: {
-            Text("Drag to reorder, toggle to show/hide")
+            Text("Drag to reorder, toggle to show/hide content rows.")
         }
     }
     
-    // MARK: - Custom Hubs Section
-    private var customHubsSection: some View {
+    // MARK: - Custom Hubs
+    private var customHubsEditor: some View {
         Group {
-            if storage.customJSONHubs.isEmpty {
+            if customHubs.isEmpty {
                 Section {
                     VStack(spacing: 10) {
                         Image(systemName: "doc.badge.plus")
@@ -179,7 +187,7 @@ struct HomeCustomizationView: View {
                 }
             } else {
                 Section {
-                    ForEach(storage.customJSONHubs.sorted { $0.sortOrder < $1.sortOrder }) { hub in
+                    ForEach($customHubs) { $hub in
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(hub.name)
@@ -199,27 +207,21 @@ struct HomeCustomizationView: View {
                             
                             Spacer()
                             
-                            Toggle("", isOn: Binding(
-                                get: { hub.isEnabled },
-                                set: { newValue in
-                                    var updatedHub = hub
-                                    updatedHub.isEnabled = newValue
-                                    storage.updateCustomJSONHub(updatedHub)
-                                }
-                            ))
-                            .labelsHidden()
+                            Toggle("", isOn: $hub.isEnabled)
+                                .labelsHidden()
                         }
                     }
+                    .onMove { from, to in
+                        customHubs.move(fromOffsets: from, toOffset: to)
+                        updateCustomHubsSortOrder()
+                    }
                     .onDelete { indexSet in
-                        let sortedHubs = storage.customJSONHubs.sorted { $0.sortOrder < $1.sortOrder }
-                        for index in indexSet {
-                            storage.deleteCustomJSONHub(id: sortedHubs[index].id)
-                        }
+                        customHubs.remove(atOffsets: indexSet)
                     }
                 } header: {
                     Text("Custom Hubs")
                 } footer: {
-                    Text("Toggle to show/hide on Browse. Swipe to delete.")
+                    Text("Drag to reorder, toggle to show/hide, swipe to delete.")
                 }
             }
             
@@ -239,31 +241,53 @@ struct HomeCustomizationView: View {
     // MARK: - Data Management
     
     private func loadData() {
+        browseSections = storage.browseSections.sorted { $0.sortOrder < $1.sortOrder }
         browseRows = storage.browseRows.sorted { $0.sortOrder < $1.sortOrder }
         networkHubs = storage.networkHubs.sorted { $0.sortOrder < $1.sortOrder }
-        hiddenSections = storage.hiddenSections
+        customHubs = storage.customJSONHubs.sorted { $0.sortOrder < $1.sortOrder }
     }
     
     private func saveChanges() {
-        // Update sort orders
+        // Finalize sort orders
+        updateSectionSortOrder()
         updateBrowseSortOrder()
         updateNetworkHubsSortOrder()
+        updateCustomHubsSortOrder()
         
-        // Save to storage
+        // Persist
+        storage.updateBrowseSections(browseSections)
         storage.updateBrowseRows(browseRows)
         storage.reorderNetworkHubs(networkHubs)
-        storage.updateHiddenSections(hiddenSections)
+        
+        // For custom hubs: reconcile with storage (handle deletions + reorder)
+        let currentIds = Set(customHubs.map { $0.id })
+        for existing in storage.customJSONHubs where !currentIds.contains(existing.id) {
+            storage.deleteCustomJSONHub(id: existing.id)
+        }
+        storage.reorderCustomJSONHubs(customHubs)
+    }
+    
+    private func updateSectionSortOrder() {
+        for i in browseSections.indices {
+            browseSections[i].sortOrder = i
+        }
     }
     
     private func updateBrowseSortOrder() {
-        for (index, _) in browseRows.enumerated() {
-            browseRows[index].sortOrder = index
+        for i in browseRows.indices {
+            browseRows[i].sortOrder = i
         }
     }
     
     private func updateNetworkHubsSortOrder() {
-        for (index, _) in networkHubs.enumerated() {
-            networkHubs[index].sortOrder = index
+        for i in networkHubs.indices {
+            networkHubs[i].sortOrder = i
+        }
+    }
+    
+    private func updateCustomHubsSortOrder() {
+        for i in customHubs.indices {
+            customHubs[i].sortOrder = i
         }
     }
 }

@@ -24,6 +24,7 @@ class StorageService: ObservableObject {
     @Published private(set) var searchHistory: [SearchHistoryItem] = []
     @Published private(set) var browseRows: [BrowseRowConfig] = BrowseRowConfig.defaultRows
     @Published private(set) var hiddenSections: HiddenDefaultSections = .default
+    @Published private(set) var browseSections: [BrowseSectionItem] = BrowseSectionItem.defaultSections
     
     // MARK: - Sync State
     @Published var isSyncing = false
@@ -55,6 +56,7 @@ class StorageService: ObservableObject {
     private let searchHistoryURL: URL
     private let browseRowsURL: URL
     private let hiddenSectionsURL: URL
+    private let browseSectionsURL: URL
     
     private init() {
         documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
@@ -71,6 +73,7 @@ class StorageService: ObservableObject {
         searchHistoryURL = documentsDirectory.appendingPathComponent("search_history.json")
         browseRowsURL = documentsDirectory.appendingPathComponent("browse_rows.json")
         hiddenSectionsURL = documentsDirectory.appendingPathComponent("hidden_sections.json")
+        browseSectionsURL = documentsDirectory.appendingPathComponent("browse_sections.json")
         
         loadAll()
         migrateBrowseRowsIfNeeded()
@@ -96,6 +99,8 @@ class StorageService: ObservableObject {
         searchHistory = load(from: searchHistoryURL) ?? []
         browseRows = load(from: browseRowsURL) ?? BrowseRowConfig.defaultRows
         hiddenSections = load(from: hiddenSectionsURL) ?? .default
+        browseSections = load(from: browseSectionsURL) ?? BrowseSectionItem.defaultSections
+        migrateBrowseSectionsIfNeeded()
     }
     
     private func load<T: Decodable>(from url: URL) -> T? {
@@ -142,6 +147,21 @@ class StorageService: ObservableObject {
         
         browseRows = updated
         save(browseRows, to: browseRowsURL)
+    }
+    
+    /// Ensure all section types exist (in case new ones were added)
+    private func migrateBrowseSectionsIfNeeded() {
+        let existing = Set(browseSections.map { $0.sectionType })
+        var updated = browseSections
+        for def in BrowseSectionItem.defaultSections where !existing.contains(def.sectionType) {
+            var newSec = def
+            newSec.sortOrder = updated.count
+            updated.append(newSec)
+        }
+        if updated.count != browseSections.count {
+            browseSections = updated
+            save(browseSections, to: browseSectionsURL)
+        }
     }
     
     // MARK: - Default Company Hubs (Legacy)
@@ -357,7 +377,7 @@ class StorageService: ObservableObject {
             // Upload custom lists
             try await SupabaseService.shared.uploadCustomLists(customLists)
             
-            // Upload home screen config
+            // Upload home screen config (includes browse sections via uploadAllHomeScreenConfig)
             try await HomeScreenSyncService.shared.uploadAllHomeScreenConfig(
                 browseRows: browseRows,
                 extensionLists: importedLists,
@@ -467,6 +487,21 @@ class StorageService: ObservableObject {
             if let syncedHidden = homeConfig.hiddenSections {
                 hiddenSections = syncedHidden
                 save(hiddenSections, to: hiddenSectionsURL)
+            }
+            
+            // Apply browse sections order
+            if let syncedSections = homeConfig.browseSections, !syncedSections.isEmpty {
+                // Merge with local defaults so new section types aren't lost
+                var merged = syncedSections
+                let cloudTypes = Set(merged.map { $0.sectionType })
+                for def in BrowseSectionItem.defaultSections where !cloudTypes.contains(def.sectionType) {
+                    var newSec = def
+                    newSec.sortOrder = merged.count
+                    newSec.isEnabled = false
+                    merged.append(newSec)
+                }
+                browseSections = merged
+                save(browseSections, to: browseSectionsURL)
             }
             
             // Download profiles
@@ -805,6 +840,46 @@ class StorageService: ObservableObject {
         syncHiddenSectionsToCloud()
     }
     
+    // MARK: - Browse Sections (Order & Visibility)
+    func updateBrowseSections(_ sections: [BrowseSectionItem]) {
+        browseSections = sections
+        save(browseSections, to: browseSectionsURL)
+        syncBrowseSectionsToCloud()
+        
+        // Keep hiddenSections in sync for backward compatibility
+        var hidden = hiddenSections
+        for sec in sections {
+            switch sec.sectionType {
+            case .networks:  hidden.hideNetworksRow = !sec.isEnabled
+            case .studios:   hidden.hideStudiosRow = !sec.isEnabled
+            case .forYou:    hidden.hideForYouRow = !sec.isEnabled
+            case .discover:  hidden.hideDiscoverSection = !sec.isEnabled
+            default: break
+            }
+        }
+        if hidden != hiddenSections {
+            hiddenSections = hidden
+            save(hiddenSections, to: hiddenSectionsURL)
+        }
+    }
+    
+    func getOrderedEnabledSections() -> [BrowseSectionItem] {
+        browseSections.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }
+    }
+    
+    /// Sync browse sections to cloud (background)
+    private func syncBrowseSectionsToCloud() {
+        guard shouldAutoSyncHomeConfig else { return }
+        let sectionsCopy = browseSections
+        Task {
+            do {
+                try await HomeScreenSyncService.shared.uploadBrowseSections(sectionsCopy)
+            } catch {
+                print("Cloud sync browse sections failed: \(error)")
+            }
+        }
+    }
+    
     // MARK: - Clear All Data
     /// Removes all user-generated data (lists, history, settings, etc.)
     func clearAllData() {
@@ -829,6 +904,10 @@ class StorageService: ObservableObject {
         // Reset hidden sections
         hiddenSections = .default
         save(hiddenSections, to: hiddenSectionsURL)
+        
+        // Reset browse sections order
+        browseSections = BrowseSectionItem.defaultSections
+        save(browseSections, to: browseSectionsURL)
         
         // Reset settings to defaults
         settings = UserSettings()

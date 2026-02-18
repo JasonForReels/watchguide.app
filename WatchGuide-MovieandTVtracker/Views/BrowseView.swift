@@ -32,6 +32,11 @@ struct BrowseView: View {
         !ScoutAgeGateManager.shared.isScoutHidden
     }
     
+    /// Ordered sections from StorageService
+    private var orderedSections: [BrowseSectionItem] {
+        StorageService.shared.getOrderedEnabledSections()
+    }
+    
     var body: some View {
         NavigationStack {
             PopcornRefreshableScrollView {
@@ -51,36 +56,37 @@ struct BrowseView: View {
                         })
                     }
                     
-                    // Networks Section (Streaming Services) — hidden for kids profiles or if user disabled
-                    if !isKidsProfile && !viewModel.networkHubs.isEmpty && !StorageService.shared.hiddenSections.hideNetworksRow {
-                        NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
-                            selectedNetworkHub = hub
-                        }
-                    }
-                    
-                    // Browse Rows with Studios buttons + For You row inserted
-                    ForEach(Array(viewModel.rows.enumerated()), id: \.element.title) { _, row in
-                        if !row.people.isEmpty {
-                            PeopleRowView(
-                                title: row.title,
-                                people: row.people,
-                                onPersonTap: { person in
-                                    selectedPerson = person
+                    // Render sections in user-defined order
+                    ForEach(orderedSections) { section in
+                        switch section.sectionType {
+                        case .networks:
+                            if !isKidsProfile && !viewModel.networkHubs.isEmpty {
+                                NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
+                                    selectedNetworkHub = hub
                                 }
-                            )
-                        } else if !row.items.isEmpty {
-                            MediaRowView(
-                                title: row.title,
-                                items: row.items,
-                                onItemTap: { item in
-                                    selectedItem = item
+                            }
+                        case .rows:
+                            ForEach(Array(viewModel.rows.enumerated()), id: \.element.title) { _, row in
+                                if !row.people.isEmpty {
+                                    PeopleRowView(
+                                        title: row.title,
+                                        people: row.people,
+                                        onPersonTap: { person in
+                                            selectedPerson = person
+                                        }
+                                    )
+                                } else if !row.items.isEmpty {
+                                    MediaRowView(
+                                        title: row.title,
+                                        items: row.items,
+                                        onItemTap: { item in
+                                            selectedItem = item
+                                        }
+                                    )
                                 }
-                            )
-                        }
-                        
-                        // Insert Studios buttons after Trending TV Shows row — hidden for kids profiles
-                        if row.title == "Trending TV Shows" || (isKidsProfile && row.title == "Kids TV Shows") {
-                            if !isKidsProfile && !StorageService.shared.hiddenSections.hideStudiosRow {
+                            }
+                        case .studios:
+                            if !isKidsProfile {
                                 StudiosHubRow(
                                     onTwentiethCenturyTap: { activeStudioSheet = .twentiethCentury },
                                     onWarnerBrosTap: { activeStudioSheet = .warnerBros },
@@ -90,8 +96,7 @@ struct BrowseView: View {
                                     onSonyPicturesTap: { activeStudioSheet = .sonyPictures }
                                 )
                             }
-                            
-                            // Custom JSON Hubs — user-created hubs from external JSON URLs
+                        case .customHubs:
                             if !isKidsProfile {
                                 let enabledHubs = StorageService.shared.getEnabledCustomJSONHubs()
                                 if !enabledHubs.isEmpty {
@@ -100,19 +105,17 @@ struct BrowseView: View {
                                     }
                                 }
                             }
-                            
-                            // For You Row (AI-powered, based on likes) — only for signed-in adult (18+) users
-                            if authService.isAuthenticated && isAdultProfile && !StorageService.shared.hiddenSections.hideForYouRow {
+                        case .forYou:
+                            if authService.isAuthenticated && isAdultProfile {
                                 ForYouRow(viewModel: forYouVM) { item in
                                     selectedItem = item
                                 }
                             }
+                        case .discover:
+                            if isAdultProfile {
+                                BrowseDiscoverSection()
+                            }
                         }
-                    }
-                    
-                    // MARK: - Discover Section (only for 18+ adult profiles — contains AI and mature discovery features)
-                    if isAdultProfile && !StorageService.shared.hiddenSections.hideDiscoverSection {
-                        BrowseDiscoverSection()
                     }
                 }
                 .padding(.vertical)

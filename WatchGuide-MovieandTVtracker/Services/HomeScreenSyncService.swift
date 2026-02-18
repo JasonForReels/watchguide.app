@@ -559,6 +559,60 @@ actor HomeScreenSyncService {
         return hubShells
     }
     
+    // MARK: - Browse Sections Order Sync
+    
+    func uploadBrowseSections(_ sections: [BrowseSectionItem]) async throws {
+        let userId = await getUserId()
+        guard !userId.isEmpty else {
+            throw HomeScreenSyncError.apiError("User ID is empty.")
+        }
+        
+        // Delete existing
+        let deleteQuery = [URLQueryItem(name: "user_id", value: "eq.\(userId)")]
+        do {
+            try await requestNoResponse(endpoint: "browse_sections", method: "DELETE", queryItems: deleteQuery)
+        } catch {
+            print("Warning: Could not delete existing browse_sections: \(error)")
+        }
+        
+        guard !sections.isEmpty else { return }
+        
+        let syncItems = sections.map { sec in
+            SyncedBrowseSection(
+                userId: userId,
+                sectionId: sec.id,
+                sectionType: sec.sectionType.rawValue,
+                isEnabled: sec.isEnabled,
+                sortOrder: sec.sortOrder
+            )
+        }
+        
+        let encoder = JSONEncoder()
+        let body = try encoder.encode(syncItems)
+        try await requestNoResponse(endpoint: "browse_sections", method: "POST", body: body)
+    }
+    
+    func downloadBrowseSections() async throws -> [BrowseSectionItem]? {
+        let userId = await getUserId()
+        let queryItems = [
+            URLQueryItem(name: "user_id", value: "eq.\(userId)"),
+            URLQueryItem(name: "order", value: "sort_order.asc")
+        ]
+        
+        let items: [SyncedBrowseSection] = try await request(endpoint: "browse_sections", queryItems: queryItems)
+        guard !items.isEmpty else { return nil }
+        
+        return items.compactMap { item in
+            guard let sectionType = BrowseSectionItem.BrowseSectionType(rawValue: item.sectionType) else { return nil }
+            return BrowseSectionItem(
+                id: item.sectionId,
+                sectionType: sectionType,
+                isEnabled: item.isEnabled,
+                sortOrder: item.sortOrder
+            )
+        }
+    }
+    
     // MARK: - Hidden Sections Sync
     
     func uploadHiddenSections(_ sections: HiddenDefaultSections) async throws {
@@ -631,6 +685,14 @@ actor HomeScreenSyncService {
         } catch {
             print("Warning: Could not upload hidden sections: \(error)")
         }
+        
+        // Upload browse sections order
+        let sections = await MainActor.run { StorageService.shared.browseSections }
+        do {
+            try await uploadBrowseSections(sections)
+        } catch {
+            print("Warning: Could not upload browse sections: \(error)")
+        }
     }
     
     func downloadAllHomeScreenConfig() async throws -> HomeScreenConfig {
@@ -640,6 +702,7 @@ actor HomeScreenSyncService {
         async let networkHubsConfig = downloadNetworkHubsConfig()
         async let customJSONHubs = downloadCustomJSONHubs()
         async let hiddenSectionsResult = downloadHiddenSectionsSafe()
+        async let browseSectionsResult = downloadBrowseSectionsSafe()
         
         return try await HomeScreenConfig(
             browseRows: browseRows,
@@ -647,7 +710,8 @@ actor HomeScreenSyncService {
             customHomeRows: customHomeRows,
             networkHubsConfig: networkHubsConfig,
             customJSONHubs: customJSONHubs,
-            hiddenSections: hiddenSectionsResult
+            hiddenSections: hiddenSectionsResult,
+            browseSections: browseSectionsResult
         )
     }
     
@@ -657,6 +721,16 @@ actor HomeScreenSyncService {
             return try await downloadHiddenSections()
         } catch {
             print("Warning: Could not download hidden sections: \(error)")
+            return nil
+        }
+    }
+    
+    /// Safe wrapper that never throws — returns nil on any failure
+    private func downloadBrowseSectionsSafe() async -> [BrowseSectionItem]? {
+        do {
+            return try await downloadBrowseSections()
+        } catch {
+            print("Warning: Could not download browse sections: \(error)")
             return nil
         }
     }
@@ -819,14 +893,16 @@ struct HomeScreenConfig {
     let networkHubsConfig: [SyncedNetworkHubConfig]
     let customJSONHubs: [CustomJSONHub]
     let hiddenSections: HiddenDefaultSections?
+    let browseSections: [BrowseSectionItem]?
     
-    init(browseRows: [BrowseRowConfig], extensionLists: [ImportedListItem], customHomeRows: [CustomHomeRow], networkHubsConfig: [SyncedNetworkHubConfig], customJSONHubs: [CustomJSONHub] = [], hiddenSections: HiddenDefaultSections? = nil) {
+    init(browseRows: [BrowseRowConfig], extensionLists: [ImportedListItem], customHomeRows: [CustomHomeRow], networkHubsConfig: [SyncedNetworkHubConfig], customJSONHubs: [CustomJSONHub] = [], hiddenSections: HiddenDefaultSections? = nil, browseSections: [BrowseSectionItem]? = nil) {
         self.browseRows = browseRows
         self.extensionLists = extensionLists
         self.customHomeRows = customHomeRows
         self.networkHubsConfig = networkHubsConfig
         self.customJSONHubs = customJSONHubs
         self.hiddenSections = hiddenSections
+        self.browseSections = browseSections
     }
 }
 
@@ -907,6 +983,22 @@ struct SyncedHiddenSections: Codable {
         try container.encode(hideNetworksRow, forKey: .hideNetworksRow)
         try container.encode(hideForYouRow, forKey: .hideForYouRow)
         try container.encode(hideDiscoverSection, forKey: .hideDiscoverSection)
+    }
+}
+
+struct SyncedBrowseSection: Codable {
+    let userId: String
+    let sectionId: String
+    let sectionType: String
+    let isEnabled: Bool
+    let sortOrder: Int
+    
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case sectionId = "section_id"
+        case sectionType = "section_type"
+        case isEnabled = "is_enabled"
+        case sortOrder = "sort_order"
     }
 }
 
