@@ -146,7 +146,7 @@ struct HeroCarouselView: View {
             else if currentIndex >= newCount { currentIndex = 0 }
         }
         .onAppear {
-            timerManager.reset(defaultDuration: 8)
+            timerManager.reset(defaultDuration: 15)
         }
         .task {
             await trailerLoader.loadTrailers(for: items)
@@ -188,7 +188,7 @@ struct HeroCarouselView: View {
             currentIndex = index
             dragOffset = 0
         }
-        timerManager.reset(defaultDuration: 8)
+        timerManager.reset(defaultDuration: 15)
     }
 }
 
@@ -222,9 +222,9 @@ class CarouselTimerManager: ObservableObject {
     private var duration: TimeInterval = 8
     
     /// How long to show the backdrop after a trailer finishes before advancing
-    static let postTrailerBackdropDuration: TimeInterval = 3.0
+    static let postTrailerBackdropDuration: TimeInterval = 6.5
     /// Extra grace period for the progress-bar → dots morph animation
-    static let morphGracePeriod: TimeInterval = 1.2
+    static let morphGracePeriod: TimeInterval = 1.5
     
     func reset(defaultDuration: TimeInterval) {
         timer?.invalidate()
