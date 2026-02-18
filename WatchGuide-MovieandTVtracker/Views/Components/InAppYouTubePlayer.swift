@@ -45,7 +45,10 @@ struct EmbeddedTrailerPlayer: View {
                 restrictRelatedVideosToSameChannel: true
             ),
             configuration: .init(
-                allowsInlineMediaPlayback: true
+                allowsInlineMediaPlayback: true,
+                openURLAction: .init { _, _ in
+                    // Block all navigation to prevent Safari from opening
+                }
             )
         ))
     }
