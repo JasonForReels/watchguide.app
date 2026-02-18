@@ -57,14 +57,10 @@ struct HeroCarouselView: View {
                             slideSize: CGSize(width: width, height: height),
                             colorScheme: colorScheme,
                             trailerPhase: timerManager.trailerPhase,
+                            backdropTimerExpired: timerManager.backdropTimerExpired,
                             onTrailerDurationKnown: { duration in
                                 if index == currentIndex {
-                                    timerManager.setDuration(duration)
-                                }
-                            },
-                            onTrailerReady: {
-                                if index == currentIndex {
-                                    timerManager.pause()
+                                    timerManager.beginTrailerPlayback(duration: duration)
                                 }
                             }
                         )
@@ -214,13 +210,17 @@ class CarouselTimerManager: ObservableObject {
     @Published var isTrailerPlaying = false
     /// Current trailer phase for the active slide
     @Published var trailerPhase: TrailerPhase = .backdrop
+    /// Fires when the backdrop timer expires — slide should begin loading its trailer
+    @Published var backdropTimerExpired = false
     
     private var timer: Timer?
     private var isPaused = false
     private var displayLink: CADisplayLink?
     private var startTime: CFTimeInterval = 0
-    private var duration: TimeInterval = 8
+    private var duration: TimeInterval = 15
     
+    /// How long to show the backdrop before starting the trailer
+    static let backdropDuration: TimeInterval = 15
     /// How long to show the backdrop after a trailer finishes before advancing
     static let postTrailerBackdropDuration: TimeInterval = 6.5
     /// Extra grace period for the progress-bar → dots morph animation
@@ -234,50 +234,69 @@ class CarouselTimerManager: ObservableObject {
         progress = 0
         isTrailerPlaying = false
         trailerPhase = .backdrop
+        backdropTimerExpired = false
         duration = defaultDuration
         startTime = CACurrentMediaTime()
-        startTimer(interval: defaultDuration)
+        startBackdropTimer(interval: defaultDuration)
         // Always run display link so the dot progress fills during backdrop too
         startDisplayLink()
     }
     
-    func setDuration(_ duration: TimeInterval) {
+    /// Called when the trailer player reports its duration and is ready to play.
+    /// Restarts the timer/progress for the trailer playback phase.
+    func beginTrailerPlayback(duration trailerDuration: TimeInterval) {
         timer?.invalidate()
         stopDisplayLink()
         isPaused = false
-        let clamped = min(max(duration, 15), 180)
+        let clamped = min(max(trailerDuration, 10), 180)
         self.duration = clamped
         isTrailerPlaying = true
         trailerPhase = .playing
         startTime = CACurrentMediaTime()
-        startTimer(interval: clamped)
+        startTrailerTimer(interval: clamped)
         startDisplayLink()
     }
     
-    func pause() {
-        timer?.invalidate()
-        isPaused = true
+    /// Called when there is no trailer for this slide — the backdrop timer
+    /// should simply advance when it expires (already handled by startBackdropTimer).
+    func markNoTrailer() {
+        // Nothing special needed — the backdrop timer will fire shouldAdvance
     }
     
-    private func startTimer(interval: TimeInterval) {
+    private func startBackdropTimer(interval: TimeInterval) {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self = self else { return }
-                if self.isTrailerPlaying {
-                    // 1. Transition indicator back to dots
-                    self.isTrailerPlaying = false
-                    self.stopDisplayLink()
-                    // 2. Enter post-trailer phase — show backdrop with title
-                    withAnimation(.easeInOut(duration: 0.6)) {
-                        self.trailerPhase = .postTrailer
-                    }
-                    // 3. After backdrop display + morph grace, advance
-                    let totalWait = CarouselTimerManager.morphGracePeriod + CarouselTimerManager.postTrailerBackdropDuration
-                    DispatchQueue.main.asyncAfter(deadline: .now() + totalWait) {
+                // Signal that the backdrop period is over — slide should start trailer
+                self.backdropTimerExpired = true
+                // If no trailer hooks in within a short window, auto-advance
+                // (This is a fallback; normally the slide will call beginTrailerPlayback)
+                self.timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+                    DispatchQueue.main.async {
+                        guard let self = self, !self.isTrailerPlaying else { return }
                         self.shouldAdvance = true
                     }
-                } else {
+                }
+            }
+        }
+    }
+    
+    private func startTrailerTimer(interval: TimeInterval) {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                // 1. Transition indicator back to dots
+                self.isTrailerPlaying = false
+                self.stopDisplayLink()
+                // 2. Enter post-trailer phase — show backdrop with title
+                withAnimation(.easeInOut(duration: 0.6)) {
+                    self.trailerPhase = .postTrailer
+                }
+                // 3. After backdrop display + morph grace, advance
+                let totalWait = CarouselTimerManager.morphGracePeriod + CarouselTimerManager.postTrailerBackdropDuration
+                DispatchQueue.main.asyncAfter(deadline: .now() + totalWait) {
                     self.shouldAdvance = true
                 }
             }
@@ -450,8 +469,9 @@ struct HeroCarouselSlide: View {
     let slideSize: CGSize
     let colorScheme: ColorScheme
     let trailerPhase: TrailerPhase
+    /// Whether the carousel timer's backdrop period has expired (time to start trailer)
+    let backdropTimerExpired: Bool
     var onTrailerDurationKnown: ((TimeInterval) -> Void)?
-    var onTrailerReady: (() -> Void)?
     
     @State private var showTrailer = false
     @StateObject private var playerVM = HeroPlayerViewModel()
@@ -616,10 +636,14 @@ struct HeroCarouselSlide: View {
         .clipped()
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
-        .onChange(of: isActive) { _, active in
-            if active {
+        // When backdrop timer expires, start loading the trailer
+        .onChange(of: backdropTimerExpired) { _, expired in
+            if expired && isActive {
                 startTrailerIfNeeded()
-            } else {
+            }
+        }
+        .onChange(of: isActive) { _, active in
+            if !active {
                 stopTrailer()
             }
         }
@@ -631,7 +655,7 @@ struct HeroCarouselSlide: View {
         }
         .onChange(of: playerVM.isReady) { _, ready in
             if ready && isActive {
-                onTrailerReady?()
+                // Player is ready — get the duration and tell the timer to start trailer playback
                 if let p = playerVM.player {
                     Task {
                         if let duration = try? await p.getDuration() {
@@ -644,21 +668,8 @@ struct HeroCarouselSlide: View {
                 }
             }
         }
-        .onAppear {
-            if isActive {
-                startTrailerIfNeeded()
-            }
-        }
         .onDisappear {
             stopTrailer()
-        }
-        // Fix: when the trailer key arrives *after* the first slide is already active,
-        // onChange(of: isActive) won't re-fire because isActive was always true.
-        // Watch for the trailer key itself so the first slide starts its trailer.
-        .onChange(of: trailerKey) { _, newKey in
-            if isActive && newKey != nil && !showTrailer {
-                startTrailerIfNeeded()
-            }
         }
     }
     

@@ -375,7 +375,13 @@ struct MediaDetailView: View {
         }
         .aspectRatio(16.0/9.0, contentMode: .fit)
         .onChange(of: viewModel.preferredTrailer?.key) { _, newKey in
-            if let key = newKey {
+            if let key = newKey, headerPlayerVM.player == nil {
+                headerPlayerVM.setup(videoKey: key)
+            }
+        }
+        .onReceive(viewModel.$preferredTrailer) { trailer in
+            // Catch the initial value that onChange might miss
+            if let key = trailer?.key, headerPlayerVM.player == nil {
                 headerPlayerVM.setup(videoKey: key)
             }
         }
