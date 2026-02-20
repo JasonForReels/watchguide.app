@@ -1052,7 +1052,7 @@ private struct SourceLinkChip: View {
     
     var body: some View {
         Button {
-            UIApplication.shared.open(link.url)
+            PlatformURLHandler.openURL(link.url)
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "arrow.up.right")

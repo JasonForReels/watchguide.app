@@ -5,6 +5,16 @@
 
 import SwiftUI
 
+// MARK: - Shared Gray5 Color Helper
+/// A cross-platform gray color that works on iOS and tvOS.
+private let sharedGray5Color: Color = {
+    #if os(tvOS)
+    return Color.gray.opacity(0.3)
+    #else
+    return Color(UIColor.systemGray5)
+    #endif
+}()
+
 struct AsyncImageView: View {
     let url: URL?
     let contentMode: ContentMode
@@ -21,7 +31,7 @@ struct AsyncImageView: View {
             switch phase {
             case .empty:
                 ZStack {
-                    Color(.systemGray5)
+                    sharedGray5Color
                     ProgressView()
                         .tint(.secondary)
                 }
@@ -31,13 +41,13 @@ struct AsyncImageView: View {
                     .aspectRatio(contentMode: contentMode)
             case .failure:
                 ZStack {
-                    Color(.systemGray5)
+                    sharedGray5Color
                     Image(systemName: "photo")
                         .font(.title2)
                         .foregroundColor(.secondary)
                 }
             @unknown default:
-                Color(.systemGray5)
+                sharedGray5Color
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
@@ -84,7 +94,7 @@ struct PosterImageView: View {
                             .onAppear { fanartImageFailed = true }
                     case .empty:
                         ZStack {
-                            Color(.systemGray5)
+                            sharedGray5Color
                             ProgressView().tint(.secondary)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -111,7 +121,7 @@ struct PosterImageView: View {
                     switch phase {
                     case .empty:
                         ZStack {
-                            Color(.systemGray5)
+                            sharedGray5Color
                             ProgressView().tint(.secondary)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -139,7 +149,7 @@ struct PosterImageView: View {
     
     private var placeholderView: some View {
         ZStack {
-            Color(.systemGray5)
+            sharedGray5Color
             Image(systemName: "film")
                 .font(.title2)
                 .foregroundColor(.secondary)
@@ -194,7 +204,7 @@ struct BackdropImageView: View {
                             .onAppear { fanartImageFailed = true }
                     case .empty:
                         ZStack {
-                            Color(.systemGray5)
+                            sharedGray5Color
                             ProgressView().tint(.secondary)
                         }
                     @unknown default:
@@ -248,7 +258,7 @@ struct ProfileImageView: View {
             case .empty:
                 ZStack {
                     Circle()
-                        .fill(Color(.systemGray5))
+                        .fill(sharedGray5Color)
                     ProgressView()
                         .tint(.secondary)
                 }
@@ -259,14 +269,14 @@ struct ProfileImageView: View {
             case .failure:
                 ZStack {
                     Circle()
-                        .fill(Color(.systemGray5))
+                        .fill(sharedGray5Color)
                     Image(systemName: "person.fill")
                         .font(.system(size: size * 0.4))
                         .foregroundColor(.secondary)
                 }
             @unknown default:
                 Circle()
-                    .fill(Color(.systemGray5))
+                    .fill(sharedGray5Color)
             }
         }
         .frame(width: size, height: size)

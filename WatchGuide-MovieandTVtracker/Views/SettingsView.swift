@@ -5,6 +5,9 @@
 
 import SwiftUI
 import AuthenticationServices
+#if os(iOS)
+import UIKit
+#endif
 
 struct SettingsView: View {
     @ObservedObject private var storage = StorageService.shared
@@ -1403,13 +1406,15 @@ struct SupabaseSetupGuideView: View {
                             .cornerRadius(8)
                     }
                     
+                    #if os(iOS)
                     Button {
-                        UIPasteboard.general.string = sqlSchema
+                        PlatformClipboard.copy(sqlSchema)
                     } label: {
                         Label("Copy SQL", systemImage: "doc.on.doc")
                             .font(.subheadline)
                     }
                     .buttonStyle(.bordered)
+                    #endif
                 }
                 .padding()
                 .background(Color(.systemGray6).opacity(0.5))
@@ -2437,8 +2442,9 @@ struct ExportHubSheet: View {
                 
                 // Actions
                 VStack(spacing: 12) {
+                    #if os(iOS)
                     Button {
-                        UIPasteboard.general.string = jsonString
+                        PlatformClipboard.copy(jsonString)
                         withAnimation { copied = true }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                             withAnimation { copied = false }
@@ -2462,6 +2468,7 @@ struct ExportHubSheet: View {
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
+                    #endif
                 }
                 .padding(.horizontal)
                 
@@ -2477,6 +2484,7 @@ struct ExportHubSheet: View {
     }
     
     private func shareJSON() {
+        #if os(iOS)
         guard let data = jsonString.data(using: .utf8) else { return }
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(hub.name.replacingOccurrences(of: " ", with: "_")).json")
         try? data.write(to: tempURL)
@@ -2492,6 +2500,7 @@ struct ExportHubSheet: View {
             activityVC.popoverPresentationController?.sourceView = topVC.view
             topVC.present(activityVC, animated: true)
         }
+        #endif
     }
 }
 

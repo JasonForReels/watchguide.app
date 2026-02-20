@@ -346,9 +346,11 @@ struct PopcornRefreshableScrollView<Content: View>: View {
         }
         .coordinateSpace(name: "popcornScroll")
         .refreshable {
+            #if !os(tvOS)
             // Haptic feedback
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
+            #endif
             
             await MainActor.run {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
@@ -384,9 +386,17 @@ private struct PopcornScrollOffsetKey: PreferenceKey {
 #Preview {
     VStack(spacing: 30) {
         // Preview of the spinner in refreshing state
+        let previewBackground: Color = {
+            #if os(tvOS)
+            return Color.gray
+            #else
+            return Color(.systemGray6)
+            #endif
+        }()
+        
         PopcornRefreshView(isRefreshing: true, progress: 1.0)
             .frame(width: 120, height: 100)
-            .background(Color(.systemGray6))
+            .background(previewBackground)
             .cornerRadius(16)
         
         // Preview of the spinner at various pull stages

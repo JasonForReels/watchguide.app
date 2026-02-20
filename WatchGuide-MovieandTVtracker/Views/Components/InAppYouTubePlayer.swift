@@ -8,6 +8,8 @@
 //
 
 import SwiftUI
+
+#if !os(tvOS)
 import YouTubePlayerKit
 
 // MARK: - Embedded Trailer Player View (plays inline with controls overlay)
@@ -231,7 +233,7 @@ struct TrailerErrorFallback: View {
 
             Button {
                 if let url = URL(string: "https://www.youtube.com/watch?v=\(videoKey)") {
-                    UIApplication.shared.open(url)
+                    PlatformURLHandler.openURL(url)
                 }
             } label: {
                 ZStack {
@@ -297,3 +299,87 @@ struct InAppYouTubePlayer: View {
         EmbeddedTrailerPlayer(videoKey: videoKey, title: "Trailer")
     }
 }
+
+#else
+// tvOS fallback: no in-app player support.
+struct EmbeddedTrailerPlayer: View {
+    let videoKey: String
+    let title: String
+    var compact: Bool = false
+    var autoPlay: Bool = true
+
+    var body: some View {
+        TrailerErrorFallback(videoKey: videoKey, title: title, compact: compact)
+    }
+}
+
+struct TrailerErrorFallback: View {
+    let videoKey: String
+    let title: String
+    var compact: Bool = false
+
+    var body: some View {
+        ZStack {
+            AsyncImage(url: URL(string: "https://img.youtube.com/vi/\(videoKey)/maxresdefault.jpg")) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().aspectRatio(16.0 / 9.0, contentMode: .fill)
+                default:
+                    Color(.systemGray5)
+                }
+            }
+
+            Color.black.opacity(0.35)
+
+            ZStack {
+                Circle()
+                    .fill(.black.opacity(0.5))
+                    .frame(width: compact ? 40 : 56, height: compact ? 40 : 56)
+
+                Image(systemName: "play.fill")
+                    .font(compact ? .body : .title3)
+                    .foregroundColor(.white)
+                    .offset(x: 2)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 14))
+    }
+}
+
+struct YouTubePlayerSheet: View {
+    let videoKey: String
+    let title: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                TrailerErrorFallback(videoKey: videoKey, title: title)
+                    .padding(.horizontal)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color.white.opacity(0.25))
+                    }
+                }
+            }
+            .toolbarBackground(.hidden, for: .navigationBar)
+        }
+    }
+}
+
+struct InAppYouTubePlayer: View {
+    let videoKey: String
+    var autoplay: Bool = true
+
+    var body: some View {
+        EmbeddedTrailerPlayer(videoKey: videoKey, title: "Trailer", compact: false, autoPlay: false)
+    }
+}
+#endif

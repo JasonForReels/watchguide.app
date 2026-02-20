@@ -59,9 +59,11 @@ struct BrowseView: View {
             .sheet(item: $selectedJSONHub) { hub in
                 CustomJSONHubSheet(hub: hub, selectedItem: $selectedItem)
             }
+            #if os(iOS)
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
             }
+            #endif
             .sheet(isPresented: $showProfileSwitcher) {
                 ProfileSwitcherSheet()
             }
@@ -198,6 +200,7 @@ struct BrowseView: View {
             }
         }
         
+        #if os(iOS)
         ToolbarItem(placement: .primaryAction) {
             Button {
                 showCustomizeSheet = true
@@ -205,6 +208,7 @@ struct BrowseView: View {
                 Image(systemName: "slider.horizontal.3")
             }
         }
+        #endif
     }
     
     @ViewBuilder
@@ -2979,4 +2983,3 @@ struct CustomJSONHubSheet: View {
 #Preview {
     BrowseView(selectedItem: .constant(nil))
 }
-

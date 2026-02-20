@@ -4,7 +4,9 @@
 //
 
 import SwiftUI
+#if canImport(SafariServices)
 import SafariServices
+#endif
 
 // MARK: - Provider Deep Link Mapping
 private struct ProviderDeepLink {
@@ -54,7 +56,7 @@ private struct ProviderDeepLink {
     static func isAppInstalled(for providerId: Int) -> Bool {
         guard let scheme = appScheme(for: providerId),
               let url = URL(string: scheme) else { return false }
-        return UIApplication.shared.canOpenURL(url)
+        return PlatformURLHandler.canOpenURL(url)
     }
 }
 
@@ -77,15 +79,27 @@ struct WatchProvidersView: View {
     
     private func filterProviders(_ providers: [WatchProvider]?) -> [WatchProvider] {
         guard let providers = providers else { return [] }
-        return providers.filter { !excludedProviderIds.contains($0.providerId) }
+        let filtered = providers.filter { !excludedProviderIds.contains($0.providerId) }
+        #if os(tvOS)
+        return filtered.filter { ProviderDeepLink.isAppInstalled(for: $0.providerId) }
+        #else
+        return filtered
+        #endif
     }
     
     private func handleProviderTap(_ provider: WatchProvider) {
+        #if os(tvOS)
+        if ProviderDeepLink.isAppInstalled(for: provider.providerId),
+           let scheme = ProviderDeepLink.appScheme(for: provider.providerId),
+           let appURL = URL(string: scheme) {
+            PlatformURLHandler.openURL(appURL)
+        }
+        #else
         // If the provider's native app is installed, open it
         if ProviderDeepLink.isAppInstalled(for: provider.providerId),
            let scheme = ProviderDeepLink.appScheme(for: provider.providerId),
            let appURL = URL(string: scheme) {
-            UIApplication.shared.open(appURL)
+            PlatformURLHandler.openURL(appURL)
             return
         }
         
@@ -94,6 +108,7 @@ struct WatchProvidersView: View {
             safariURL = url
             showSafari = true
         }
+        #endif
     }
     
     var body: some View {
@@ -124,6 +139,7 @@ struct WatchProvidersView: View {
             }
             
             // Link to JustWatch
+            #if os(iOS)
             if let link = link, let url = URL(string: link) {
                 Button {
                     safariURL = url
@@ -139,17 +155,21 @@ struct WatchProvidersView: View {
                 }
                 .padding(.top, 4)
             }
+            #endif
         }
+        #if os(iOS)
         .sheet(isPresented: $showSafari) {
             if let url = safariURL {
                 WatchProviderSafariView(url: url)
                     .ignoresSafeArea()
             }
         }
+        #endif
     }
 }
 
 // MARK: - In-App Safari for Watch Providers
+#if os(iOS)
 private struct WatchProviderSafariView: UIViewControllerRepresentable {
     let url: URL
     
@@ -162,6 +182,7 @@ private struct WatchProviderSafariView: UIViewControllerRepresentable {
     
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
+#endif
 
 struct ProviderSection: View {
     let title: String

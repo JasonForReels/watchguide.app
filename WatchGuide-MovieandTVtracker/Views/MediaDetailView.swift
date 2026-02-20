@@ -4,8 +4,12 @@
 //
 
 import SwiftUI
+#if canImport(SafariServices)
 import SafariServices
+#endif
+#if !os(tvOS)
 import YouTubePlayerKit
+#endif
 import Combine
 
 // MARK: - Person Selection Model
@@ -49,6 +53,7 @@ struct MediaDetailView: View {
                             )
                             .padding(.horizontal)
                             
+                            #if !os(tvOS)
                             if let trailer = viewModel.preferredTrailer {
                                 if showInlineTrailer {
                                     // Inline embedded trailer player (autoplay muted)
@@ -86,6 +91,7 @@ struct MediaDetailView: View {
                                     .transition(.opacity)
                                 }
                             }
+                            #endif
                         }
                         
                         // Ratings
@@ -220,10 +226,12 @@ struct MediaDetailView: View {
                 profilePath: person.profilePath
             )
         }
+        #if os(iOS)
         .sheet(item: $safariItem) { item in
             SafariView(url: item.url)
                 .ignoresSafeArea()
         }
+        #endif
     }
     
     // MARK: - Header Section (Auto-Playing Trailer)
@@ -242,11 +250,13 @@ struct MediaDetailView: View {
                 Color.black
                 
                 // Layer 1: Trailer video (underneath the backdrop)
+                #if !os(tvOS)
                 if headerTrailerReady, let player = headerPlayerVM.player {
                     YouTubePlayerKit.YouTubePlayerView(player)
                         .frame(width: width, height: height)
                         .allowsHitTesting(false)
                 }
+                #endif
                 
                 // Layer 2: Backdrop — fades out when trailer is ready
                 Group {
@@ -374,6 +384,7 @@ struct MediaDetailView: View {
             .frame(width: width, height: height)
         }
         .aspectRatio(16.0/9.0, contentMode: .fit)
+        #if !os(tvOS)
         .onChange(of: viewModel.preferredTrailer?.key) { _, newKey in
             if let key = newKey, headerPlayerVM.player == nil {
                 headerPlayerVM.setup(videoKey: key)
@@ -392,6 +403,7 @@ struct MediaDetailView: View {
                 }
             }
         }
+        #endif
         .onDisappear {
             headerPlayerVM.teardown()
         }
@@ -499,6 +511,7 @@ struct PlayTrailerButton: View {
 }
 
 // MARK: - SafariView
+#if os(iOS)
 struct SafariView: UIViewControllerRepresentable {
     let url: URL
 
@@ -511,6 +524,7 @@ struct SafariView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
+#endif
 
 struct SafariItem: Identifiable {
     let id = UUID()
@@ -1017,6 +1031,7 @@ class MediaDetailViewModel: ObservableObject {
 /// Manages a YouTube player for the detail page header auto-play trailer.
 /// Similar to HeroPlayerViewModel but simplified — always auto-plays muted,
 /// loops, and has no external mute integration.
+#if !os(tvOS)
 class DetailHeaderPlayerViewModel: ObservableObject {
     @Published var player: YouTubePlayer?
     @Published var isReady = false
@@ -1090,6 +1105,22 @@ class DetailHeaderPlayerViewModel: ObservableObject {
         }
     }
 }
+#else
+class DetailHeaderPlayerViewModel: ObservableObject {
+    @Published var isReady = false
+    @Published var isMuted = true
+    
+    @MainActor
+    func setup(videoKey: String) {
+    }
+    
+    func teardown() {
+    }
+    
+    func toggleMute() {
+    }
+}
+#endif
 
 #Preview {
     MediaDetailView(item: MediaItem(

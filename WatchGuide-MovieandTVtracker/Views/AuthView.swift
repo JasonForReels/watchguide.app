@@ -6,7 +6,9 @@
 //
 
 import SwiftUI
+#if !os(tvOS)
 import MessageUI
+#endif
 
 struct AuthView: View {
     @ObservedObject var authService = AuthService.shared
@@ -324,6 +326,9 @@ struct AccountView: View {
                     .background(Color(.systemGray6))
                     .cornerRadius(12)
                 }
+                #if os(tvOS)
+                .disabled(true)
+                #endif
             }
             .confirmationDialog("Sign Out", isPresented: $showSignOutConfirmation, titleVisibility: .visible) {
                 Button("Sign Out", role: .destructive) {
@@ -344,6 +349,10 @@ struct AccountView: View {
     }
     
     private func openDeleteAccountEmail() {
+        #if os(tvOS)
+        showMailError = true
+        return
+        #else
         let recipient = "support@watchguide.app"
         let subject = "Account deletion request"
         let body = "Input your email so we can go ahead and permanently delete your account and all data, optionally, go back into the app and press \"Clear All Data\" under \"Data Management\" if you don't want your account deleted.\n\nEmail: "
@@ -354,12 +363,13 @@ struct AccountView: View {
         let mailtoString = "mailto:\(recipient)?subject=\(subjectEncoded)&body=\(bodyEncoded)"
         
         if let url = URL(string: mailtoString) {
-            if UIApplication.shared.canOpenURL(url) {
-                UIApplication.shared.open(url)
+            if PlatformURLHandler.canOpenURL(url) {
+                PlatformURLHandler.openURL(url)
             } else {
                 showMailError = true
             }
         }
+        #endif
     }
     
     private func userInitials(from email: String?) -> String {

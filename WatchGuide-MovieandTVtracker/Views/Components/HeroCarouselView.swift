@@ -5,7 +5,9 @@
 
 import SwiftUI
 import Combine
+#if !os(tvOS)
 import YouTubePlayerKit
+#endif
 
 // MARK: - Hero Carousel Mute Manager
 /// Shared manager that allows external views (e.g. detail sheets) to request the hero carousel
@@ -21,7 +23,13 @@ class HeroCarouselMuteManager: ObservableObject {
 struct HeroCarouselView: View {
     let items: [MediaItem]
     let onItemTap: (MediaItem) -> Void
-    var showTrailers: Bool { StorageService.shared.settings.autoPlayTrailers }
+    var showTrailers: Bool {
+        #if os(tvOS)
+        return false
+        #else
+        return StorageService.shared.settings.autoPlayTrailers
+        #endif
+    }
     
     @State private var currentIndex = 0
     @State private var dragOffset: CGFloat = 0
@@ -498,6 +506,7 @@ struct HeroCarouselSlide: View {
             Color.black
             
             // Layer 1: Trailer video (rendered first / bottom of stack)
+            #if !os(tvOS)
             if showTrailers, showTrailer, let player = playerVM.player {
                 YouTubePlayerKit.YouTubePlayerView(player)
                     .frame(width: slideWidth, height: slideHeight)
@@ -505,6 +514,7 @@ struct HeroCarouselSlide: View {
                     .opacity(isPostTrailer ? 0 : 1)
                     .animation(.easeInOut(duration: 0.8), value: isPostTrailer)
             }
+            #endif
             
             // Layer 2: Backdrop image — fades out for trailer, fades back for post-trailer
             backdropImage
@@ -652,6 +662,7 @@ struct HeroCarouselSlide: View {
                 stopTrailer()
             }
         }
+        #if !os(tvOS)
         .onChange(of: trailerPhase) { _, phase in
             guard showTrailers else { return }
             // When entering post-trailer, pause the YouTube player
@@ -675,6 +686,7 @@ struct HeroCarouselSlide: View {
                 }
             }
         }
+        #endif
         .onDisappear {
             if showTrailers {
                 stopTrailer()
@@ -768,6 +780,7 @@ struct HeroCarouselSlide: View {
 }
 
 // MARK: - Hero Player ViewModel
+#if !os(tvOS)
 class HeroPlayerViewModel: ObservableObject {
     @Published var player: YouTubePlayer?
     @Published var isReady = false
@@ -878,6 +891,22 @@ class HeroPlayerViewModel: ObservableObject {
         }
     }
 }
+#else
+class HeroPlayerViewModel: ObservableObject {
+    @Published var isReady = false
+    @Published var isMuted = true
+    
+    @MainActor
+    func setup(videoKey: String) {
+    }
+    
+    func teardown() {
+    }
+    
+    func toggleMute() {
+    }
+}
+#endif
 
 // MARK: - Carousel Page Indicator (Disney+ Style — Dots as Progress Bars)
 /// Each dot doubles as a progress indicator. The currently active dot fills up

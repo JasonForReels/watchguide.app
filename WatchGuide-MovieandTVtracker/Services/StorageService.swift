@@ -378,6 +378,7 @@ class StorageService: ObservableObject {
             try await SupabaseService.shared.uploadCustomLists(customLists)
             
             // Upload home screen config (includes browse sections via uploadAllHomeScreenConfig)
+            #if !os(tvOS)
             try await HomeScreenSyncService.shared.uploadAllHomeScreenConfig(
                 browseRows: browseRows,
                 extensionLists: importedLists,
@@ -385,6 +386,7 @@ class StorageService: ObservableObject {
                 networkHubs: networkHubs,
                 hiddenSections: hiddenSections
             )
+            #endif
             
             // Upload profiles
             ProfileService.shared.syncProfilesToCloud()
@@ -548,10 +550,14 @@ class StorageService: ObservableObject {
     /// Whether browse customization should auto-sync to cloud.
     /// Syncs if cloud sync is explicitly enabled, OR if user is authenticated with Supabase configured.
     private var shouldAutoSyncHomeConfig: Bool {
+        #if os(tvOS)
+        return false
+        #else
         guard isCloudConfigured else { return false }
         if cloudSyncEnabled { return true }
         // Also auto-sync if user is authenticated (even without explicit toggle)
         return AuthService.shared.isAuthenticated
+        #endif
     }
     
     /// Sync browse row config to cloud (background)

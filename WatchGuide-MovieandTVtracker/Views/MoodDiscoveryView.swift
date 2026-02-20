@@ -25,9 +25,37 @@ struct MoodOption: Identifiable {
         MoodOption(name: "Cozy Night In", emoji: "🌙", subtitle: "Relaxing & easy-going", genreIds: [10749, 35], keywords: [], sortBy: "popularity.desc", color: Color.indigo),
         MoodOption(name: "Epic Adventure", emoji: "⚔️", subtitle: "Grand scale & fantastical", genreIds: [12, 14], keywords: [], sortBy: "popularity.desc", color: Color.teal),
         MoodOption(name: "Laugh Out Loud", emoji: "😂", subtitle: "Hilarious comedies", genreIds: [35], keywords: [], sortBy: "popularity.desc", color: Color.orange),
-        MoodOption(name: "Dark & Gritty", emoji: "🌑", subtitle: "Noir, crime & suspense", genreIds: [80, 53], keywords: [], sortBy: "vote_average.desc", color: Color(.systemGray)),
+        MoodOption(
+            name: "Dark & Gritty",
+            emoji: "🌑",
+            subtitle: "Noir, crime & suspense",
+            genreIds: [80, 53],
+            keywords: [],
+            sortBy: "vote_average.desc",
+            color: {
+                #if os(tvOS)
+                return Color.gray
+                #else
+                return Color(.systemGray)
+                #endif
+            }()
+        ),
         MoodOption(name: "Cry It Out", emoji: "💧", subtitle: "Emotional & moving dramas", genreIds: [18], keywords: [], sortBy: "vote_average.desc", color: Color.blue),
-        MoodOption(name: "Spooky", emoji: "👻", subtitle: "Scary & unsettling", genreIds: [27], keywords: [], sortBy: "popularity.desc", color: Color(.systemGray2)),
+        MoodOption(
+            name: "Spooky",
+            emoji: "👻",
+            subtitle: "Scary & unsettling",
+            genreIds: [27],
+            keywords: [],
+            sortBy: "popularity.desc",
+            color: {
+                #if os(tvOS)
+                return Color(white: 0.7)
+                #else
+                return Color(.systemGray2)
+                #endif
+            }()
+        ),
         MoodOption(name: "Nostalgia Trip", emoji: "📼", subtitle: "Classics & retro favorites", genreIds: [], keywords: [], sortBy: "vote_count.desc", color: Color.brown),
         MoodOption(name: "Date Night", emoji: "❤️", subtitle: "Romantic & charming", genreIds: [10749], keywords: [], sortBy: "popularity.desc", color: Color.pink),
         MoodOption(name: "Family Time", emoji: "🏠", subtitle: "Fun for all ages", genreIds: [16, 10751], keywords: [], sortBy: "popularity.desc", color: Color.green),

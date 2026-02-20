@@ -28,6 +28,32 @@ struct HomeCustomizationView: View {
     }
     
     var body: some View {
+        #if os(tvOS)
+        NavigationStack {
+            VStack(spacing: 16) {
+                Spacer()
+                Image(systemName: "iphone")
+                    .font(.system(size: 48, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                Text("Customize on iPhone")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                Text("Home customization is managed on iPhone. Sync your changes to see them on Apple TV.")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                Spacer()
+            }
+            .navigationTitle("Customize Home")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        #else
         NavigationStack {
             VStack(spacing: 0) {
                 // Section picker
@@ -75,6 +101,7 @@ struct HomeCustomizationView: View {
                 loadData()
             }
         }
+        #endif
     }
     
     // MARK: - Sections (Top-Level Order)

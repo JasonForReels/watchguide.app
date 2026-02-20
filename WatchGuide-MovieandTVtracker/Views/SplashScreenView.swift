@@ -41,8 +41,10 @@ struct SplashScreenView: View {
                     finishSplash()
                 }
             }
+            #if !os(tvOS)
             .statusBarHidden(true)
             .persistentSystemOverlays(.hidden)
+            #endif
         }
     }
 
@@ -83,9 +85,11 @@ final class SplashVideoViewController: UIViewController {
     private var statusObservation: NSKeyValueObservation?
     private var hasFinished = false
 
+    #if !os(tvOS)
     override var prefersStatusBarHidden: Bool { true }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
+    #endif
 
     override func viewDidLoad() {
         super.viewDidLoad()

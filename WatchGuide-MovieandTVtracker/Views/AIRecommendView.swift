@@ -4,7 +4,6 @@
 //
 
 import SwiftUI
-import UIKit
 
 struct AIRecommendView: View {
     @ObservedObject private var storage = StorageService.shared
@@ -151,16 +150,19 @@ struct AIRecommendView: View {
     // MARK: - Actions
     private func selectPrompt(_ promptType: AIPromptType) {
         selectedPromptType = promptType
-        
+
+        #if os(tvOS)
+        showProviderSheet = true
+        #else
         // Copy to clipboard first
         let prompt = generatePrompt(for: promptType)
-        UIPasteboard.general.string = prompt
-        
+        PlatformClipboard.copy(prompt)
+
         // Show copied toast
         withAnimation {
             copiedToClipboard = true
         }
-        
+
         // Hide toast after delay and show provider sheet
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             withAnimation {
@@ -168,6 +170,7 @@ struct AIRecommendView: View {
             }
             showProviderSheet = true
         }
+        #endif
     }
     
     private func generatePrompt(for promptType: AIPromptType) -> String {
@@ -325,6 +328,19 @@ struct AIProviderSheet: View {
             VStack(spacing: 24) {
                 // Header
                 VStack(spacing: 8) {
+                    #if os(tvOS)
+                    Image(systemName: "sparkles")
+                        .font(.largeTitle)
+                        .foregroundColor(.accentColor)
+                    
+                    Text("Open AI Assistant")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                    
+                    Text("Choose an AI assistant to open")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    #else
                     Image(systemName: "doc.on.clipboard.fill")
                         .font(.largeTitle)
                         .foregroundColor(.green)
@@ -336,6 +352,7 @@ struct AIProviderSheet: View {
                     Text("Choose an AI assistant to open")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
+                    #endif
                 }
                 .padding(.top, 20)
                 
@@ -350,6 +367,7 @@ struct AIProviderSheet: View {
                 .padding(.horizontal)
                 
                 // Tip
+                #if os(iOS)
                 HStack(spacing: 8) {
                     Image(systemName: "lightbulb.fill")
                         .foregroundColor(.yellow)
@@ -361,6 +379,7 @@ struct AIProviderSheet: View {
                 .background(Color(.systemGray6))
                 .cornerRadius(12)
                 .padding(.horizontal)
+                #endif
                 
                 Spacer()
             }
@@ -401,7 +420,7 @@ struct AIProviderSheet: View {
     
     private func handleProviderSelection(_ provider: AIProvider) {
         // Check if app is installed
-        if let appURL = provider.appURL, UIApplication.shared.canOpenURL(appURL) {
+        if let appURL = provider.appURL, PlatformURLHandler.canOpenURL(appURL) {
             // App is installed, show choice
             showAppChoice = provider
         } else {
@@ -412,13 +431,13 @@ struct AIProviderSheet: View {
     
     private func openInApp(_ provider: AIProvider) {
         if let appURL = provider.appURL {
-            UIApplication.shared.open(appURL)
+            PlatformURLHandler.openURL(appURL)
         }
         dismiss()
     }
     
     private func openInBrowser(_ provider: AIProvider) {
-        UIApplication.shared.open(provider.webURL)
+        PlatformURLHandler.openURL(provider.webURL)
         dismiss()
     }
 }

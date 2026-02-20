@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */; };
+		02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */; platformFilter = ios; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -455,17 +455,18 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
-				"MARKETING_VERSION[sdk=iphoneos*]" = 1.0.1;
+				MARKETING_VERSION = 1.2.0;
+				"MARKETING_VERSION[sdk=appletvos*]" = 1.2.0;
+				"MARKETING_VERSION[sdk=iphoneos*]" = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker";
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = "1,2,3";
 			};
 			name = Debug;
 		};
@@ -491,17 +492,18 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
-				"MARKETING_VERSION[sdk=iphoneos*]" = 1.0.1;
+				MARKETING_VERSION = 1.2.0;
+				"MARKETING_VERSION[sdk=appletvos*]" = 1.2.0;
+				"MARKETING_VERSION[sdk=iphoneos*]" = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker";
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = "1,2,3";
 			};
 			name = Release;
 		};

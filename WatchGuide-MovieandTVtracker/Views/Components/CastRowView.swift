@@ -63,9 +63,11 @@ struct CastMemberCard: View {
             }
             .frame(width: 80)
         }
+        #if !os(tvOS)
         .onHover { hovering in
             isHovered = hovering
         }
+        #endif
     }
 }
 
@@ -137,9 +139,11 @@ struct CrewMemberCard: View {
             }
             .frame(width: 70)
         }
+        #if !os(tvOS)
         .onHover { hovering in
             isHovered = hovering
         }
+        #endif
     }
 }
 
