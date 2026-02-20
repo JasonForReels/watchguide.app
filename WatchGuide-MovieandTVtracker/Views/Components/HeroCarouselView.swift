@@ -21,6 +21,7 @@ class HeroCarouselMuteManager: ObservableObject {
 struct HeroCarouselView: View {
     let items: [MediaItem]
     let onItemTap: (MediaItem) -> Void
+    var showTrailers: Bool { StorageService.shared.settings.autoPlayTrailers }
     
     @State private var currentIndex = 0
     @State private var dragOffset: CGFloat = 0
@@ -58,6 +59,7 @@ struct HeroCarouselView: View {
                             colorScheme: colorScheme,
                             trailerPhase: timerManager.trailerPhase,
                             backdropTimerExpired: timerManager.backdropTimerExpired,
+                            showTrailers: showTrailers,
                             onTrailerDurationKnown: { duration in
                                 if index == currentIndex {
                                     timerManager.beginTrailerPlayback(duration: duration)
@@ -471,6 +473,7 @@ struct HeroCarouselSlide: View {
     let trailerPhase: TrailerPhase
     /// Whether the carousel timer's backdrop period has expired (time to start trailer)
     let backdropTimerExpired: Bool
+    let showTrailers: Bool
     var onTrailerDurationKnown: ((TimeInterval) -> Void)?
     
     @State private var showTrailer = false
@@ -481,12 +484,12 @@ struct HeroCarouselSlide: View {
     
     /// True when the YouTube player is loaded and ready — backdrop should hide
     private var trailerIsVisible: Bool {
-        showTrailer && playerVM.isReady && trailerPhase == .playing
+        showTrailers && showTrailer && playerVM.isReady && trailerPhase == .playing
     }
     
     /// True when we're in the post-trailer backdrop reveal
     private var isPostTrailer: Bool {
-        trailerPhase == .postTrailer && showTrailer
+        showTrailers && trailerPhase == .postTrailer && showTrailer
     }
     
     var body: some View {
@@ -495,7 +498,7 @@ struct HeroCarouselSlide: View {
             Color.black
             
             // Layer 1: Trailer video (rendered first / bottom of stack)
-            if showTrailer, let player = playerVM.player {
+            if showTrailers, showTrailer, let player = playerVM.player {
                 YouTubePlayerKit.YouTubePlayerView(player)
                     .frame(width: slideWidth, height: slideHeight)
                     .allowsHitTesting(false)
@@ -573,7 +576,7 @@ struct HeroCarouselSlide: View {
             }
             
             // Layer 5: Trailer-playing overlay — mute button + logo + TRAILER badge
-            if trailerIsVisible {
+            if showTrailers && trailerIsVisible {
                 // Mute button (top-right)
                 VStack {
                     HStack {
@@ -638,22 +641,26 @@ struct HeroCarouselSlide: View {
         .onTapGesture { onTap() }
         // When backdrop timer expires, start loading the trailer
         .onChange(of: backdropTimerExpired) { _, expired in
+            guard showTrailers else { return }
             if expired && isActive {
                 startTrailerIfNeeded()
             }
         }
         .onChange(of: isActive) { _, active in
+            guard showTrailers else { return }
             if !active {
                 stopTrailer()
             }
         }
         .onChange(of: trailerPhase) { _, phase in
+            guard showTrailers else { return }
             // When entering post-trailer, pause the YouTube player
             if phase == .postTrailer, let p = playerVM.player {
                 Task { try? await p.pause() }
             }
         }
         .onChange(of: playerVM.isReady) { _, ready in
+            guard showTrailers else { return }
             if ready && isActive {
                 // Player is ready — get the duration and tell the timer to start trailer playback
                 if let p = playerVM.player {
@@ -669,7 +676,9 @@ struct HeroCarouselSlide: View {
             }
         }
         .onDisappear {
-            stopTrailer()
+            if showTrailers {
+                stopTrailer()
+            }
         }
     }
     
@@ -747,7 +756,7 @@ struct HeroCarouselSlide: View {
     }
     
     private func startTrailerIfNeeded() {
-        guard let key = trailerKey else { return }
+        guard showTrailers, let key = trailerKey else { return }
         showTrailer = true
         playerVM.setup(videoKey: key)
     }

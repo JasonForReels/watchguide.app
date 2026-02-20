@@ -309,6 +309,14 @@ actor MDBListService {
         // If nothing worked, throw
         throw MDBListError.invalidList
     }
+
+    private func resolveMDBListMediaType(_ rawValue: String?) -> MediaType {
+        let normalized = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        if normalized == "show" || normalized == "tv" || normalized == "series" {
+            return .tv
+        }
+        return .movie
+    }
     
     // MARK: - Ratings Lookup
     
@@ -383,7 +391,7 @@ actor MDBListService {
         for item in sequence {
             if let tmdbId = item.id, tmdbId > 0 {
                 do {
-                    let mediaType: MediaType = item.mediatype == "show" ? .tv : .movie
+                    let mediaType = resolveMDBListMediaType(item.mediatype)
                     
                     if mediaType == .movie {
                         let details = try await TMDBService.shared.getMovieDetails(id: tmdbId)
@@ -454,7 +462,7 @@ actor MDBListService {
             // Try to look up in TMDB for full details
             if let tmdbId = item.id, tmdbId > 0 {
                 do {
-                    let mediaType: MediaType = item.mediatype == "show" ? .tv : .movie
+                    let mediaType = resolveMDBListMediaType(item.mediatype)
                     
                     if mediaType == .movie {
                         let details = try await TMDBService.shared.getMovieDetails(id: tmdbId)
@@ -587,7 +595,7 @@ actor MDBListService {
             for item in sequence {
                 // If we have a TMDB id, we can optionally enrich
                 if preferTMDBDetails, let tmdbId = item.id, tmdbId > 0 {
-                    let mediaType: MediaType = item.mediatype == "show" ? .tv : .movie
+                    let mediaType = resolveMDBListMediaType(item.mediatype)
                     do {
                         if mediaType == .movie {
                             let details = try await TMDBService.shared.getMovieDetails(id: tmdbId)
@@ -718,7 +726,8 @@ struct MDBListItem: Codable, Identifiable {
     func toSavedMediaItem() -> SavedMediaItem? {
         guard let title = title, let itemId = id, itemId > 0 else { return nil }
         
-        let type: MediaType = mediatype == "show" ? .tv : .movie
+        let normalized = mediatype?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let type: MediaType = (normalized == "show" || normalized == "tv" || normalized == "series") ? .tv : .movie
         let yearStr = resolvedYear.map { "\($0)" }
         
         let mediaItem = MediaItem(
@@ -884,4 +893,3 @@ extension SavedMediaItem {
         )
     }
 }
-

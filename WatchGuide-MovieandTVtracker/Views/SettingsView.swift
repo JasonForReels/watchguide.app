@@ -254,6 +254,60 @@ struct SettingsView: View {
                             Text(source.displayName).tag(source)
                         }
                     }
+
+                    if settings.heroCarouselSource == .customLists {
+                        if storage.customLists.isEmpty {
+                            Text("Create a custom list to use this option.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Picker(
+                                "Movie List",
+                                selection: Binding(
+                                    get: { settings.heroCarouselCustomMovieListId ?? "" },
+                                    set: { settings.heroCarouselCustomMovieListId = $0.isEmpty ? nil : $0 }
+                                )
+                            ) {
+                                Text("Auto").tag("")
+                                ForEach(storage.customLists, id: \.id) { list in
+                                    Text(list.name).tag(list.id)
+                                }
+                            }
+
+                            Picker(
+                                "TV List",
+                                selection: Binding(
+                                    get: { settings.heroCarouselCustomShowListId ?? "" },
+                                    set: { settings.heroCarouselCustomShowListId = $0.isEmpty ? nil : $0 }
+                                )
+                            ) {
+                                Text("Auto").tag("")
+                                ForEach(storage.customLists, id: \.id) { list in
+                                    Text(list.name).tag(list.id)
+                                }
+                            }
+                        }
+                    } else if settings.heroCarouselSource == .mdblistPair {
+                        TextField(
+                            "MDBList Movie List ID (user/list)",
+                            text: Binding(
+                                get: { settings.heroCarouselMDBListMovieId ?? "" },
+                                set: { settings.heroCarouselMDBListMovieId = $0.isEmpty ? nil : $0 }
+                            )
+                        )
+
+                        TextField(
+                            "MDBList TV List ID (user/list)",
+                            text: Binding(
+                                get: { settings.heroCarouselMDBListShowId ?? "" },
+                                set: { settings.heroCarouselMDBListShowId = $0.isEmpty ? nil : $0 }
+                            )
+                        )
+
+                        Text("Example: username/list-slug")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
             

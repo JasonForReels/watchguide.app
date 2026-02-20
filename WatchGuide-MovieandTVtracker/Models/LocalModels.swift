@@ -335,6 +335,8 @@ enum HeroCarouselSource: String, Codable, CaseIterable {
     case topRatedMovies = "top_rated_movies"
     case upcomingMovies = "upcoming_movies"
     case mdblistTrending = "mdblist_trending"
+    case customLists = "custom_lists"
+    case mdblistPair = "mdblist_pair"
     
     var displayName: String {
         switch self {
@@ -346,6 +348,8 @@ enum HeroCarouselSource: String, Codable, CaseIterable {
         case .topRatedMovies: return "Top Rated Movies"
         case .upcomingMovies: return "Upcoming Movies"
         case .mdblistTrending: return "Trending (MDBList)"
+        case .customLists: return "Custom Lists (Movies + TV)"
+        case .mdblistPair: return "MDBList Pair (Movies + TV)"
         }
     }
 }
@@ -360,6 +364,10 @@ struct UserSettings: Codable, Equatable {
     var compactMode: Bool
     var ambientModeEnabled: Bool
     var heroCarouselSource: HeroCarouselSource
+    var heroCarouselCustomMovieListId: String?
+    var heroCarouselCustomShowListId: String?
+    var heroCarouselMDBListMovieId: String?
+    var heroCarouselMDBListShowId: String?
     var isKidsProfile: Bool
     var parentPasscode: String?  // 4-digit passcode set by parent to lock age-restricted settings
     
@@ -372,8 +380,69 @@ struct UserSettings: Codable, Equatable {
         self.compactMode = false
         self.ambientModeEnabled = false
         self.heroCarouselSource = .trendingMovies
+        self.heroCarouselCustomMovieListId = nil
+        self.heroCarouselCustomShowListId = nil
+        self.heroCarouselMDBListMovieId = nil
+        self.heroCarouselMDBListShowId = nil
         self.isKidsProfile = false
         self.parentPasscode = nil
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case region
+        case includeAdult
+        case preferredLanguage
+        case autoPlayTrailers
+        case autoPlayTrailersMuted
+        case compactMode
+        case ambientModeEnabled
+        case heroCarouselSource
+        case heroCarouselCustomMovieListId
+        case heroCarouselCustomShowListId
+        case heroCarouselMDBListMovieId
+        case heroCarouselMDBListShowId
+        case isKidsProfile
+        case parentPasscode
+    }
+
+    init(from decoder: Decoder) throws {
+        self.init()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        region = try container.decodeIfPresent(String.self, forKey: .region) ?? region
+        includeAdult = try container.decodeIfPresent(Bool.self, forKey: .includeAdult) ?? includeAdult
+        preferredLanguage = try container.decodeIfPresent(String.self, forKey: .preferredLanguage) ?? preferredLanguage
+        autoPlayTrailers = try container.decodeIfPresent(Bool.self, forKey: .autoPlayTrailers) ?? autoPlayTrailers
+        autoPlayTrailersMuted = try container.decodeIfPresent(Bool.self, forKey: .autoPlayTrailersMuted) ?? autoPlayTrailersMuted
+        compactMode = try container.decodeIfPresent(Bool.self, forKey: .compactMode) ?? compactMode
+        ambientModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .ambientModeEnabled) ?? ambientModeEnabled
+        if let sourceRaw = try container.decodeIfPresent(String.self, forKey: .heroCarouselSource),
+           let source = HeroCarouselSource(rawValue: sourceRaw) {
+            heroCarouselSource = source
+        }
+        heroCarouselCustomMovieListId = try container.decodeIfPresent(String.self, forKey: .heroCarouselCustomMovieListId)
+        heroCarouselCustomShowListId = try container.decodeIfPresent(String.self, forKey: .heroCarouselCustomShowListId)
+        heroCarouselMDBListMovieId = try container.decodeIfPresent(String.self, forKey: .heroCarouselMDBListMovieId)
+        heroCarouselMDBListShowId = try container.decodeIfPresent(String.self, forKey: .heroCarouselMDBListShowId)
+        isKidsProfile = try container.decodeIfPresent(Bool.self, forKey: .isKidsProfile) ?? isKidsProfile
+        parentPasscode = try container.decodeIfPresent(String.self, forKey: .parentPasscode)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(region, forKey: .region)
+        try container.encode(includeAdult, forKey: .includeAdult)
+        try container.encode(preferredLanguage, forKey: .preferredLanguage)
+        try container.encode(autoPlayTrailers, forKey: .autoPlayTrailers)
+        try container.encode(autoPlayTrailersMuted, forKey: .autoPlayTrailersMuted)
+        try container.encode(compactMode, forKey: .compactMode)
+        try container.encode(ambientModeEnabled, forKey: .ambientModeEnabled)
+        try container.encode(heroCarouselSource.rawValue, forKey: .heroCarouselSource)
+        try container.encode(heroCarouselCustomMovieListId, forKey: .heroCarouselCustomMovieListId)
+        try container.encode(heroCarouselCustomShowListId, forKey: .heroCarouselCustomShowListId)
+        try container.encode(heroCarouselMDBListMovieId, forKey: .heroCarouselMDBListMovieId)
+        try container.encode(heroCarouselMDBListShowId, forKey: .heroCarouselMDBListShowId)
+        try container.encode(isKidsProfile, forKey: .isKidsProfile)
+        try container.encode(parentPasscode, forKey: .parentPasscode)
     }
 }
 

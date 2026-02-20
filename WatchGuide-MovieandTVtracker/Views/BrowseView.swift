@@ -43,129 +43,18 @@ struct BrowseView: View {
                 await viewModel.refresh()
                 await forYouVM.refresh()
             } content: {
-                LazyVStack(spacing: 24) {
-                    // Scout AI Banner (only for 18+ adult profiles)
-                    if isAdultProfile {
-                        ScoutPromoBanner()
-                    }
-                    
-                    // Hero Carousel — shows kids-only content for kids profiles
-                    if !viewModel.heroItems.isEmpty {
-                        HeroCarouselView(items: viewModel.heroItems, onItemTap: { item in
-                            selectedItem = item
-                        })
-                    }
-                    
-                    // Render sections in user-defined order
-                    ForEach(orderedSections) { section in
-                        switch section.sectionType {
-                        case .networks:
-                            if !isKidsProfile && !viewModel.networkHubs.isEmpty {
-                                NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
-                                    selectedNetworkHub = hub
-                                }
-                            }
-                        case .rows:
-                            ForEach(Array(viewModel.rows.enumerated()), id: \.element.title) { _, row in
-                                if !row.people.isEmpty {
-                                    PeopleRowView(
-                                        title: row.title,
-                                        people: row.people,
-                                        onPersonTap: { person in
-                                            selectedPerson = person
-                                        }
-                                    )
-                                } else if !row.items.isEmpty {
-                                    MediaRowView(
-                                        title: row.title,
-                                        items: row.items,
-                                        onItemTap: { item in
-                                            selectedItem = item
-                                        }
-                                    )
-                                }
-                            }
-                        case .studios:
-                            if !isKidsProfile {
-                                StudiosHubRow(
-                                    onTwentiethCenturyTap: { activeStudioSheet = .twentiethCentury },
-                                    onWarnerBrosTap: { activeStudioSheet = .warnerBros },
-                                    onDreamWorksTap: { activeStudioSheet = .dreamWorks },
-                                    onDCStudiosTap: { activeStudioSheet = .dcStudios },
-                                    onUniversalPicturesTap: { activeStudioSheet = .universalPictures },
-                                    onSonyPicturesTap: { activeStudioSheet = .sonyPictures }
-                                )
-                            }
-                        case .customHubs:
-                            if !isKidsProfile {
-                                let enabledHubs = StorageService.shared.getEnabledCustomJSONHubs()
-                                if !enabledHubs.isEmpty {
-                                    CustomJSONHubsRow(hubs: enabledHubs) { hub in
-                                        selectedJSONHub = hub
-                                    }
-                                }
-                            }
-                        case .forYou:
-                            if authService.isAuthenticated && isAdultProfile {
-                                ForYouRow(viewModel: forYouVM) { item in
-                                    selectedItem = item
-                                }
-                            }
-                        case .discover:
-                            if isAdultProfile {
-                                BrowseDiscoverSection()
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical)
+                browseScrollContent
             }
             .task {
                 await viewModel.loadContent()
                 await forYouVM.loadIfNeeded()
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    if authService.isAuthenticated && profileService.hasProfiles {
-                        Button {
-                            showProfileSwitcher = true
-                        } label: {
-                            if let profile = profileService.activeProfile {
-                                Image(systemName: profile.avatar.rawValue)
-                                    .foregroundColor(profile.color.color)
-                            } else {
-                                Image(systemName: "person.crop.circle")
-                            }
-                        }
-                    }
-                }
-                
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showCustomizeSheet = true
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                    }
-                }
-            }
+            .toolbar { browseToolbarContent }
             .sheet(item: $selectedNetworkHub) { hub in
                 NetworkHubSheet(hub: hub, selectedItem: $selectedItem)
             }
             .sheet(item: $activeStudioSheet) { studio in
-                switch studio {
-                case .twentiethCentury:
-                    TwentiethCenturyStudiosSheet(selectedItem: $selectedItem)
-                case .warnerBros:
-                    WarnerBrosSheet(selectedItem: $selectedItem)
-                case .dreamWorks:
-                    DreamWorksSheet(selectedItem: $selectedItem)
-                case .dcStudios:
-                    DCStudiosSheet(selectedItem: $selectedItem)
-                case .universalPictures:
-                    UniversalPicturesSheet(selectedItem: $selectedItem)
-                case .sonyPictures:
-                    SonyPicturesSheet(selectedItem: $selectedItem)
-                }
+                studioSheetContent(for: studio)
             }
             .sheet(item: $selectedJSONHub) { hub in
                 CustomJSONHubSheet(hub: hub, selectedItem: $selectedItem)
@@ -180,11 +69,9 @@ struct BrowseView: View {
                 Task { await viewModel.refresh() }
             }
             .onChange(of: authService.isAuthenticated) { _, _ in
-                // Refresh hero carousel when auth state changes (different lists for guests vs logged-in)
                 Task { await viewModel.refresh() }
             }
             .onChange(of: StorageService.shared.settings.isKidsProfile) { _, _ in
-                // Refresh hero carousel when kids profile toggled (different content for kids)
                 Task { await viewModel.refresh() }
             }
             .sheet(item: $selectedPerson) { person in
@@ -194,6 +81,147 @@ struct BrowseView: View {
                     profilePath: person.profilePath
                 )
             }
+        }
+    }
+    
+    // MARK: - Extracted Sub-Views
+    
+    private var browseScrollContent: some View {
+        LazyVStack(spacing: 24) {
+            if isAdultProfile {
+                ScoutPromoBanner()
+            }
+            
+            if !viewModel.heroItems.isEmpty {
+                HeroCarouselView(
+                    items: viewModel.heroItems,
+                    onItemTap: { item in
+                        selectedItem = item
+                    }
+                )
+            }
+            
+            ForEach(orderedSections) { section in
+                browseSectionView(for: section)
+            }
+        }
+        .padding(.vertical)
+    }
+    
+    @ViewBuilder
+    private func browseSectionView(for section: BrowseSectionItem) -> some View {
+        switch section.sectionType {
+        case .networks:
+            if !isKidsProfile && !viewModel.networkHubs.isEmpty {
+                NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
+                    selectedNetworkHub = hub
+                }
+            }
+        case .rows:
+            browseRowsSection
+        case .studios:
+            if !isKidsProfile {
+                StudiosHubRow(
+                    onTwentiethCenturyTap: { activeStudioSheet = .twentiethCentury },
+                    onWarnerBrosTap: { activeStudioSheet = .warnerBros },
+                    onDreamWorksTap: { activeStudioSheet = .dreamWorks },
+                    onDCStudiosTap: { activeStudioSheet = .dcStudios },
+                    onUniversalPicturesTap: { activeStudioSheet = .universalPictures },
+                    onSonyPicturesTap: { activeStudioSheet = .sonyPictures }
+                )
+            }
+        case .customHubs:
+            customHubsSection
+        case .forYou:
+            if authService.isAuthenticated && isAdultProfile {
+                ForYouRow(viewModel: forYouVM) { item in
+                    selectedItem = item
+                }
+            }
+        case .discover:
+            if isAdultProfile {
+                BrowseDiscoverSection()
+            }
+        }
+    }
+    
+    private var browseRowsSection: some View {
+        ForEach(Array(viewModel.rows.enumerated()), id: \.element.title) { _, row in
+            if !row.people.isEmpty {
+                PeopleRowView(
+                    title: row.title,
+                    people: row.people,
+                    onPersonTap: { person in
+                        selectedPerson = person
+                    }
+                )
+            } else if !row.items.isEmpty {
+                MediaRowView(
+                    title: row.title,
+                    items: row.items,
+                    onItemTap: { item in
+                        selectedItem = item
+                    }
+                )
+            } else {
+                EmptyView()
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var customHubsSection: some View {
+        if !isKidsProfile {
+            let enabledHubs = StorageService.shared.getEnabledCustomJSONHubs()
+            if !enabledHubs.isEmpty {
+                CustomJSONHubsRow(hubs: enabledHubs) { hub in
+                    selectedJSONHub = hub
+                }
+            }
+        }
+    }
+    
+    @ToolbarContentBuilder
+    private var browseToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            if authService.isAuthenticated && profileService.hasProfiles {
+                Button {
+                    showProfileSwitcher = true
+                } label: {
+                    if let profile = profileService.activeProfile {
+                        Image(systemName: profile.avatar.rawValue)
+                            .foregroundColor(profile.color.color)
+                    } else {
+                        Image(systemName: "person.crop.circle")
+                    }
+                }
+            }
+        }
+        
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                showCustomizeSheet = true
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func studioSheetContent(for studio: StudioSheet) -> some View {
+        switch studio {
+        case .twentiethCentury:
+            TwentiethCenturyStudiosSheet(selectedItem: $selectedItem)
+        case .warnerBros:
+            WarnerBrosSheet(selectedItem: $selectedItem)
+        case .dreamWorks:
+            DreamWorksSheet(selectedItem: $selectedItem)
+        case .dcStudios:
+            DCStudiosSheet(selectedItem: $selectedItem)
+        case .universalPictures:
+            UniversalPicturesSheet(selectedItem: $selectedItem)
+        case .sonyPictures:
+            SonyPicturesSheet(selectedItem: $selectedItem)
         }
     }
 }
@@ -241,78 +269,18 @@ struct LiquidGlassHubButton: View {
                             .frame(width: 62, height: 62)
                         
                         // Inner gradient for 3D curvature
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        .white.opacity(colorScheme == .dark ? 0.12 : 0.25),
-                                        .clear,
-                                        .black.opacity(colorScheme == .dark ? 0.15 : 0.05)
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .frame(width: 62, height: 62)
+                        innerGradient
                         
                         // Content
                         AsyncImage(url: URL(string: imageURL)) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(width: 54, height: 54)
-                                    .clipShape(Circle())
-                            case .failure, .empty:
-                                Text(fallbackText)
-                                    .font(.caption2)
-                                    .fontWeight(.bold)
-                                    .frame(width: 54, height: 54)
-                            @unknown default:
-                                ProgressView()
-                                    .frame(width: 54, height: 54)
-                            }
+                            imageContent(for: phase)
                         }
                         
                         // Top specular highlight
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        .white.opacity(colorScheme == .dark ? 0.18 : 0.3),
-                                        .white.opacity(0.0)
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .center
-                                )
-                            )
-                            .frame(width: 62, height: 62)
-                            .mask(
-                                VStack {
-                                    Ellipse()
-                                        .frame(width: 44, height: 20)
-                                        .offset(y: 4)
-                                    Spacer()
-                                }
-                                .frame(width: 62, height: 62)
-                            )
+                        topHighlight
                         
                         // Border ring
-                        Circle()
-                            .stroke(
-                                LinearGradient(
-                                    colors: [
-                                        .white.opacity(colorScheme == .dark ? 0.25 : 0.4),
-                                        .white.opacity(colorScheme == .dark ? 0.05 : 0.1),
-                                        .white.opacity(0.0)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 0.8
-                            )
-                            .frame(width: 62, height: 62)
+                        borderRing
                     }
                 }
                 .frame(width: 72, height: 72)
@@ -331,6 +299,83 @@ struct LiquidGlassHubButton: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
+    }
+    
+    @ViewBuilder
+    private func imageContent(for phase: AsyncImagePhase) -> some View {
+        switch phase {
+        case .success(let image):
+            image
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 54, height: 54)
+                .clipShape(Circle())
+        case .failure, .empty:
+            Text(fallbackText)
+                .font(.caption2)
+                .fontWeight(.bold)
+                .frame(width: 54, height: 54)
+        @unknown default:
+            ProgressView()
+                .frame(width: 54, height: 54)
+        }
+    }
+    
+    private var innerGradient: some View {
+        Circle()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        .white.opacity(colorScheme == .dark ? 0.12 : 0.25),
+                        .clear,
+                        .black.opacity(colorScheme == .dark ? 0.15 : 0.05)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(width: 62, height: 62)
+    }
+    
+    private var topHighlight: some View {
+        Circle()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        .white.opacity(colorScheme == .dark ? 0.18 : 0.3),
+                        .white.opacity(0.0)
+                    ],
+                    startPoint: .top,
+                    endPoint: .center
+                )
+            )
+            .frame(width: 62, height: 62)
+            .mask(
+                VStack {
+                    Ellipse()
+                        .frame(width: 44, height: 20)
+                        .offset(y: 4)
+                    Spacer()
+                }
+                .frame(width: 62, height: 62)
+            )
+    }
+    
+    private var borderRing: some View {
+        Circle()
+            .stroke(
+                LinearGradient(
+                    colors: [
+                        .white.opacity(colorScheme == .dark ? 0.25 : 0.4),
+                        .white.opacity(colorScheme == .dark ? 0.05 : 0.1),
+                        .white.opacity(0.0)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 0.8
+            )
+            .frame(width: 62, height: 62)
     }
 }
 
@@ -1809,6 +1854,12 @@ class BrowseViewModel: ObservableObject {
                 items = try await TMDBService.shared.getTopRatedMovies().results
             case .upcomingMovies:
                 items = try await TMDBService.shared.getUpcomingMovies().results
+            case .customLists:
+                await loadCustomListHeroItems()
+                return
+            case .mdblistPair:
+                await loadMDBListPairHeroItems()
+                return
             }
             heroItems = Array(items.prefix(10))
             
@@ -1816,6 +1867,103 @@ class BrowseViewModel: ObservableObject {
             ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
         } catch {
             print("Error loading hero: \(error)")
+        }
+    }
+
+    private func loadCustomListHeroItems() async {
+        let storage = StorageService.shared
+        let lists = storage.customLists
+        if lists.isEmpty {
+            heroItems = []
+            return
+        }
+
+        let movieList = lists.first(where: { $0.id == storage.settings.heroCarouselCustomMovieListId })
+            ?? lists.first(where: { $0.items.contains(where: { $0.mediaType == .movie }) })
+        let showList = lists.first(where: { $0.id == storage.settings.heroCarouselCustomShowListId })
+            ?? lists.first(where: { $0.items.contains(where: { $0.mediaType == .tv }) })
+
+        let movies = movieList?.items.filter { $0.mediaType == .movie }.map { $0.toMediaItem() } ?? []
+        let shows = showList?.items.filter { $0.mediaType == .tv }.map { $0.toMediaItem() } ?? []
+
+        heroItems = await buildHeroPair(movies: movies, shows: shows)
+        ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
+    }
+
+    private func loadMDBListPairHeroItems() async {
+        let storage = StorageService.shared
+        var movies: [MediaItem] = []
+        var shows: [MediaItem] = []
+
+        await withTaskGroup(of: (Bool, [MediaItem]).self) { group in
+            if let movieListId = storage.settings.heroCarouselMDBListMovieId, !movieListId.isEmpty {
+                group.addTask {
+                    do {
+                        let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: movieListId)
+                        let filtered = items.filter { $0.mediaType == .movie }.map { $0.toMediaItem() }
+                        return (true, filtered)
+                    } catch {
+                        print("Error loading MDBList movies: \(error)")
+                        return (true, [])
+                    }
+                }
+            }
+
+            if let showListId = storage.settings.heroCarouselMDBListShowId, !showListId.isEmpty {
+                group.addTask {
+                    do {
+                        let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: showListId)
+                        let filtered = items.filter { $0.mediaType == .tv }.map { $0.toMediaItem() }
+                        return (false, filtered)
+                    } catch {
+                        print("Error loading MDBList shows: \(error)")
+                        return (false, [])
+                    }
+                }
+            }
+
+            for await result in group {
+                if result.0 {
+                    movies = result.1
+                } else {
+                    shows = result.1
+                }
+            }
+        }
+
+        heroItems = await buildHeroPair(movies: movies, shows: shows)
+        ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
+    }
+
+    private func buildHeroPair(movies: [MediaItem], shows: [MediaItem]) async -> [MediaItem] {
+        var selectedMovies = Array(movies.prefix(5))
+        var selectedShows = Array(shows.prefix(5))
+
+        if selectedMovies.count < 5 {
+            let needed = 5 - selectedMovies.count
+            if let fallback = try? await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results {
+                appendUniqueItems(from: fallback, to: &selectedMovies, limit: 5, count: needed)
+            }
+        }
+
+        if selectedShows.count < 5 {
+            let needed = 5 - selectedShows.count
+            if let fallback = try? await TMDBService.shared.getTrending(mediaType: .tv, timeWindow: "day").results {
+                appendUniqueItems(from: fallback, to: &selectedShows, limit: 5, count: needed)
+            }
+        }
+
+        return selectedMovies + selectedShows
+    }
+
+    private func appendUniqueItems(from items: [MediaItem], to target: inout [MediaItem], limit: Int, count: Int) {
+        guard count > 0 else { return }
+        for item in items {
+            if target.count >= limit { break }
+            let isDuplicate = target.contains { $0.id == item.id && $0.resolvedMediaType == item.resolvedMediaType }
+            if !isDuplicate {
+                target.append(item)
+            }
         }
     }
     
