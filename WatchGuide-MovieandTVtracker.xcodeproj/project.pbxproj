@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; platformFilter = ios; productRef = B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */; };
+		5BE2372F3C8A663BE4C076C0 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CF3A53FBEE56856AA8DA83E8 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97E6A83F51243F7CD71ADD17 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,6 +27,13 @@
 			remoteGlobalIDString = 184F590B2E6ACF1E00FBE038;
 			remoteInfo = "WatchGuide-MovieandTVtracker";
 		};
+		E9072B74D1E127DAD38F871D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 184F59042E6ACF1E00FBE038 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3031DE02715B6249A99B4795;
+			remoteInfo = "WatchGuide-MovieandTVtrackerWidgetExtension";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -38,6 +47,17 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CF2EB73AC9CDAE5CEDF4F57C /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				5BE2372F3C8A663BE4C076C0 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -49,10 +69,14 @@
 
 
 .xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "\n\n\n.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; name = "WatchGuide-MovieandTVtrackerWidgetExtension.appex"; path = "WatchGuide-MovieandTVtrackerWidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		97E6A83F51243F7CD71ADD17 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift */ = {isa = PBXFileReference; explicitFileType = sourcecode.swift; lastKnownFileType = sourcecode.swift; name = "WatchGuide-MovieandTVtrackerWidgetExtension.swift"; path = "WatchGuide-MovieandTVtrackerWidgetExtension.swift"; sourceTree = "<group>"; };
+		ABAFBFC0370DED87737A2023 /* WatchGuide-MovieandTVtrackerWidgetExtension.entitlements */ = {isa = PBXFileReference; explicitFileType = text.plist.entitlements; lastKnownFileType = text.plist.entitlements; name = "WatchGuide-MovieandTVtrackerWidgetExtension.entitlements"; path = "WatchGuide-MovieandTVtrackerWidgetExtension.entitlements"; sourceTree = "<group>"; };
+		C4C9BD98E1B110381A6482B2 /* Info.plist */ = {isa = PBXFileReference; explicitFileType = text.plist; lastKnownFileType = text.plist.xml; name = Info.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		187AF0F92E828D1000505E98 /* Exceptions for "WatchGuide-MovieandTVtracker" folder in "WatchGuide-MovieandTVtracker" target */ = {
+		187AF0F92E828D1000505E98 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -65,7 +89,7 @@
 		184F590E2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				187AF0F92E828D1000505E98 /* Exceptions for "WatchGuide-MovieandTVtracker" folder in "WatchGuide-MovieandTVtracker" target */,
+				187AF0F92E828D1000505E98 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
 			);
 			path = "WatchGuide-MovieandTVtracker";
 			sourceTree = "<group>";
@@ -105,6 +129,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BCCF19B1DB8D3DCBA1B12150 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -125,6 +156,7 @@
 				184F59262E6ACF2000FBE038 /* WatchGuide-MovieandTVtrackerUITests */,
 				0243AAB12F48E59800FDE2AE /* Frameworks */,
 				184F590D2E6ACF1E00FBE038 /* Products */,
+				FFFA4531B70D5DD3F37DF227 /* WatchGuide-MovieandTVtrackerWidgetExtension */,
 			);
 			sourceTree = "<group>";
 		};
@@ -137,8 +169,20 @@
 
 
 .xctest */,
+				5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		FFFA4531B70D5DD3F37DF227 /* WatchGuide-MovieandTVtrackerWidgetExtension */ = {
+			isa = PBXGroup;
+			children = (
+				97E6A83F51243F7CD71ADD17 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift */,
+				C4C9BD98E1B110381A6482B2 /* Info.plist */,
+				ABAFBFC0370DED87737A2023 /* WatchGuide-MovieandTVtrackerWidgetExtension.entitlements */,
+			);
+			name = "WatchGuide-MovieandTVtrackerWidgetExtension";
+			path = "WatchGuide-MovieandTVtrackerWidgetExtension";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -152,10 +196,12 @@
 				184F59092E6ACF1E00FBE038 /* Frameworks */,
 				184F590A2E6ACF1E00FBE038 /* Resources */,
 				0243AAC72F48E59B00FDE2AE /* Embed Foundation Extensions */,
+				CF2EB73AC9CDAE5CEDF4F57C /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				AB9392946E899CE6746332EB /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				184F590E2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker */,
@@ -213,10 +259,7 @@
 			fileSystemSynchronizedGroups = (
 				184F59262E6ACF2000FBE038 /* WatchGuide-MovieandTVtrackerUITests */,
 			);
-			name = "
-
-
-";
+			name = "\n\n\n";
 			packageProductDependencies = (
 			);
 			productName = "WatchGuide-MovieandTVtrackerUITests";
@@ -225,6 +268,25 @@
 
 .xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		3031DE02715B6249A99B4795 /* WatchGuide-MovieandTVtrackerWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80FBC7B49C7C874EAFA6680 /* Build configuration list for PBXNativeTarget "WatchGuide-MovieandTVtrackerWidgetExtension" */;
+			buildPhases = (
+				05D9C70607997C3B2F1A4214 /* Sources */,
+				BCCF19B1DB8D3DCBA1B12150 /* Frameworks */,
+				F6A95C78A458F99F49BE52D6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "WatchGuide-MovieandTVtrackerWidgetExtension";
+			packageProductDependencies = (
+			);
+			productName = "WatchGuide-MovieandTVtrackerWidgetExtension";
+			productReference = 5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -272,6 +334,7 @@
 
 
  */,
+				3031DE02715B6249A99B4795 /* WatchGuide-MovieandTVtrackerWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -298,9 +361,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F6A95C78A458F99F49BE52D6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		05D9C70607997C3B2F1A4214 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CF3A53FBEE56856AA8DA83E8 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		184F59082E6ACF1E00FBE038 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -334,6 +412,12 @@
 			isa = PBXTargetDependency;
 			target = 184F590B2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker */;
 			targetProxy = 184F59242E6ACF2000FBE038 /* PBXContainerItemProxy */;
+		};
+		AB9392946E899CE6746332EB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = "WatchGuide-MovieandTVtrackerWidgetExtension";
+			target = 3031DE02715B6249A99B4795 /* WatchGuide-MovieandTVtrackerWidgetExtension */;
+			targetProxy = E9072B74D1E127DAD38F871D /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -613,6 +697,68 @@
 			};
 			name = Release;
 		};
+		34C69639553F71AD83F889BE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = "WatchGuide-MovieandTVtrackerWidgetExtension/WatchGuide-MovieandTVtrackerWidgetExtension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_LANGUAGE = en;
+				DEVELOPMENT_TEAM = MZT889Z6FM;
+				EXECUTABLE_NAME = "$(PRODUCT_NAME)";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "WatchGuide-MovieandTVtrackerWidgetExtension/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker.watchguide-movieandtvtrackerwidgetextension";
+				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
+				PRODUCT_MODULE_NAME = WatchGuide_MovieandTVtrackerWidgetExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		8A3C90F8BC9186291134011D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = "WatchGuide-MovieandTVtrackerWidgetExtension/WatchGuide-MovieandTVtrackerWidgetExtension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_LANGUAGE = en;
+				DEVELOPMENT_TEAM = MZT889Z6FM;
+				EXECUTABLE_NAME = "$(PRODUCT_NAME)";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "WatchGuide-MovieandTVtrackerWidgetExtension/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker.watchguide-movieandtvtrackerwidgetextension";
+				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
+				PRODUCT_MODULE_NAME = WatchGuide_MovieandTVtrackerWidgetExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -651,6 +797,15 @@
 			buildConfigurations = (
 				184F59342E6ACF2000FBE038 /* Debug */,
 				184F59352E6ACF2000FBE038 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A80FBC7B49C7C874EAFA6680 /* Build configuration list for PBXNativeTarget "WatchGuide-MovieandTVtrackerWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				34C69639553F71AD83F889BE /* Debug */,
+				8A3C90F8BC9186291134011D /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
