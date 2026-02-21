@@ -25,6 +25,8 @@ struct MediaDetailView: View {
     @StateObject private var viewModel: MediaDetailViewModel
     @State private var selectedSeason: Season?
     @State private var selectedPerson: SelectedPerson?
+    @State private var selectedCompanyHub: CompanyHub?
+    @State private var selectedCompanyItem: MediaItem?
 
     @State private var selectedTrailer: Video?
     @State private var safariItem: SafariItem?
@@ -102,6 +104,23 @@ struct MediaDetailView: View {
                             )
                             .padding(.horizontal)
                         }
+
+                        if viewModel.hasQuickStats {
+                            DetailQuickStatsRow(
+                                runtime: viewModel.runtime,
+                                genres: viewModel.genres,
+                                certificate: viewModel.certificate,
+                                budget: viewModel.budget,
+                                revenue: viewModel.revenue,
+                                originCountry: viewModel.originCountry
+                            )
+                            .padding(.horizontal)
+                        }
+                        
+                        if let certificate = viewModel.certificate, !certificate.isEmpty {
+                            ParentRatingSection(certificate: certificate)
+                                .padding(.horizontal)
+                        }
                         
                         // Overview
                         if let overview = viewModel.overview, !overview.isEmpty {
@@ -118,6 +137,18 @@ struct MediaDetailView: View {
                             .padding(.horizontal)
                         }
                         
+                        if viewModel.isMovie {
+                            PostCreditsScoutSection(
+                                summary: viewModel.postCreditsSummary,
+                                isLoading: viewModel.isPostCreditsLoading,
+                                errorMessage: viewModel.postCreditsError,
+                                onCheck: {
+                                    Task { await viewModel.fetchPostCreditsWorthIt() }
+                                }
+                            )
+                            .padding(.horizontal)
+                        }
+
                         // Where to Watch
                         if viewModel.watchProviders != nil {
                             VStack(alignment: .leading, spacing: 8) {
@@ -170,6 +201,16 @@ struct MediaDetailView: View {
                                 selectedPerson = SelectedPerson(id: member.id, name: member.name, profilePath: member.profilePath)
                             }
                         }
+
+                        if !viewModel.productionCompanies.isEmpty {
+                            TitleProductionCompaniesRow(companies: viewModel.productionCompanies) { company in
+                                selectedCompanyHub = CompanyHub(
+                                    name: company.name,
+                                    companyIds: [company.id],
+                                    networkIds: []
+                                )
+                            }
+                        }
                         
                         // Similar
                         if !viewModel.similar.isEmpty {
@@ -216,6 +257,7 @@ struct MediaDetailView: View {
         .sheet(item: $selectedSeason) { season in
             SeasonDetailSheet(
                 tvId: item.id,
+                showTitle: item.displayTitle,
                 season: season
             )
         }
@@ -225,6 +267,12 @@ struct MediaDetailView: View {
                 personName: person.name,
                 profilePath: person.profilePath
             )
+        }
+        .sheet(item: $selectedCompanyHub) { hub in
+            CompanyHubSheet(companyHub: hub, selectedItem: $selectedCompanyItem)
+        }
+        .sheet(item: $selectedCompanyItem) { item in
+            MediaDetailView(item: item)
         }
         #if os(iOS)
         .sheet(item: $safariItem) { item in
@@ -567,6 +615,7 @@ struct SeasonCard: View {
 // MARK: - Season Detail Sheet
 struct SeasonDetailSheet: View {
     let tvId: Int
+    let showTitle: String
     let season: Season
     @Environment(\.dismiss) private var dismiss
     @State private var episodes: [Episode] = []
@@ -579,7 +628,11 @@ struct SeasonDetailSheet: View {
                     ProgressView()
                 } else {
                     List(episodes) { episode in
-                        EpisodeRow(episode: episode)
+                        EpisodeRow(
+                            showTitle: showTitle,
+                            seasonNumber: season.seasonNumber,
+                            episode: episode
+                        )
                     }
                 }
             }
@@ -609,7 +662,12 @@ struct SeasonDetailSheet: View {
 
 // MARK: - Episode Row
 struct EpisodeRow: View {
+    let showTitle: String
+    let seasonNumber: Int
     let episode: Episode
+    @State private var skipMapSummary: String?
+    @State private var skipMapError: String?
+    @State private var isLoadingSkipMap = false
     
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -643,6 +701,32 @@ struct EpisodeRow: View {
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                 }
+
+                if isLoadingSkipMap {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Checking skip‑map…")
+                            .font(.caption2)
+                    }
+                    .foregroundColor(.secondary)
+                } else if let skipMapSummary {
+                    Text(skipMapSummary)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                } else if let skipMapError {
+                    Text(skipMapError)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                } else {
+                    Button("Check skip‑map") {
+                        Task { await fetchSkipMap() }
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .buttonStyle(.plain)
+                }
                 
                 HStack(spacing: 8) {
                     if let runtime = episode.runtime {
@@ -664,6 +748,43 @@ struct EpisodeRow: View {
         }
         .padding(.vertical, 4)
     }
+
+    private func fetchSkipMap() async {
+        guard !isLoadingSkipMap else { return }
+        let aiAvailable = await AIService.shared.isAvailable
+        guard aiAvailable else {
+            skipMapError = "Scout AI isn’t configured."
+            return
+        }
+
+        isLoadingSkipMap = true
+        skipMapError = nil
+
+        let episodeTitle = episode.name ?? "Episode \(episode.episodeNumber)"
+        let prompt = """
+        For \(showTitle) S\(seasonNumber)E\(episode.episodeNumber) “\(episodeTitle)”, find skip-map timings.
+        Respond ONLY like: “Intro: Xm Ys • Recap: Xm Ys • Post‑credits: Xm Ys/None”.
+        If unknown, use “Unknown” for that part. Keep it short.
+        """
+
+        do {
+            let (response, _) = try await AIService.shared.sendMessage(
+                prompt,
+                conversationHistory: [],
+                likedItems: [],
+                webSearchEnabled: true,
+                model: .gemini25Flash,
+                restrictedMode: false
+            )
+            skipMapSummary = response
+            skipMapError = nil
+        } catch {
+            skipMapSummary = nil
+            skipMapError = "Couldn’t check right now."
+        }
+
+        isLoadingSkipMap = false
+    }
 }
 
 // MARK: - Info Row
@@ -682,6 +803,249 @@ struct InfoRow: View {
     }
 }
 
+// MARK: - Detail Quick Stats
+struct DetailQuickStatsRow: View {
+    let runtime: String?
+    let genres: String?
+    let certificate: String?
+    let budget: String?
+    let revenue: String?
+    let originCountry: String?
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 18) {
+                if let runtime = runtime {
+                    QuickStatItem(icon: "clock", label: "Runtime", value: runtime)
+                }
+                if let genres = genres {
+                    QuickStatItem(icon: "film", label: "Genre", value: firstValue(from: genres))
+                }
+                if let certificate = certificate, !certificate.isEmpty {
+                    QuickStatItem(icon: "exclamationmark.shield", label: "Certificate", value: certificate)
+                }
+                if let budget = budget {
+                    QuickStatItem(icon: "briefcase", label: "Budget", value: budget)
+                }
+                if let revenue = revenue {
+                    QuickStatItem(icon: "dollarsign", label: "Revenue", value: revenue)
+                }
+                if let originCountry = originCountry {
+                    QuickStatItem(icon: "map", label: "Origin", value: originCountry)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func firstValue(from csv: String) -> String {
+        csv.split(separator: ",").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? csv
+    }
+}
+
+struct QuickStatItem: View {
+    let icon: String
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(label)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Text(value)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+        }
+    }
+}
+
+// MARK: - Parent Rating
+private struct ParentRatingSection: View {
+    let certificate: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Parent Guide")
+                .font(.title3)
+                .fontWeight(.bold)
+
+            HStack(spacing: 6) {
+                Text("Rating")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text(certificate)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(.systemGray6))
+            .cornerRadius(12)
+        }
+    }
+}
+
+// MARK: - Post-Credits Scout
+private struct PostCreditsScoutSection: View {
+    let summary: String?
+    let isLoading: Bool
+    let errorMessage: String?
+    let onCheck: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Post‑Credits Check")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                Spacer()
+                if summary != nil || errorMessage != nil {
+                    Button("Check again") {
+                        onCheck()
+                    }
+                    .font(.caption)
+                }
+            }
+
+            if isLoading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Scout is checking the web...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } else if let summary {
+                Text(summary)
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+            } else if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                Button(action: onCheck) {
+                    Text("Ask Scout if it’s worth staying")
+                        .font(.callout.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+// MARK: - Production Companies Row
+struct TitleProductionCompaniesRow: View {
+    let companies: [ProductionCompany]
+    let onCompanyTap: (ProductionCompany) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Production Companies")
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(companies) { company in
+                        TitleProductionCompanyCard(company: company) {
+                            onCompanyTap(company)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+struct TitleProductionCompanyCard: View {
+    let company: ProductionCompany
+    let onTap: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white)
+                        .shadow(
+                            color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.1),
+                            radius: 6,
+                            x: 0,
+                            y: 3
+                        )
+
+                    if let url = logoURL {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                            case .empty:
+                                ProgressView()
+                            default:
+                                Image(systemName: "film")
+                                    .font(.title2.weight(.semibold))
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                        .padding(16)
+                    } else {
+                        Image(systemName: "film")
+                            .font(.title2.weight(.semibold))
+                            .foregroundColor(.gray)
+                    }
+                }
+                .frame(width: 180, height: 100)
+
+                Text(company.name)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var logoURL: URL? {
+        if let tmdbURL = TMDBService.shared.imageURL(path: company.logoPath, size: .logo) {
+            return tmdbURL
+        }
+        return TitleProductionCompanyCard.fallbackLogoURL(for: company.id)
+    }
+
+    private static func fallbackLogoURL(for companyId: Int) -> URL? {
+        switch companyId {
+        case 4:
+            return URL(string: "https://cdn.brandfetch.io/idrAEeTLeo/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1757576972155")
+        case 2:
+            return URL(string: "https://cdn.brandfetch.io/idxASqzkm_/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1675929043591")
+        case 127928:
+            return URL(string: "https://cdn.brandfetch.io/id80eyhRc1/w/820/h/683/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1667562091650")
+        case 174:
+            return URL(string: "https://cdn.brandfetch.io/idxBWIwtz0/w/405/h/396/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1768344714851")
+        case 3:
+            return URL(string: "https://cdn.brandfetch.io/idYVybSjsA/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1764458646138")
+        default:
+            return nil
+        }
+    }
+}
+
 // MARK: - Media Detail View Model
 @MainActor
 class MediaDetailViewModel: ObservableObject {
@@ -696,6 +1060,8 @@ class MediaDetailViewModel: ObservableObject {
     @Published var revenue: String?
     @Published var tmdbRating: Double?
     @Published var ratings: RatingsSummary?
+    @Published var originCountry: String?
+    @Published var certificate: String?
     @Published var cast: [CastMember] = []
     @Published var crew: [CrewMember] = []
     @Published var videos: [Video] = []
@@ -713,7 +1079,10 @@ class MediaDetailViewModel: ObservableObject {
     @Published var fanartBackdropURL: String?
     @Published var collectionInfo: CollectionInfo?
     @Published var collectionItems: [MediaItem] = []
-    
+    @Published var productionCompanies: [ProductionCompany] = []
+    @Published var postCreditsSummary: String?
+    @Published var postCreditsError: String?
+    @Published var isPostCreditsLoading = false
     private let currencyFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
@@ -721,9 +1090,64 @@ class MediaDetailViewModel: ObservableObject {
         formatter.maximumFractionDigits = 0
         return formatter
     }()
+
+    var isMovie: Bool {
+        item.resolvedMediaType == .movie
+    }
+
+    var hasQuickStats: Bool {
+        runtime != nil
+        || genres != nil
+        || (certificate != nil && !(certificate?.isEmpty ?? true))
+        || budget != nil
+        || revenue != nil
+        || originCountry != nil
+    }
     
     init(item: MediaItem) {
         self.item = item
+    }
+
+    func fetchPostCreditsWorthIt() async {
+        guard isMovie else { return }
+        guard !isPostCreditsLoading else { return }
+
+        let aiAvailable = await AIService.shared.isAvailable
+        if !aiAvailable {
+            postCreditsError = "Scout AI isn’t configured. Add your API key in Settings."
+            return
+        }
+
+        if AIMessageQuota.remainingMessages() <= 0 {
+            postCreditsError = "Daily Scout limit reached. Try again tomorrow."
+            return
+        }
+
+        isPostCreditsLoading = true
+        postCreditsError = nil
+
+        let title = item.displayTitle
+        let yearSuffix = item.year.map { " (\($0))" } ?? ""
+        let prompt = "For \(title)\(yearSuffix), is the post-credits scene worth staying for? Answer ONLY in this format: \"Worth it: Yes/No — short reason (<=12 words).\" If unknown, use \"Worth it: Unknown — reason.\""
+
+        do {
+            let (response, _) = try await AIService.shared.sendMessage(
+                prompt,
+                conversationHistory: [],
+                likedItems: [],
+                webSearchEnabled: true,
+                model: .gemini25Flash,
+                restrictedMode: false
+            )
+            postCreditsSummary = response
+            postCreditsError = nil
+            AIMessageQuota.consumeMessage()
+        } catch {
+            postCreditsSummary = nil
+            postCreditsError = "Couldn’t check right now. Please try again."
+        }
+
+        isPostCreditsLoading = false
     }
     
     func loadDetails() async {
@@ -748,7 +1172,8 @@ class MediaDetailViewModel: ObservableObject {
             status = details.status
             originalTitle = details.originalTitle != details.title ? details.originalTitle : nil
             tmdbRating = details.voteAverage
-            
+            productionCompanies = details.productionCompanies ?? []
+            originCountry = details.productionCountries?.first?.name
             if let budgetValue = details.budget, budgetValue > 0 {
                 budget = currencyFormatter.string(from: NSNumber(value: budgetValue))
             }
@@ -799,6 +1224,16 @@ class MediaDetailViewModel: ObservableObject {
             group.addTask { @MainActor in
                 if let fanartBG = await FanArtService.shared.getBestBackdropURL(tmdbId: movieId, mediaType: .movie) {
                     self.fanartBackdropURL = fanartBG.absoluteString
+                }
+            }
+            
+            // Certification
+            group.addTask { @MainActor in
+                do {
+                    let certification = try await TMDBService.shared.getMovieCertification(id: movieId)
+                    self.certificate = certification
+                } catch {
+                    print("Error loading movie certification: \(error)")
                 }
             }
             
@@ -891,7 +1326,8 @@ class MediaDetailViewModel: ObservableObject {
             originalTitle = details.originalName != details.name ? details.originalName : nil
             tmdbRating = details.voteAverage
             seasons = details.seasons
-            
+            productionCompanies = details.productionCompanies ?? []
+            originCountry = details.originCountry?.first
             if let episodeRuntime = details.episodeRunTime?.first {
                 runtime = "\(episodeRuntime)m per episode"
             }
@@ -922,6 +1358,16 @@ class MediaDetailViewModel: ObservableObject {
             group.addTask { @MainActor in
                 if let fanartBG = await FanArtService.shared.getBestBackdropURL(tmdbId: tvId, mediaType: .tv) {
                     self.fanartBackdropURL = fanartBG.absoluteString
+                }
+            }
+            
+            // Certification
+            group.addTask { @MainActor in
+                do {
+                    let certification = try await TMDBService.shared.getTVCertification(id: tvId)
+                    self.certificate = certification
+                } catch {
+                    print("Error loading TV certification: \(error)")
                 }
             }
             

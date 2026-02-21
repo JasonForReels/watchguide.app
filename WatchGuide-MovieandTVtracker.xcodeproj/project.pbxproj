@@ -69,14 +69,14 @@
 
 
 .xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "\n\n\n.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; name = "WatchGuide-MovieandTVtrackerWidgetExtension.appex"; path = "WatchGuide-MovieandTVtrackerWidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
-		97E6A83F51243F7CD71ADD17 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift */ = {isa = PBXFileReference; explicitFileType = sourcecode.swift; lastKnownFileType = sourcecode.swift; name = "WatchGuide-MovieandTVtrackerWidgetExtension.swift"; path = "WatchGuide-MovieandTVtrackerWidgetExtension.swift"; sourceTree = "<group>"; };
-		ABAFBFC0370DED87737A2023 /* WatchGuide-MovieandTVtrackerWidgetExtension.entitlements */ = {isa = PBXFileReference; explicitFileType = text.plist.entitlements; lastKnownFileType = text.plist.entitlements; name = "WatchGuide-MovieandTVtrackerWidgetExtension.entitlements"; path = "WatchGuide-MovieandTVtrackerWidgetExtension.entitlements"; sourceTree = "<group>"; };
-		C4C9BD98E1B110381A6482B2 /* Info.plist */ = {isa = PBXFileReference; explicitFileType = text.plist; lastKnownFileType = text.plist.xml; name = Info.plist; path = Info.plist; sourceTree = "<group>"; };
+		5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = "WatchGuide-MovieandTVtrackerWidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		97E6A83F51243F7CD71ADD17 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift */ = {isa = PBXFileReference; explicitFileType = sourcecode.swift; path = "WatchGuide-MovieandTVtrackerWidgetExtension.swift"; sourceTree = "<group>"; };
+		ABAFBFC0370DED87737A2023 /* WatchGuide-MovieandTVtrackerWidgetExtension.entitlements */ = {isa = PBXFileReference; explicitFileType = text.plist.entitlements; path = "WatchGuide-MovieandTVtrackerWidgetExtension.entitlements"; sourceTree = "<group>"; };
+		C4C9BD98E1B110381A6482B2 /* Info.plist */ = {isa = PBXFileReference; explicitFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		187AF0F92E828D1000505E98 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		187AF0F92E828D1000505E98 /* Exceptions for "WatchGuide-MovieandTVtracker" folder in "WatchGuide-MovieandTVtracker" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -89,7 +89,7 @@
 		184F590E2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				187AF0F92E828D1000505E98 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+				187AF0F92E828D1000505E98 /* Exceptions for "WatchGuide-MovieandTVtracker" folder in "WatchGuide-MovieandTVtracker" target */,
 			);
 			path = "WatchGuide-MovieandTVtracker";
 			sourceTree = "<group>";
@@ -181,7 +181,6 @@
 				C4C9BD98E1B110381A6482B2 /* Info.plist */,
 				ABAFBFC0370DED87737A2023 /* WatchGuide-MovieandTVtrackerWidgetExtension.entitlements */,
 			);
-			name = "WatchGuide-MovieandTVtrackerWidgetExtension";
 			path = "WatchGuide-MovieandTVtrackerWidgetExtension";
 			sourceTree = "<group>";
 		};
@@ -259,7 +258,10 @@
 			fileSystemSynchronizedGroups = (
 				184F59262E6ACF2000FBE038 /* WatchGuide-MovieandTVtrackerUITests */,
 			);
-			name = "\n\n\n";
+			name = "
+
+
+";
 			packageProductDependencies = (
 			);
 			productName = "WatchGuide-MovieandTVtrackerUITests";

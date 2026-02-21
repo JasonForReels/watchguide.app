@@ -201,6 +201,7 @@ struct TVShowDetails: Identifiable, Codable {
     }
 }
 
+
 // MARK: - Season
 struct Season: Identifiable, Codable {
     let id: Int

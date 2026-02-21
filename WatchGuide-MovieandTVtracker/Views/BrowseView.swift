@@ -41,11 +41,23 @@ struct BrowseView: View {
     private let productionCompanies: [ProductionCompanyEntry] = [
         ProductionCompanyEntry(
             name: "Paramount Pictures",
-            logoURL: "https://upload.wikimedia.org/wikipedia/commons/7/7a/Paramount_Pictures_logo.svg"
+            logoURL: "https://cdn.brandfetch.io/idrAEeTLeo/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1757576972155"
         ),
         ProductionCompanyEntry(
             name: "Walt Disney Pictures",
-            logoURL: "https://upload.wikimedia.org/wikipedia/en/4/4a/Walt_Disney_Pictures_logo.svg"
+            logoURL: "https://cdn.brandfetch.io/idxASqzkm_/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1675929043591"
+        ),
+        ProductionCompanyEntry(
+            name: "20th Century Studios",
+            logoURL: "https://cdn.brandfetch.io/id80eyhRc1/w/820/h/683/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1667562091650"
+        ),
+        ProductionCompanyEntry(
+            name: "Searchlight Pictures",
+            logoURL: nil
+        ),
+        ProductionCompanyEntry(
+            name: "Warner Bros.",
+            logoURL: "https://cdn.brandfetch.io/idxBWIwtz0/w/405/h/396/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1768344714851"
         ),
         ProductionCompanyEntry(
             name: "Highlight",
@@ -53,7 +65,7 @@ struct BrowseView: View {
         ),
         ProductionCompanyEntry(
             name: "Pixar",
-            logoURL: "https://upload.wikimedia.org/wikipedia/en/6/6e/Pixar_logo.svg"
+            logoURL: "https://cdn.brandfetch.io/idYVybSjsA/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1764458646138"
         ),
         ProductionCompanyEntry(
             name: "WingNut Films",
@@ -285,6 +297,9 @@ struct ProductionCompanyEntry: Identifiable {
         switch name {
         case "Paramount Pictures": return 4
         case "Walt Disney Pictures": return 2
+        case "20th Century Studios": return 127928
+        case "Searchlight Pictures": return 127929
+        case "Warner Bros.": return 174
         case "Pixar": return 3
         case "WingNut Films": return 11
         case "Miramax": return 14
@@ -343,8 +358,21 @@ struct ProductionCompanyCard: View {
                         )
 
                     if let urlString = company.logoURL, let url = URL(string: urlString) {
-                        AsyncImageView(url: url, contentMode: .fit, cornerRadius: 14)
-                            .padding(16)
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                            case .empty:
+                                ProgressView()
+                            default:
+                                Image(systemName: "film")
+                                    .font(.title2.weight(.semibold))
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                        .padding(16)
                     } else {
                         Image(systemName: "film")
                             .font(.title2.weight(.semibold))

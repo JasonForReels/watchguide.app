@@ -267,6 +267,10 @@ actor TMDBService {
     func getMovieDetails(id: Int) async throws -> MovieDetails {
         try await request("/movie/\(id)")
     }
+
+    func getMovieReleaseDates(id: Int) async throws -> MovieReleaseDatesResponse {
+        try await request("/movie/\(id)/release_dates")
+    }
     
     func getMovieCredits(id: Int) async throws -> Credits {
         try await request("/movie/\(id)/credits")
@@ -309,6 +313,10 @@ actor TMDBService {
         var queryItems = [URLQueryItem]()
         queryItems.append(URLQueryItem(name: "append_to_response", value: "external_ids"))
         return try await request("/tv/\(id)", queryItems: queryItems)
+    }
+
+    func getTVContentRatings(id: Int) async throws -> TVContentRatingsResponse {
+        try await request("/tv/\(id)/content_ratings")
     }
     
     func getTVShowCredits(id: Int) async throws -> Credits {
@@ -543,6 +551,63 @@ actor TMDBService {
     func getPersonTVCredits(id: Int) async throws -> PersonCreditsResponse {
         try await request("/person/\(id)/tv_credits")
     }
+
+    // MARK: - Certifications
+    func getMovieCertification(id: Int) async throws -> String? {
+        let response = try await getMovieReleaseDates(id: id)
+        let region = await MainActor.run { StorageService.shared.settings.region }
+        return TMDBService.pickMovieCertification(from: response, region: region)
+    }
+
+    func getTVCertification(id: Int) async throws -> String? {
+        let response = try await getTVContentRatings(id: id)
+        let region = await MainActor.run { StorageService.shared.settings.region }
+        return TMDBService.pickTVCertification(from: response, region: region)
+    }
+
+    private static func pickMovieCertification(from response: MovieReleaseDatesResponse, region: String) -> String? {
+        let normalizedRegion = region.isEmpty ? "US" : region
+        let fallbackRegion = "US"
+        let regionResult = response.results.first(where: { $0.iso3166_1 == normalizedRegion })
+            ?? response.results.first(where: { $0.iso3166_1 == fallbackRegion })
+        guard let releaseDates = regionResult?.releaseDates else { return nil }
+        let candidates = releaseDates.filter { !($0.certification?.isEmpty ?? true) }
+        if candidates.isEmpty { return nil }
+        let preferred = candidates.sorted { lhs, rhs in
+            let lhsScore = TMDBService.releaseTypeScore(lhs.type)
+            let rhsScore = TMDBService.releaseTypeScore(rhs.type)
+            return lhsScore < rhsScore
+        }
+        return preferred.first?.certification
+    }
+
+    private static func pickTVCertification(from response: TVContentRatingsResponse, region: String) -> String? {
+        let normalizedRegion = region.isEmpty ? "US" : region
+        let fallbackRegion = "US"
+        let regionResult = response.results.first(where: { $0.iso3166_1 == normalizedRegion })
+            ?? response.results.first(where: { $0.iso3166_1 == fallbackRegion })
+        let rating = regionResult?.rating
+        return rating?.isEmpty == false ? rating : nil
+    }
+
+    private static func releaseTypeScore(_ type: Int?) -> Int {
+        switch type {
+        case 3:
+            return 0 // Theatrical
+        case 4:
+            return 1 // Digital
+        case 2:
+            return 2 // Limited
+        case 5:
+            return 3 // Physical
+        case 6:
+            return 4 // TV
+        case 1:
+            return 5 // Premiere
+        default:
+            return 6
+        }
+    }
     
     // MARK: - Find by external ID (IMDb, TVDB, etc.)
     func findByExternalId(externalId: String, source: String = "imdb_id") async throws -> FindByIdResponse {
@@ -569,5 +634,39 @@ struct FindByIdResponse: Codable {
         case movieResults = "movie_results"
         case tvResults = "tv_results"
         case personResults = "person_results"
+    }
+}
+
+// MARK: - Certifications Responses
+struct MovieReleaseDatesResponse: Codable {
+    let results: [MovieReleaseDatesResult]
+}
+
+struct MovieReleaseDatesResult: Codable {
+    let iso3166_1: String
+    let releaseDates: [MovieReleaseDate]
+
+    enum CodingKeys: String, CodingKey {
+        case iso3166_1 = "iso_3166_1"
+        case releaseDates = "release_dates"
+    }
+}
+
+struct MovieReleaseDate: Codable {
+    let certification: String?
+    let type: Int?
+}
+
+struct TVContentRatingsResponse: Codable {
+    let results: [TVContentRatingsResult]
+}
+
+struct TVContentRatingsResult: Codable {
+    let iso3166_1: String
+    let rating: String?
+
+    enum CodingKeys: String, CodingKey {
+        case iso3166_1 = "iso_3166_1"
+        case rating
     }
 }

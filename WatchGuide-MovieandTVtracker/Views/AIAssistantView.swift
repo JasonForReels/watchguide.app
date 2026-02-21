@@ -142,6 +142,10 @@ private struct AIAssistantBody: View {
             
             Divider()
             
+            AIQuotaStatusBar(
+                remainingMessages: viewModel.remainingMessages
+            )
+            
             AIInputBarContainer(
                 inputState: viewModel.inputState,
                 isInputFocused: $isInputFocused,
@@ -165,6 +169,26 @@ private struct ClearButton: View {
                 .font(.subheadline)
         }
         .disabled(viewModel.messageCount == 0)
+    }
+}
+
+// MARK: - AI Quota Status Bar
+private struct AIQuotaStatusBar: View {
+    let remainingMessages: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Text("\(remainingMessages) free messages left today")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 6)
+        .background(Color(.systemGray6))
     }
 }
 
@@ -1373,6 +1397,7 @@ class AIAssistantViewModel: ObservableObject {
     @Published var trailerMessages: [String: (trailerKey: String, trailerTitle: String)] = [:]
     @Published var scrollTrigger = 0
     @Published var currentUserQuery = ""
+    @Published var remainingMessages = AIMessageQuota.remainingMessages()
     
     let inputState = AIInputState()
     
@@ -1411,6 +1436,14 @@ class AIAssistantViewModel: ObservableObject {
             scrollTrigger += 1
             return
         }
+
+        refreshQuotaStatus()
+        if remainingMessages <= 0 {
+            return
+        }
+        
+        AIMessageQuota.consumeMessage()
+        refreshQuotaStatus()
         
         let userChatMessage = AIService.ChatMessage(role: "user", content: userMessage)
         messages.append(userChatMessage)
@@ -1595,6 +1628,10 @@ class AIAssistantViewModel: ObservableObject {
         inputState.isLoading = false
         isThinking = false
         streamingMessageId = nil
+    }
+
+    private func refreshQuotaStatus() {
+        remainingMessages = AIMessageQuota.remainingMessages()
     }
     
     func clearMessages() {
