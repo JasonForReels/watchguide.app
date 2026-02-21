@@ -302,7 +302,8 @@ struct ResizableHeroCarousel: View {
         HeroCarouselView(
             items: items,
             onItemTap: onItemTap,
-            aspectRatio: aspect.aspectRatio
+            aspectRatio: aspect.aspectRatio,
+            isPortrait: aspect == .portrait
         )
         .frame(width: width)
         .frame(maxWidth: .infinity, alignment: .center)

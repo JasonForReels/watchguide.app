@@ -24,6 +24,7 @@ struct HeroCarouselView: View {
     let items: [MediaItem]
     let onItemTap: (MediaItem) -> Void
     let aspectRatio: CGFloat
+    let isPortrait: Bool
     var showTrailers: Bool { StorageService.shared.settings.autoPlayTrailers }
     
     @State private var currentIndex = 0
@@ -41,11 +42,13 @@ struct HeroCarouselView: View {
     init(
         items: [MediaItem],
         onItemTap: @escaping (MediaItem) -> Void,
-        aspectRatio: CGFloat = 16.0 / 10.0
+        aspectRatio: CGFloat = 16.0 / 10.0,
+        isPortrait: Bool = false
     ) {
         self.items = items
         self.onItemTap = onItemTap
         self.aspectRatio = aspectRatio
+        self.isPortrait = isPortrait
     }
 
     var body: some View {
@@ -73,6 +76,7 @@ struct HeroCarouselView: View {
                             trailerPhase: timerManager.trailerPhase,
                             backdropTimerExpired: timerManager.backdropTimerExpired,
                             showTrailers: showTrailers,
+                            isPortrait: isPortrait,
                             onTrailerDurationKnown: { duration in
                                 if index == currentIndex {
                                     timerManager.beginTrailerPlayback(duration: duration)
@@ -487,6 +491,8 @@ struct HeroCarouselSlide: View {
     /// Whether the carousel timer's backdrop period has expired (time to start trailer)
     let backdropTimerExpired: Bool
     let showTrailers: Bool
+    /// Whether the carousel is in portrait (poster) orientation
+    var isPortrait: Bool = false
     var onTrailerDurationKnown: ((TimeInterval) -> Void)?
     
     @State private var showTrailer = false
@@ -731,8 +737,12 @@ struct HeroCarouselSlide: View {
             .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
     }
     
-    /// Resolved backdrop URL: FanArt.tv when available, otherwise TMDB
+    /// Resolved image URL: In portrait mode, use poster; in landscape, use backdrop (FanArt.tv → TMDB fallback)
     private var resolvedBackdropURL: URL? {
+        if isPortrait {
+            // Portrait mode: use poster image (w500) for better visual fit
+            return TMDBService.shared.imageURL(path: item.posterPath, size: .large)
+        }
         if let fanartStr = fanartBackdropURL, let url = URL(string: fanartStr) {
             return url
         }
@@ -751,30 +761,28 @@ struct HeroCarouselSlide: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             case .failure:
-                // If FanArt backdrop failed, try TMDB directly
-                if fanartBackdropURL != nil {
+                // Fallback: in portrait mode try backdrop, in landscape try TMDB backdrop if FanArt failed
+                if isPortrait {
+                    // Portrait poster failed — try backdrop as fallback
                     AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { fallbackPhase in
                         switch fallbackPhase {
                         case .success(let img):
                             img.resizable().aspectRatio(contentMode: .fill)
                         default:
-                            Rectangle()
-                                .fill(Color(.systemGray5))
-                                .overlay {
-                                    Image(systemName: "film")
-                                        .font(.largeTitle)
-                                        .foregroundColor(.secondary)
-                                }
+                            placeholderView
+                        }
+                    }
+                } else if fanartBackdropURL != nil {
+                    AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { fallbackPhase in
+                        switch fallbackPhase {
+                        case .success(let img):
+                            img.resizable().aspectRatio(contentMode: .fill)
+                        default:
+                            placeholderView
                         }
                     }
                 } else {
-                    Rectangle()
-                        .fill(Color(.systemGray5))
-                        .overlay {
-                            Image(systemName: "film")
-                                .font(.largeTitle)
-                                .foregroundColor(.secondary)
-                        }
+                    placeholderView
                 }
             @unknown default:
                 Rectangle().fill(Color(.systemGray5))
@@ -782,6 +790,16 @@ struct HeroCarouselSlide: View {
         }
         .frame(width: slideWidth, height: slideHeight)
         .clipped()
+    }
+    
+    private var placeholderView: some View {
+        Rectangle()
+            .fill(Color(.systemGray5))
+            .overlay {
+                Image(systemName: "film")
+                    .font(.largeTitle)
+                    .foregroundColor(.secondary)
+            }
     }
     
     private func startTrailerIfNeeded() {
