@@ -27,6 +27,7 @@ struct MediaDetailView: View {
     @State private var selectedPerson: SelectedPerson?
     @State private var selectedCompanyHub: CompanyHub?
     @State private var selectedCompanyItem: MediaItem?
+    @State private var selectedItem: MediaItem?
 
     @State private var selectedTrailer: Video?
     @State private var safariItem: SafariItem?
@@ -170,7 +171,9 @@ struct MediaDetailView: View {
                             CollectionRowView(
                                 collectionName: collectionInfo.name,
                                 items: viewModel.collectionItems,
-                                onItemTap: { _ in }
+                                onItemTap: { item in
+                                    selectedItem = item
+                                }
                             )
                         }
                         
@@ -217,7 +220,9 @@ struct MediaDetailView: View {
                             MediaRowView(
                                 title: "Similar",
                                 items: viewModel.similar,
-                                onItemTap: { _ in }
+                                onItemTap: { item in
+                                    selectedItem = item
+                                }
                             )
                         }
                         
@@ -226,7 +231,9 @@ struct MediaDetailView: View {
                             MediaRowView(
                                 title: "Recommended",
                                 items: viewModel.recommendations,
-                                onItemTap: { _ in }
+                                onItemTap: { item in
+                                    selectedItem = item
+                                }
                             )
                         }
                         
@@ -272,6 +279,9 @@ struct MediaDetailView: View {
             CompanyHubSheet(companyHub: hub, selectedItem: $selectedCompanyItem)
         }
         .sheet(item: $selectedCompanyItem) { item in
+            MediaDetailView(item: item)
+        }
+        .sheet(item: $selectedItem) { item in
             MediaDetailView(item: item)
         }
         #if os(iOS)

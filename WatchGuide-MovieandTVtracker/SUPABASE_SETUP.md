@@ -260,6 +260,8 @@ CREATE TABLE IF NOT EXISTS profiles (
     age_group TEXT NOT NULL,
     is_kids BOOLEAN DEFAULT FALSE,
     date_of_birth TEXT,
+    hero_carousel_width_ratio DOUBLE PRECISION,
+    hero_carousel_aspect TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(user_id, profile_id)

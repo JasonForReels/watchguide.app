@@ -138,7 +138,7 @@ struct BrowseView: View {
             }
             
             if !viewModel.heroItems.isEmpty {
-                HeroCarouselView(
+                ResizableHeroCarousel(
                     items: viewModel.heroItems,
                     onItemTap: { item in
                         selectedItem = item
@@ -279,6 +279,40 @@ struct BrowseView: View {
         case .sonyPictures:
             SonyPicturesSheet(selectedItem: $selectedItem)
         }
+    }
+}
+
+// MARK: - Resizable Hero Carousel (Per-Profile)
+struct ResizableHeroCarousel: View {
+    let items: [MediaItem]
+    let onItemTap: (MediaItem) -> Void
+    
+    @ObservedObject private var profileService = ProfileService.shared
+    
+    private let minimumRatio: Double = 0.45
+    private let maximumRatio: Double = 1.0
+    
+    var body: some View {
+        let layout = resolvedLayout()
+        let aspect = layout.aspect
+        let availableWidth = max(UIScreen.main.bounds.width - 24, 1)
+        let clampedRatio = max(minimumRatio, min(maximumRatio, layout.widthRatio))
+        let width = availableWidth * clampedRatio
+        
+        HeroCarouselView(
+            items: items,
+            onItemTap: onItemTap,
+            aspectRatio: aspect.aspectRatio
+        )
+        .frame(width: width)
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+    
+    private func resolvedLayout() -> (widthRatio: Double, aspect: HeroCarouselAspect) {
+        let profile = profileService.activeProfile
+        let ratio = profile?.heroCarouselWidthRatio ?? 1.0
+        let aspect = profile?.heroCarouselAspect ?? .landscape
+        return (max(minimumRatio, min(maximumRatio, ratio)), aspect)
     }
 }
 

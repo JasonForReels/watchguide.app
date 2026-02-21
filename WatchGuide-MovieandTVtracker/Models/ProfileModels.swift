@@ -82,6 +82,23 @@ enum ProfileColor: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Hero Carousel Aspect
+enum HeroCarouselAspect: String, Codable, CaseIterable, Identifiable {
+    case landscape = "landscape"
+    case portrait = "portrait"
+    
+    var id: String { rawValue }
+    
+    var aspectRatio: CGFloat {
+        switch self {
+        case .landscape:
+            return 16.0 / 9.0
+        case .portrait:
+            return 2.0 / 3.0
+        }
+    }
+}
+
 // MARK: - User Profile
 struct UserProfile: Identifiable, Codable, Equatable {
     let id: String
@@ -91,6 +108,8 @@ struct UserProfile: Identifiable, Codable, Equatable {
     var ageGroup: AgeGroup
     var isKids: Bool        // Locked kids profile (like Netflix Kids)
     var dateOfBirth: Date?  // Used to verify age
+    var heroCarouselWidthRatio: Double?
+    var heroCarouselAspect: HeroCarouselAspect?
     let createdAt: Date
     var updatedAt: Date
     
@@ -100,7 +119,9 @@ struct UserProfile: Identifiable, Codable, Equatable {
         color: ProfileColor = .blue,
         ageGroup: AgeGroup = .adult,
         isKids: Bool = false,
-        dateOfBirth: Date? = nil
+        dateOfBirth: Date? = nil,
+        heroCarouselWidthRatio: Double? = nil,
+        heroCarouselAspect: HeroCarouselAspect? = nil
     ) {
         self.id = UUID().uuidString
         self.name = name
@@ -109,6 +130,8 @@ struct UserProfile: Identifiable, Codable, Equatable {
         self.ageGroup = ageGroup
         self.isKids = isKids
         self.dateOfBirth = dateOfBirth
+        self.heroCarouselWidthRatio = heroCarouselWidthRatio
+        self.heroCarouselAspect = heroCarouselAspect
         self.createdAt = Date()
         self.updatedAt = Date()
     }
@@ -140,7 +163,9 @@ struct UserProfile: Identifiable, Codable, Equatable {
         lhs.color == rhs.color &&
         lhs.ageGroup == rhs.ageGroup &&
         lhs.isKids == rhs.isKids &&
-        lhs.dateOfBirth == rhs.dateOfBirth
+        lhs.dateOfBirth == rhs.dateOfBirth &&
+        lhs.heroCarouselWidthRatio == rhs.heroCarouselWidthRatio &&
+        lhs.heroCarouselAspect == rhs.heroCarouselAspect
     }
 }
 
@@ -155,6 +180,8 @@ struct SyncedProfile: Codable {
     let ageGroup: String
     let isKids: Bool
     let dateOfBirth: String?
+    let heroCarouselWidthRatio: Double?
+    let heroCarouselAspect: String?
     let createdAt: Date?
     let updatedAt: Date?
     
@@ -167,6 +194,8 @@ struct SyncedProfile: Codable {
         case ageGroup = "age_group"
         case isKids = "is_kids"
         case dateOfBirth = "date_of_birth"
+        case heroCarouselWidthRatio = "hero_carousel_width_ratio"
+        case heroCarouselAspect = "hero_carousel_aspect"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -182,6 +211,8 @@ struct SyncedProfile: Codable {
         try container.encode(ageGroup, forKey: .ageGroup)
         try container.encode(isKids, forKey: .isKids)
         try container.encode(dateOfBirth, forKey: .dateOfBirth)
+        try container.encode(heroCarouselWidthRatio, forKey: .heroCarouselWidthRatio)
+        try container.encode(heroCarouselAspect, forKey: .heroCarouselAspect)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
     }

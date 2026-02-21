@@ -133,6 +133,13 @@ class ProfileService: ObservableObject {
     func requestProfileSelection() {
         needsProfileSelection = true
     }
+
+    func updateHeroCarouselLayout(widthRatio: Double, aspect: HeroCarouselAspect) {
+        guard var profile = activeProfile else { return }
+        profile.heroCarouselWidthRatio = widthRatio
+        profile.heroCarouselAspect = aspect
+        updateProfile(profile)
+    }
     
     /// Resets the session flag so the picker will show again (e.g. after sign-out + sign-in)
     func resetSessionFlag() {
@@ -317,6 +324,8 @@ class ProfileService: ObservableObject {
                 ageGroup: profile.ageGroup.rawValue,
                 isKids: profile.isKids,
                 dateOfBirth: profile.dateOfBirth.map { dateFormatter.string(from: $0) },
+                heroCarouselWidthRatio: profile.heroCarouselWidthRatio,
+                heroCarouselAspect: profile.heroCarouselAspect?.rawValue,
                 createdAt: profile.createdAt,
                 updatedAt: profile.updatedAt
             )
@@ -378,13 +387,15 @@ class ProfileService: ObservableObject {
                 return nil
             }
             
-            var profile = UserProfile(
+            let profile = UserProfile(
                 name: synced.name,
                 avatar: avatar,
                 color: color,
                 ageGroup: ageGroup,
                 isKids: synced.isKids,
-                dateOfBirth: synced.dateOfBirth.flatMap { dateFormatter.date(from: $0) }
+                dateOfBirth: synced.dateOfBirth.flatMap { dateFormatter.date(from: $0) },
+                heroCarouselWidthRatio: synced.heroCarouselWidthRatio,
+                heroCarouselAspect: synced.heroCarouselAspect.flatMap { HeroCarouselAspect(rawValue: $0) }
             )
             // Preserve the original ID for cross-device sync
             return UserProfile(
@@ -395,6 +406,8 @@ class ProfileService: ObservableObject {
                 ageGroup: profile.ageGroup,
                 isKids: profile.isKids,
                 dateOfBirth: profile.dateOfBirth,
+                heroCarouselWidthRatio: profile.heroCarouselWidthRatio,
+                heroCarouselAspect: profile.heroCarouselAspect,
                 createdAt: synced.createdAt ?? Date(),
                 updatedAt: synced.updatedAt ?? Date()
             )
@@ -415,7 +428,19 @@ class ProfileService: ObservableObject {
 
 // MARK: - UserProfile init with explicit ID (for cloud sync)
 extension UserProfile {
-    init(id: String, name: String, avatar: ProfileAvatar, color: ProfileColor, ageGroup: AgeGroup, isKids: Bool, dateOfBirth: Date?, createdAt: Date, updatedAt: Date) {
+    init(
+        id: String,
+        name: String,
+        avatar: ProfileAvatar,
+        color: ProfileColor,
+        ageGroup: AgeGroup,
+        isKids: Bool,
+        dateOfBirth: Date?,
+        heroCarouselWidthRatio: Double? = nil,
+        heroCarouselAspect: HeroCarouselAspect? = nil,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
         self.id = id
         self.name = name
         self.avatar = avatar
@@ -423,6 +448,8 @@ extension UserProfile {
         self.ageGroup = ageGroup
         self.isKids = isKids
         self.dateOfBirth = dateOfBirth
+        self.heroCarouselWidthRatio = heroCarouselWidthRatio
+        self.heroCarouselAspect = heroCarouselAspect
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

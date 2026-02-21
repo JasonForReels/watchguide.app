@@ -23,6 +23,7 @@ class HeroCarouselMuteManager: ObservableObject {
 struct HeroCarouselView: View {
     let items: [MediaItem]
     let onItemTap: (MediaItem) -> Void
+    let aspectRatio: CGFloat
     var showTrailers: Bool { StorageService.shared.settings.autoPlayTrailers }
     
     @State private var currentIndex = 0
@@ -37,6 +38,16 @@ struct HeroCarouselView: View {
         mass: 1.0, stiffness: 170, damping: 24, initialVelocity: 0
     )
     
+    init(
+        items: [MediaItem],
+        onItemTap: @escaping (MediaItem) -> Void,
+        aspectRatio: CGFloat = 16.0 / 10.0
+    ) {
+        self.items = items
+        self.onItemTap = onItemTap
+        self.aspectRatio = aspectRatio
+    }
+
     var body: some View {
         GeometryReader { outerGeo in
             let width = outerGeo.size.width
@@ -118,7 +129,7 @@ struct HeroCarouselView: View {
                 .padding(.bottom, 16)
             }
         }
-        .aspectRatio(16.0/10.0, contentMode: .fit)
+        .aspectRatio(aspectRatio, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
