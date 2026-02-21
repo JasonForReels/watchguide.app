@@ -973,6 +973,7 @@ struct TitleProductionCompanyCard: View {
     let company: ProductionCompany
     let onTap: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    private var isSearchlight: Bool { company.id == 127929 || company.name == "Searchlight Pictures" }
 
     var body: some View {
         Button(action: onTap) {
@@ -987,7 +988,12 @@ struct TitleProductionCompanyCard: View {
                             y: 3
                         )
 
-                    if let url = logoURL {
+                    if isSearchlight {
+                        Image("SearchlightLogo")
+                            .resizable()
+                            .scaledToFit()
+                            .padding(16)
+                    } else if let url = logoURL {
                         AsyncImage(url: url) { phase in
                             switch phase {
                             case .success(let image):

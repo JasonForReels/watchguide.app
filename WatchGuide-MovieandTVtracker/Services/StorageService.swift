@@ -30,7 +30,7 @@ class StorageService: ObservableObject {
     @Published var isSyncing = false
     @Published var lastSyncError: String?
     @Published var cloudSyncEnabled = false
-    
+
     var lastSyncTime: Date? {
         UserDefaults.standard.object(forKey: "supabase_last_sync") as? Date
     }
@@ -352,7 +352,7 @@ class StorageService: ObservableObject {
         cloudSyncEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: "cloud_sync_enabled")
     }
-    
+
     /// Upload all local data to cloud
     func uploadToCloud() async {
         guard isCloudConfigured else {

@@ -8,7 +8,6 @@
 import SwiftUI
 #if !os(tvOS)
 import MessageUI
-import AuthenticationServices
 #endif
 
 struct AuthView: View {
@@ -23,7 +22,6 @@ struct AuthView: View {
     @State private var showForgotPassword = false
     @State private var resetEmailSent = false
     @State private var showProfileSetup = false
-    @State private var appleNonce: String?
     
     var body: some View {
         NavigationStack {
@@ -160,27 +158,6 @@ struct AuthView: View {
                     }
                     .disabled(!isFormValid || authService.isLoading)
 
-                    #if !os(tvOS)
-                    VStack(spacing: 12) {
-                        Text("or")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        SignInWithAppleButton(.signIn) { request in
-                            let nonce = AuthService.randomNonceString()
-                            appleNonce = nonce
-                            request.requestedScopes = [.email]
-                            request.nonce = AuthService.sha256(nonce)
-                        } onCompletion: { result in
-                            Task {
-                                await handleAppleSignIn(result)
-                            }
-                        }
-                        .signInWithAppleButtonStyle(.black)
-                        .frame(height: 44)
-                    }
-                    #endif
-                    
                     // Toggle sign up / sign in
                     HStack {
                         Text(isSignUp ? "Already have an account?" : "Don't have an account?")
@@ -263,26 +240,6 @@ struct AuthView: View {
             if success {
                 await handleAuthSuccess()
             }
-        }
-    }
-
-    private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) async {
-        switch result {
-        case .success(let authorization):
-            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
-                  let tokenData = credential.identityToken,
-                  let idToken = String(data: tokenData, encoding: .utf8),
-                  let nonce = appleNonce else {
-                authService.errorMessage = "Unable to read Apple ID token."
-                return
-            }
-
-            let success = await authService.signInWithApple(idToken: idToken, nonce: nonce)
-            if success {
-                await handleAuthSuccess()
-            }
-        case .failure(let error):
-            authService.errorMessage = error.localizedDescription
         }
     }
 

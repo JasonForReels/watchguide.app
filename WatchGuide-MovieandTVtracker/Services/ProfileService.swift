@@ -139,6 +139,7 @@ class ProfileService: ObservableObject {
         hasShownPickerThisSession = false
         hasSyncedThisSession = false
     }
+
     
     /// Apply profile-based settings to the global UserSettings
     private func applyProfileSettings(_ profile: UserProfile) {

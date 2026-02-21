@@ -144,6 +144,7 @@ struct UserProfile: Identifiable, Codable, Equatable {
     }
 }
 
+
 // MARK: - Synced Profile (Supabase)
 struct SyncedProfile: Codable {
     let userId: String
