@@ -4,14 +4,19 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Shared Gray5 Color Helper
 /// A cross-platform gray color that works on iOS and tvOS.
 private let sharedGray5Color: Color = {
     #if os(tvOS)
     return Color.gray.opacity(0.3)
-    #else
+    #elseif canImport(UIKit)
     return Color(UIColor.systemGray5)
+    #else
+    return Color.gray.opacity(0.3)
     #endif
 }()
 

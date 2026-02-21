@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Popcorn Refresh Indicator
 /// A custom pull-to-refresh indicator featuring an animated popcorn bucket.
@@ -389,8 +392,10 @@ private struct PopcornScrollOffsetKey: PreferenceKey {
         let previewBackground: Color = {
             #if os(tvOS)
             return Color.gray
+            #elseif canImport(UIKit)
+            return Color(UIColor.systemGray6)
             #else
-            return Color(.systemGray6)
+            return Color.gray.opacity(0.2)
             #endif
         }()
         

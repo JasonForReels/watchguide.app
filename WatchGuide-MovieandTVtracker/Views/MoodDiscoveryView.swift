@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Mood Model
 struct MoodOption: Identifiable {
@@ -35,8 +38,10 @@ struct MoodOption: Identifiable {
             color: {
                 #if os(tvOS)
                 return Color.gray
+                #elseif canImport(UIKit)
+                return Color(UIColor.systemGray)
                 #else
-                return Color(.systemGray)
+                return Color.gray
                 #endif
             }()
         ),
@@ -51,8 +56,10 @@ struct MoodOption: Identifiable {
             color: {
                 #if os(tvOS)
                 return Color(white: 0.7)
+                #elseif canImport(UIKit)
+                return Color(UIColor.systemGray2)
                 #else
-                return Color(.systemGray2)
+                return Color(white: 0.7)
                 #endif
             }()
         ),
@@ -496,7 +503,7 @@ struct MoodFilterSheet: View {
                             HStack(spacing: 14) {
                                 ZStack {
                                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(localFilter == filter ? Color.accentColor.opacity(0.15) : Color(.systemGray5))
+                                        .fill(localFilter == filter ? Color.accentColor.opacity(0.15) : Color.gray.opacity(0.2))
                                         .frame(width: 36, height: 36)
                                     
                                     Image(systemName: filter.iconName)
