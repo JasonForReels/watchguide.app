@@ -7,6 +7,9 @@
 
 import Foundation
 import Combine
+import AuthenticationServices
+import CryptoKit
+import Security
 
 @MainActor
 class AuthService: ObservableObject {
@@ -190,6 +193,96 @@ class AuthService: ObservableObject {
             isLoading = false
             return false
         }
+    }
+
+    // MARK: - Sign In with Apple
+
+    func signInWithApple(idToken: String, nonce: String?) async -> Bool {
+        guard isConfigured else {
+            errorMessage = "Supabase not configured. Please link a Supabase project first."
+            return false
+        }
+
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let url = URL(string: "\(supabaseURL)/auth/v1/token?grant_type=id_token")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.addValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
+
+            var body: [String: Any] = [
+                "provider": "apple",
+                "id_token": idToken
+            ]
+            if let nonce = nonce {
+                body["nonce"] = nonce
+            }
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw AuthError.invalidResponse
+            }
+
+            if (200...299).contains(httpResponse.statusCode) {
+                let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
+
+                if let session = authResponse.toSession() {
+                    saveSession(session)
+                    currentUser = session.user
+                    currentUser?.accessToken = session.accessToken
+                    isAuthenticated = true
+                    isLoading = false
+                    return true
+                }
+                throw AuthError.noSession
+            } else {
+                let errorResponse = try? JSONDecoder().decode(AuthErrorResponse.self, from: data)
+                errorMessage = errorResponse?.message ?? errorResponse?.msg ?? "Sign in with Apple failed"
+                isLoading = false
+                return false
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+            return false
+        }
+    }
+
+    static func randomNonceString(length: Int = 32) -> String {
+        precondition(length > 0)
+        let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var result = ""
+        var remainingLength = length
+
+        while remainingLength > 0 {
+            var randoms: [UInt8] = (0..<16).map { _ in
+                var random: UInt8 = 0
+                let status = SecRandomCopyBytes(kSecRandomDefault, 1, &random)
+                if status != errSecSuccess { return 0 }
+                return random
+            }
+
+            randoms.forEach { random in
+                if remainingLength == 0 { return }
+                if random < charset.count {
+                    result.append(charset[Int(random)])
+                    remainingLength -= 1
+                }
+            }
+        }
+
+        return result
+    }
+
+    static func sha256(_ input: String) -> String {
+        let inputData = Data(input.utf8)
+        let hashed = SHA256.hash(data: inputData)
+        return hashed.compactMap { String(format: "%02x", $0) }.joined()
     }
     
     // MARK: - Sign Out

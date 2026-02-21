@@ -370,13 +370,13 @@ class StorageService: ObservableObject {
                 watched: watched,
                 liked: liked
             )
-            
+
             // Upload user settings (including kids profile & passcode)
             try await SupabaseService.shared.uploadSettings(settings)
-            
+
             // Upload custom lists
             try await SupabaseService.shared.uploadCustomLists(customLists)
-            
+
             // Upload home screen config (includes browse sections via uploadAllHomeScreenConfig)
             #if !os(tvOS)
             try await HomeScreenSyncService.shared.uploadAllHomeScreenConfig(
@@ -387,10 +387,10 @@ class StorageService: ObservableObject {
                 hiddenSections: hiddenSections
             )
             #endif
-            
+
             // Upload profiles
             ProfileService.shared.syncProfilesToCloud()
-            
+
             await SupabaseService.shared.updateLastSyncTime()
             objectWillChange.send()
         } catch {
@@ -417,13 +417,13 @@ class StorageService: ObservableObject {
             async let settingsTask = SupabaseService.shared.downloadSettings()
             async let customListsTask = SupabaseService.shared.downloadCustomLists()
             async let homeConfigTask = HomeScreenSyncService.shared.downloadAllHomeScreenConfig()
-            
+
             // Await all results
             let data = try await mediaDataTask
             let cloudSettings = try await settingsTask
             let cloudCustomLists = try await customListsTask
             let homeConfig = try await homeConfigTask
-            
+
             // Apply media items
             wantToWatch = data.wantToWatch
             watched = data.watched
@@ -431,19 +431,19 @@ class StorageService: ObservableObject {
             save(wantToWatch, to: wantToWatchURL)
             save(watched, to: watchedURL)
             save(liked, to: likedURL)
-            
+
             // Apply user settings
             if let cloudSettings = cloudSettings {
                 settings = cloudSettings
                 save(settings, to: settingsURL)
             }
-            
+
             // Apply custom lists
             if !cloudCustomLists.isEmpty {
                 customLists = cloudCustomLists
                 save(customLists, to: customListsURL)
             }
-            
+
             // Apply home screen config — always apply cloud state (even empty = user cleared everything)
             // Browse rows: merge cloud state with local defaults so new default rows aren't lost
             // Match by endpoint (stable across devices) rather than id
@@ -458,15 +458,15 @@ class StorageService: ObservableObject {
             }
             browseRows = mergedBrowseRows
             save(browseRows, to: browseRowsURL)
-            
+
             // Extension lists: apply even if empty (user may have removed all)
             importedLists = homeConfig.extensionLists
             save(importedLists, to: importedListsURL)
-            
+
             // Custom home rows: apply even if empty
             customHomeRows = homeConfig.customHomeRows
             save(customHomeRows, to: customHomeRowsURL)
-            
+
             // Apply network hub config — always apply (even empty means user reset to defaults)
             // Merge cloud config into local hubs to preserve hub metadata (logos, providers, etc.)
             // hubId in cloud is the lowercased hub name (consistent across devices).
@@ -480,17 +480,17 @@ class StorageService: ObservableObject {
                 networkHubs.sort { $0.sortOrder < $1.sortOrder }
                 save(networkHubs, to: networkHubsURL)
             }
-            
+
             // Apply custom JSON hubs: apply even if empty (user may have removed all)
             customJSONHubs = homeConfig.customJSONHubs
             save(customJSONHubs, to: customJSONHubsURL)
-            
+
             // Apply hidden sections — always apply from cloud (source of truth)
             if let syncedHidden = homeConfig.hiddenSections {
                 hiddenSections = syncedHidden
                 save(hiddenSections, to: hiddenSectionsURL)
             }
-            
+
             // Apply browse sections order
             if let syncedSections = homeConfig.browseSections, !syncedSections.isEmpty {
                 // Merge with local defaults so new section types aren't lost
@@ -505,10 +505,10 @@ class StorageService: ObservableObject {
                 browseSections = merged
                 save(browseSections, to: browseSectionsURL)
             }
-            
+
             // Download profiles
             await ProfileService.shared.downloadProfilesFromCloud()
-            
+
             await SupabaseService.shared.updateLastSyncTime()
             objectWillChange.send()
         } catch {

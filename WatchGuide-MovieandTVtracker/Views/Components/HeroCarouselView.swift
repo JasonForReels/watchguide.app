@@ -23,13 +23,7 @@ class HeroCarouselMuteManager: ObservableObject {
 struct HeroCarouselView: View {
     let items: [MediaItem]
     let onItemTap: (MediaItem) -> Void
-    var showTrailers: Bool {
-        #if os(tvOS)
-        return false
-        #else
-        return StorageService.shared.settings.autoPlayTrailers
-        #endif
-    }
+    var showTrailers: Bool { StorageService.shared.settings.autoPlayTrailers }
     
     @State private var currentIndex = 0
     @State private var dragOffset: CGFloat = 0
@@ -658,8 +652,20 @@ struct HeroCarouselSlide: View {
         }
         .onChange(of: isActive) { _, active in
             guard showTrailers else { return }
-            if !active {
+            if active {
+                // If the backdrop timer has already expired by the time this slide becomes active,
+                // ensure we start the trailer now.
+                if backdropTimerExpired {
+                    startTrailerIfNeeded()
+                }
+            } else {
                 stopTrailer()
+            }
+        }
+        .onChange(of: trailerKey) { _, newKey in
+            guard showTrailers else { return }
+            if newKey != nil && isActive && backdropTimerExpired {
+                startTrailerIfNeeded()
             }
         }
         #if !os(tvOS)

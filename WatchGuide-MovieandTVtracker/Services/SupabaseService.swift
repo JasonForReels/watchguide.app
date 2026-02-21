@@ -372,6 +372,10 @@ actor SupabaseService {
             compactMode: settings.compactMode,
             ambientModeEnabled: settings.ambientModeEnabled,
             heroCarouselSource: settings.heroCarouselSource.rawValue,
+            heroCarouselCustomMovieListId: settings.heroCarouselCustomMovieListId,
+            heroCarouselCustomShowListId: settings.heroCarouselCustomShowListId,
+            heroCarouselMDBListMovieId: settings.heroCarouselMDBListMovieId,
+            heroCarouselMDBListShowId: settings.heroCarouselMDBListShowId,
             isKidsProfile: settings.isKidsProfile,
             parentPasscode: settings.parentPasscode,
             updatedAt: Date()
@@ -431,6 +435,10 @@ actor SupabaseService {
         if let source = synced.heroCarouselSource, let heroSource = HeroCarouselSource(rawValue: source) {
             settings.heroCarouselSource = heroSource
         }
+        settings.heroCarouselCustomMovieListId = synced.heroCarouselCustomMovieListId
+        settings.heroCarouselCustomShowListId = synced.heroCarouselCustomShowListId
+        settings.heroCarouselMDBListMovieId = synced.heroCarouselMDBListMovieId
+        settings.heroCarouselMDBListShowId = synced.heroCarouselMDBListShowId
         settings.isKidsProfile = synced.isKidsProfile ?? false
         settings.parentPasscode = synced.parentPasscode
         return settings
@@ -669,6 +677,10 @@ struct SyncedUserSettings: Codable {
     let compactMode: Bool?
     let ambientModeEnabled: Bool?
     let heroCarouselSource: String?
+    let heroCarouselCustomMovieListId: String?
+    let heroCarouselCustomShowListId: String?
+    let heroCarouselMDBListMovieId: String?
+    let heroCarouselMDBListShowId: String?
     let isKidsProfile: Bool?
     let parentPasscode: String?
     let updatedAt: Date?
@@ -683,6 +695,10 @@ struct SyncedUserSettings: Codable {
         case compactMode = "compact_mode"
         case ambientModeEnabled = "ambient_mode_enabled"
         case heroCarouselSource = "hero_carousel_source"
+        case heroCarouselCustomMovieListId = "hero_carousel_custom_movie_list_id"
+        case heroCarouselCustomShowListId = "hero_carousel_custom_show_list_id"
+        case heroCarouselMDBListMovieId = "hero_carousel_mdblist_movie_id"
+        case heroCarouselMDBListShowId = "hero_carousel_mdblist_show_id"
         case isKidsProfile = "is_kids_profile"
         case parentPasscode = "parent_passcode"
         case updatedAt = "updated_at"
@@ -700,6 +716,10 @@ struct SyncedUserSettings: Codable {
         try container.encode(compactMode, forKey: .compactMode)
         try container.encode(ambientModeEnabled, forKey: .ambientModeEnabled)
         try container.encode(heroCarouselSource, forKey: .heroCarouselSource)
+        try container.encode(heroCarouselCustomMovieListId, forKey: .heroCarouselCustomMovieListId)
+        try container.encode(heroCarouselCustomShowListId, forKey: .heroCarouselCustomShowListId)
+        try container.encode(heroCarouselMDBListMovieId, forKey: .heroCarouselMDBListMovieId)
+        try container.encode(heroCarouselMDBListShowId, forKey: .heroCarouselMDBListShowId)
         try container.encode(isKidsProfile, forKey: .isKidsProfile)
         try container.encode(parentPasscode, forKey: .parentPasscode)
         try container.encode(updatedAt, forKey: .updatedAt)

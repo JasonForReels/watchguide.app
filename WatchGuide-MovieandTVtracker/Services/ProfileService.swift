@@ -253,32 +253,40 @@ class ProfileService: ObservableObject {
     func downloadProfilesFromCloud() async {
         guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
         guard AuthService.shared.isAuthenticated, let userId = AuthService.shared.userId else { return }
-        
+
         do {
             let cloudProfiles = try await fetchProfiles(userId: userId)
-            if !cloudProfiles.isEmpty {
-                profiles = cloudProfiles
-                saveProfiles()
-                
-                // If only 1 profile, auto-select it
-                if cloudProfiles.count == 1, let onlyProfile = cloudProfiles.first {
-                    activeProfile = onlyProfile
-                    UserDefaults.standard.set(onlyProfile.id, forKey: activeProfileKey)
-                    applyProfileSettings(onlyProfile)
-                    hasShownPickerThisSession = true
-                } else if !hasShownPickerThisSession {
-                    // Multiple profiles and picker not shown yet — show it
-                    activeProfile = nil
-                    needsProfileSelection = true
-                } else if let activeId = UserDefaults.standard.string(forKey: activeProfileKey),
-                          let profile = cloudProfiles.first(where: { $0.id == activeId }) {
-                    // Picker already shown this session, just refresh the active profile data
-                    activeProfile = profile
-                    applyProfileSettings(profile)
-                }
-            }
+            applyCloudProfiles(cloudProfiles)
         } catch {
             print("Profile download failed: \(error)")
+        }
+    }
+
+    /// Apply profiles from a cloud source and update selection state.
+    func applyCloudProfiles(_ cloudProfiles: [UserProfile], preferredActiveId: String? = nil) {
+        guard !cloudProfiles.isEmpty else { return }
+        profiles = cloudProfiles
+        saveProfiles()
+
+        if let preferredActiveId = preferredActiveId {
+            UserDefaults.standard.set(preferredActiveId, forKey: activeProfileKey)
+        }
+
+        // If only 1 profile, auto-select it
+        if cloudProfiles.count == 1, let onlyProfile = cloudProfiles.first {
+            activeProfile = onlyProfile
+            UserDefaults.standard.set(onlyProfile.id, forKey: activeProfileKey)
+            applyProfileSettings(onlyProfile)
+            hasShownPickerThisSession = true
+        } else if !hasShownPickerThisSession {
+            // Multiple profiles and picker not shown yet — show it
+            activeProfile = nil
+            needsProfileSelection = true
+        } else if let activeId = UserDefaults.standard.string(forKey: activeProfileKey),
+                  let profile = cloudProfiles.first(where: { $0.id == activeId }) {
+            // Picker already shown this session, just refresh the active profile data
+            activeProfile = profile
+            applyProfileSettings(profile)
         }
     }
     

@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */; platformFilter = ios; };
+		02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; platformFilter = ios; productRef = B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -27,7 +27,22 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		0243AAC72F48E59B00FDE2AE /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		0243AAB22F48E59800FDE2AE /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = /System/Library/Frameworks/WidgetKit.framework; sourceTree = "<absolute>"; };
+		0243AAB42F48E59800FDE2AE /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = /System/Library/Frameworks/SwiftUI.framework; sourceTree = "<absolute>"; };
 		184F590C2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "WatchGuide-MovieandTVtracker.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		184F59192E6ACF2000FBE038 /* WatchGuide-MovieandTVtrackerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "WatchGuide-MovieandTVtrackerTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		184F59232E6ACF2000FBE038 /* 
@@ -93,12 +108,22 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0243AAB12F48E59800FDE2AE /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				0243AAB22F48E59800FDE2AE /* WidgetKit.framework */,
+				0243AAB42F48E59800FDE2AE /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		184F59032E6ACF1E00FBE038 = {
 			isa = PBXGroup;
 			children = (
 				184F590E2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker */,
 				184F591C2E6ACF2000FBE038 /* WatchGuide-MovieandTVtrackerTests */,
 				184F59262E6ACF2000FBE038 /* WatchGuide-MovieandTVtrackerUITests */,
+				0243AAB12F48E59800FDE2AE /* Frameworks */,
 				184F590D2E6ACF1E00FBE038 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -126,6 +151,7 @@
 				184F59082E6ACF1E00FBE038 /* Sources */,
 				184F59092E6ACF1E00FBE038 /* Frameworks */,
 				184F590A2E6ACF1E00FBE038 /* Resources */,
+				0243AAC72F48E59B00FDE2AE /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -207,7 +233,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1640;
+				LastSwiftUpdateCheck = 2630;
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
 					184F590B2E6ACF1E00FBE038 = {
@@ -438,9 +464,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "WatchGuide-MovieandTVtracker/WatchGuide-MovieandTVtracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = MZT889Z6FM;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "WatchGuide-MovieandTVtracker/Info.plist";
@@ -456,17 +486,17 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.2.0;
-				"MARKETING_VERSION[sdk=appletvos*]" = 1.2.0;
 				"MARKETING_VERSION[sdk=iphoneos*]" = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker";
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
+				REGISTER_APP_GROUPS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,3";
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -475,9 +505,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "WatchGuide-MovieandTVtracker/WatchGuide-MovieandTVtracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = MZT889Z6FM;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "WatchGuide-MovieandTVtracker/Info.plist";
@@ -493,17 +527,17 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.2.0;
-				"MARKETING_VERSION[sdk=appletvos*]" = 1.2.0;
 				"MARKETING_VERSION[sdk=iphoneos*]" = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker";
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
+				REGISTER_APP_GROUPS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,3";
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -513,7 +547,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = HVBAS84WPA;
+				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
 				MARKETING_VERSION = 1.0;
@@ -532,7 +566,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = HVBAS84WPA;
+				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
 				MARKETING_VERSION = 1.0;

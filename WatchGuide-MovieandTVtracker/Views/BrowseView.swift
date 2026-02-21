@@ -10,6 +10,7 @@ struct BrowseView: View {
     @StateObject private var forYouVM = ForYouViewModel()
     @Binding var selectedItem: MediaItem?
     @State private var selectedNetworkHub: NetworkHub?
+    @State private var selectedCompanyHub: CompanyHub?
     @State private var activeStudioSheet: StudioSheet?
     @State private var showCustomizeSheet = false
     @State private var selectedPerson: Person?
@@ -36,6 +37,33 @@ struct BrowseView: View {
     private var orderedSections: [BrowseSectionItem] {
         StorageService.shared.getOrderedEnabledSections()
     }
+
+    private let productionCompanies: [ProductionCompanyEntry] = [
+        ProductionCompanyEntry(
+            name: "Paramount Pictures",
+            logoURL: "https://upload.wikimedia.org/wikipedia/commons/7/7a/Paramount_Pictures_logo.svg"
+        ),
+        ProductionCompanyEntry(
+            name: "Walt Disney Pictures",
+            logoURL: "https://upload.wikimedia.org/wikipedia/en/4/4a/Walt_Disney_Pictures_logo.svg"
+        ),
+        ProductionCompanyEntry(
+            name: "Highlight",
+            logoURL: nil
+        ),
+        ProductionCompanyEntry(
+            name: "Pixar",
+            logoURL: "https://upload.wikimedia.org/wikipedia/en/6/6e/Pixar_logo.svg"
+        ),
+        ProductionCompanyEntry(
+            name: "WingNut Films",
+            logoURL: "https://upload.wikimedia.org/wikipedia/en/4/4d/WingNut_Films_logo.png"
+        ),
+        ProductionCompanyEntry(
+            name: "Miramax",
+            logoURL: "https://upload.wikimedia.org/wikipedia/commons/5/5a/Miramax_Films_logo.svg"
+        )
+    ]
     
     var body: some View {
         NavigationStack {
@@ -55,6 +83,9 @@ struct BrowseView: View {
             }
             .sheet(item: $activeStudioSheet) { studio in
                 studioSheetContent(for: studio)
+            }
+            .sheet(item: $selectedCompanyHub) { hub in
+                CompanyHubSheet(companyHub: hub, selectedItem: $selectedItem)
             }
             .sheet(item: $selectedJSONHub) { hub in
                 CustomJSONHubSheet(hub: hub, selectedItem: $selectedItem)
@@ -106,6 +137,15 @@ struct BrowseView: View {
             ForEach(orderedSections) { section in
                 browseSectionView(for: section)
             }
+
+            ProductionCompaniesSection(
+                companies: productionCompanies,
+                onCompanyTap: { company in
+                    if let hub = company.toCompanyHub() {
+                        selectedCompanyHub = hub
+                    }
+                }
+            )
         }
         .padding(.vertical)
     }
@@ -227,6 +267,222 @@ struct BrowseView: View {
         case .sonyPictures:
             SonyPicturesSheet(selectedItem: $selectedItem)
         }
+    }
+}
+
+// MARK: - Production Companies Section
+struct ProductionCompanyEntry: Identifiable {
+    let id = UUID().uuidString
+    let name: String
+    let logoURL: String?
+
+    func toCompanyHub() -> CompanyHub? {
+        guard let companyId = ProductionCompanyEntry.companyId(for: name) else { return nil }
+        return CompanyHub(name: name, companyIds: [companyId], networkIds: [])
+    }
+
+    private static func companyId(for name: String) -> Int? {
+        switch name {
+        case "Paramount Pictures": return 4
+        case "Walt Disney Pictures": return 2
+        case "Pixar": return 3
+        case "WingNut Films": return 11
+        case "Miramax": return 14
+        default: return nil
+        }
+    }
+}
+
+struct ProductionCompaniesSection: View {
+    let companies: [ProductionCompanyEntry]
+    let onCompanyTap: (ProductionCompanyEntry) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Production Companies")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                Text("Movies")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(companies) { company in
+                        ProductionCompanyCard(company: company) {
+                            onCompanyTap(company)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+        .padding(.top, 8)
+    }
+}
+
+struct ProductionCompanyCard: View {
+    let company: ProductionCompanyEntry
+    let onTap: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white)
+                        .shadow(
+                            color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.1),
+                            radius: 6,
+                            x: 0,
+                            y: 3
+                        )
+
+                    if let urlString = company.logoURL, let url = URL(string: urlString) {
+                        AsyncImageView(url: url, contentMode: .fit, cornerRadius: 14)
+                            .padding(16)
+                    } else {
+                        Image(systemName: "film")
+                            .font(.title2.weight(.semibold))
+                            .foregroundColor(.gray)
+                    }
+                }
+                .frame(width: 160, height: 92)
+
+                Text(company.name)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct CompanyHubSheet: View {
+    let companyHub: CompanyHub
+    @Binding var selectedItem: MediaItem?
+    @Environment(\.dismiss) private var dismiss
+    @State private var movieItems: [MediaItem] = []
+    @State private var tvItems: [MediaItem] = []
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+    @State private var selectedTab = 0
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(companyHub.name)
+                        .font(.title3)
+                        .fontWeight(.bold)
+                    Text("Movies")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+                .padding(.top, 12)
+
+                Picker("Content Type", selection: $selectedTab) {
+                    Text("Movies").tag(0)
+                    Text("TV").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+
+                if isLoading {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Spacer()
+                } else if let errorMessage = errorMessage {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundColor(.orange)
+                        Text(errorMessage)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                    Spacer()
+                } else {
+                    let items = selectedTab == 0 ? movieItems : tvItems
+                    if items.isEmpty {
+                        Spacer()
+                        VStack(spacing: 12) {
+                            Image(systemName: selectedTab == 0 ? "film" : "tv")
+                                .font(.largeTitle)
+                                .foregroundColor(.secondary)
+                            Text("No \(selectedTab == 0 ? "movies" : "TV shows") found")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    } else {
+                        ScrollView {
+                            LazyVGrid(columns: [
+                                GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                            ], spacing: 20) {
+                                ForEach(items) { item in
+                                    MediaPosterCard(item: item)
+                                        .onTapGesture {
+                                            selectedItem = item
+                                            dismiss()
+                                        }
+                                }
+                            }
+                            .padding()
+                        }
+                    }
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .task {
+            await loadContent()
+        }
+    }
+
+    private func loadContent() async {
+        guard !companyHub.companyIds.isEmpty else {
+            isLoading = false
+            errorMessage = "No company IDs configured."
+            return
+        }
+
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            async let movies = TMDBService.shared.discoverMoviesByCompany(companyIds: companyHub.companyIds)
+            async let tvShows = TMDBService.shared.discoverTVByCompany(companyIds: companyHub.companyIds)
+            let movieResponse = try await movies
+            let tvResponse = try await tvShows
+            movieItems = movieResponse.results
+            tvItems = tvResponse.results
+        } catch {
+            errorMessage = "Failed to load content. Please try again."
+            print("CompanyHubSheet error: \(error)")
+        }
+
+        isLoading = false
     }
 }
 
