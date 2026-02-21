@@ -20,8 +20,14 @@ struct HomeCustomizationView: View {
     
     @State private var showAddJSONHub = false
     
+    // Hero Carousel sizing
+    @ObservedObject private var profileService = ProfileService.shared
+    @State private var selectedAspect: HeroCarouselAspect = .landscape
+    @State private var widthRatio: Double = 1.0
+    
     enum HomeSection: String, CaseIterable {
         case sections = "Sections"
+        case carousel = "Carousel"
         case networks = "Networks"
         case rows = "Rows"
         case hubs = "Hubs"
@@ -71,6 +77,8 @@ struct HomeCustomizationView: View {
                     switch selectedSection {
                     case .sections:
                         browseSectionsEditor
+                    case .carousel:
+                        carouselSizeEditor
                     case .networks:
                         networksEditor
                     case .rows:
@@ -102,6 +110,106 @@ struct HomeCustomizationView: View {
             }
         }
         #endif
+    }
+    
+    // MARK: - Carousel Size Editor
+    private var carouselSizeEditor: some View {
+        Group {
+            Section {
+                Picker("Orientation", selection: $selectedAspect) {
+                    Text("Landscape").tag(HeroCarouselAspect.landscape)
+                    Text("Portrait").tag(HeroCarouselAspect.portrait)
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("Carousel Orientation")
+            } footer: {
+                Text(selectedAspect == .landscape
+                     ? "Landscape shows backdrop images in a wide cinematic view."
+                     : "Portrait shows poster-style artwork in a taller format.")
+            }
+            
+            Section {
+                VStack(spacing: 12) {
+                    HStack {
+                        Text("Width")
+                            .font(.subheadline)
+                        Spacer()
+                        Text("\(Int(widthRatio * 100))%")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.accentColor)
+                    }
+                    
+                    Slider(value: $widthRatio, in: 0.45...1.0, step: 0.05)
+                        .tint(.accentColor)
+                }
+                .padding(.vertical, 4)
+            } header: {
+                Text("Carousel Width")
+            } footer: {
+                Text("Drag the slider to make the hero carousel narrower or wider on the home screen.")
+            }
+            
+            // Live preview
+            Section {
+                carouselPreview
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            } header: {
+                Text("Preview")
+            }
+            
+            Section {
+                Button {
+                    selectedAspect = .landscape
+                    widthRatio = 1.0
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.counterclockwise")
+                            .foregroundColor(.accentColor)
+                        Text("Reset to Default")
+                    }
+                }
+            }
+        }
+    }
+    
+    private var carouselPreview: some View {
+        GeometryReader { geo in
+            let previewAvailableWidth = geo.size.width
+            let previewWidth = previewAvailableWidth * max(0.45, min(1.0, widthRatio))
+            let previewHeight = previewWidth / selectedAspect.aspectRatio
+            
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(.systemGray5))
+                .frame(width: previewWidth, height: previewHeight)
+                .overlay(
+                    VStack(spacing: 6) {
+                        Image(systemName: selectedAspect == .landscape ? "rectangle.fill" : "rectangle.portrait.fill")
+                            .font(.title2)
+                            .foregroundColor(.secondary)
+                        Text("\(selectedAspect == .landscape ? "Landscape" : "Portrait") — \(Int(widthRatio * 100))%")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.accentColor.opacity(0.4), lineWidth: 1.5, antialiased: true)
+                )
+                .frame(maxWidth: .infinity, alignment: .center)
+                .animation(.easeInOut(duration: 0.25), value: selectedAspect)
+                .animation(.easeInOut(duration: 0.15), value: widthRatio)
+        }
+        .frame(height: carouselPreviewHeight)
+        .padding(.vertical, 8)
+    }
+    
+    private var carouselPreviewHeight: CGFloat {
+        let screenWidth = UIScreen.main.bounds.width - 48 // approximate list inset
+        let previewWidth = screenWidth * max(0.45, min(1.0, widthRatio))
+        return previewWidth / selectedAspect.aspectRatio + 16
     }
     
     // MARK: - Sections (Top-Level Order)
@@ -272,6 +380,11 @@ struct HomeCustomizationView: View {
         browseRows = storage.browseRows.sorted { $0.sortOrder < $1.sortOrder }
         networkHubs = storage.networkHubs.sorted { $0.sortOrder < $1.sortOrder }
         customHubs = storage.customJSONHubs.sorted { $0.sortOrder < $1.sortOrder }
+        
+        // Load carousel settings from active profile
+        let profile = profileService.activeProfile
+        selectedAspect = profile?.heroCarouselAspect ?? .landscape
+        widthRatio = profile?.heroCarouselWidthRatio ?? 1.0
     }
     
     private func saveChanges() {
@@ -292,6 +405,9 @@ struct HomeCustomizationView: View {
             storage.deleteCustomJSONHub(id: existing.id)
         }
         storage.reorderCustomJSONHubs(customHubs)
+        
+        // Save carousel layout to active profile
+        profileService.updateHeroCarouselLayout(widthRatio: widthRatio, aspect: selectedAspect)
     }
     
     private func updateSectionSortOrder() {
