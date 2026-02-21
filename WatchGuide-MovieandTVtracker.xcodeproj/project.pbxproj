@@ -76,7 +76,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		187AF0F92E828D1000505E98 /* Exceptions for "WatchGuide-MovieandTVtracker" folder in "WatchGuide-MovieandTVtracker" target */ = {
+		187AF0F92E828D1000505E98 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -89,7 +89,7 @@
 		184F590E2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				187AF0F92E828D1000505E98 /* Exceptions for "WatchGuide-MovieandTVtracker" folder in "WatchGuide-MovieandTVtracker" target */,
+				187AF0F92E828D1000505E98 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
 			);
 			path = "WatchGuide-MovieandTVtracker";
 			sourceTree = "<group>";
@@ -207,7 +207,7 @@
 			);
 			name = "WatchGuide-MovieandTVtracker";
 			packageProductDependencies = (
-				B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */,
+				E4B72C93D6C9CB9DDF8958D5 /* YouTubePlayerKit */,
 			);
 			productName = "WatchGuide-MovieandTVtracker";
 			productReference = 184F590C2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker.app */;
@@ -258,10 +258,7 @@
 			fileSystemSynchronizedGroups = (
 				184F59262E6ACF2000FBE038 /* WatchGuide-MovieandTVtrackerUITests */,
 			);
-			name = "
-
-
-";
+			name = "\n\n\n";
 			packageProductDependencies = (
 			);
 			productName = "WatchGuide-MovieandTVtrackerUITests";
@@ -285,6 +282,7 @@
 			);
 			name = "WatchGuide-MovieandTVtrackerWidgetExtension";
 			packageProductDependencies = (
+				E29B0777E6B58D6B24AB6887 /* YouTubePlayerKit */,
 			);
 			productName = "WatchGuide-MovieandTVtrackerWidgetExtension";
 			productReference = 5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */;
@@ -826,7 +824,32 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		0EAC4673451C0F4192C4778A /* YouTubePlayerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = YouTubePlayerKit;
+		};
+		69A2F55200BA784EA457BB2B /* YouTubePlayerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = YouTubePlayerKit;
+		};
+		97037CEDF0030B9B492E64FE /* YouTubePlayerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = YouTubePlayerKit;
+		};
+		A148741F5DE0DC982152EF91 /* YouTubePlayerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = YouTubePlayerKit;
+		};
 		B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = YouTubePlayerKit;
+		};
+		E29B0777E6B58D6B24AB6887 /* YouTubePlayerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 33069E29849577834425E2AD /* XCRemoteSwiftPackageReference "YouTubePlayerKit" */;
+			productName = YouTubePlayerKit;
+		};
+		E4B72C93D6C9CB9DDF8958D5 /* YouTubePlayerKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 33069E29849577834425E2AD /* XCRemoteSwiftPackageReference "YouTubePlayerKit" */;
 			productName = YouTubePlayerKit;

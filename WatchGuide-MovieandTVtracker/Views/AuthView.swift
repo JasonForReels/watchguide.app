@@ -6,9 +6,6 @@
 //
 
 import SwiftUI
-#if !os(tvOS)
-import MessageUI
-#endif
 
 struct AuthView: View {
     @ObservedObject var authService = AuthService.shared
