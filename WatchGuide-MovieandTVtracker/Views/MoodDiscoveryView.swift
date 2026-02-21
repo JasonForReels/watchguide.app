@@ -62,6 +62,40 @@ struct MoodOption: Identifiable {
     ]
 }
 
+// MARK: - Mood Filter Option
+enum MoodSortFilter: String, CaseIterable, Identifiable {
+    case mostPopular = "Most Popular"
+    case trending = "Trending"
+    case oldest = "Oldest"
+    case newest = "Newest"
+    case imdb = "IMDb"
+    case rottenTomatoes = "Rotten Tomatoes"
+    
+    var id: String { rawValue }
+    
+    var iconName: String {
+        switch self {
+        case .mostPopular: return "flame.fill"
+        case .trending: return "chart.line.uptrend.xyaxis"
+        case .oldest: return "clock.arrow.circlepath"
+        case .newest: return "sparkles"
+        case .imdb: return "star.fill"
+        case .rottenTomatoes: return "percent"
+        }
+    }
+    
+    var tmdbSortBy: String {
+        switch self {
+        case .mostPopular: return "popularity.desc"
+        case .trending: return "popularity.desc"
+        case .oldest: return "primary_release_date.asc"
+        case .newest: return "primary_release_date.desc"
+        case .imdb: return "vote_average.desc"
+        case .rottenTomatoes: return "vote_average.desc"
+        }
+    }
+}
+
 // MARK: - Mood Discovery View
 struct MoodDiscoveryView: View {
     @State private var selectedMood: MoodOption?
@@ -71,6 +105,12 @@ struct MoodDiscoveryView: View {
     @State private var selectedItem: MediaItem?
     @State private var mediaTypeFilter: MediaType = .movie
     @State private var animateGrid = false
+    
+    // Filter state
+    @State private var showFilterSheet = false
+    @State private var activeFilter: MoodSortFilter = .mostPopular
+    @State private var imdbMinRating: Double = 5.0
+    @State private var rtMinPercentage: Double = 50.0
     
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -92,6 +132,18 @@ struct MoodDiscoveryView: View {
         .navigationTitle("Mood Discovery")
         .sheet(item: $selectedItem) { item in
             MediaDetailView(item: item)
+        }
+        .sheet(isPresented: $showFilterSheet) {
+            MoodFilterSheet(
+                activeFilter: $activeFilter,
+                imdbMinRating: $imdbMinRating,
+                rtMinPercentage: $rtMinPercentage
+            ) {
+                // On apply — reload with new filter
+                if let mood = selectedMood {
+                    Task { await loadResults(for: mood) }
+                }
+            }
         }
     }
     
@@ -142,6 +194,9 @@ struct MoodDiscoveryView: View {
                             showResults = false
                             results = []
                             animateGrid = false
+                            activeFilter = .mostPopular
+                            imdbMinRating = 5.0
+                            rtMinPercentage = 50.0
                         }
                     } label: {
                         Image(systemName: "chevron.left")
@@ -156,12 +211,29 @@ struct MoodDiscoveryView: View {
                         Text(mood.name)
                             .font(.title3)
                             .fontWeight(.bold)
-                        Text("\(results.count) \(mediaTypeFilter == .movie ? "movies" : "shows") found")
+                        Text("\(filteredResults.count) \(mediaTypeFilter == .movie ? "movies" : "shows") found")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     
                     Spacer()
+                    
+                    // Filter button
+                    Button {
+                        showFilterSheet = true
+                    } label: {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .font(.title3)
+                            .foregroundColor(.accentColor)
+                            .overlay(alignment: .topTrailing) {
+                                if activeFilter != .mostPopular {
+                                    Circle()
+                                        .fill(Color.accentColor)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                    }
                     
                     // Shuffle button
                     Button {
@@ -173,6 +245,11 @@ struct MoodDiscoveryView: View {
                     }
                 }
                 .padding(.horizontal)
+                
+                // Active filter pill
+                if activeFilter != .mostPopular {
+                    activeFilterPill
+                }
             }
             
             if isLoading {
@@ -190,7 +267,7 @@ struct MoodDiscoveryView: View {
                 LazyVGrid(columns: [
                     GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
                 ], spacing: 20) {
-                    ForEach(Array(results.enumerated()), id: \.element.id) { index, item in
+                    ForEach(Array(filteredResults.enumerated()), id: \.element.id) { index, item in
                         MediaPosterCard(item: item)
                             .onTapGesture {
                                 selectedItem = item
@@ -205,7 +282,100 @@ struct MoodDiscoveryView: View {
                     }
                 }
                 .padding(.horizontal)
+                
+                if !isLoading && filteredResults.isEmpty && !results.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "slider.horizontal.below.square.and.square.filled")
+                            .font(.largeTitle)
+                            .foregroundColor(.secondary)
+                        Text("No results match your filter")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Text("Try lowering the minimum rating")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 40)
+                }
             }
+        }
+    }
+    
+    // MARK: - Active Filter Pill
+    private var activeFilterPill: some View {
+        HStack(spacing: 8) {
+            Image(systemName: activeFilter.iconName)
+                .font(.caption)
+                .foregroundColor(.accentColor)
+            
+            Text(activeFilter.rawValue)
+                .font(.caption)
+                .fontWeight(.medium)
+            
+            if activeFilter == .imdb {
+                Text("\(String(format: "%.1f", imdbMinRating))+ / 10")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else if activeFilter == .rottenTomatoes {
+                Text("\(Int(rtMinPercentage))%+")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Button {
+                activeFilter = .mostPopular
+                imdbMinRating = 5.0
+                rtMinPercentage = 50.0
+                if let mood = selectedMood {
+                    Task { await loadResults(for: mood) }
+                }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(
+            Capsule()
+                .fill(Color.accentColor.opacity(0.1))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.accentColor.opacity(0.2), lineWidth: 0.5)
+        )
+        .padding(.horizontal)
+    }
+    
+    // MARK: - Filtered Results
+    private var filteredResults: [MediaItem] {
+        switch activeFilter {
+        case .imdb:
+            return results.filter { item in
+                let rating = item.voteAverage ?? 0
+                return rating >= imdbMinRating
+            }
+        case .rottenTomatoes:
+            // Approximate RT percentage from TMDB vote_average (0-10 scale → 0-100%)
+            return results.filter { item in
+                let percentage = (item.voteAverage ?? 0) * 10
+                return percentage >= rtMinPercentage
+            }
+        case .oldest:
+            return results.sorted { a, b in
+                let dateA = a.displayDate ?? "9999"
+                let dateB = b.displayDate ?? "9999"
+                return dateA < dateB
+            }
+        case .newest:
+            return results.sorted { a, b in
+                let dateA = a.displayDate ?? "0000"
+                let dateB = b.displayDate ?? "0000"
+                return dateA > dateB
+            }
+        case .mostPopular, .trending:
+            return results
         }
     }
     
@@ -222,46 +392,61 @@ struct MoodDiscoveryView: View {
         isLoading = true
         animateGrid = false
         
+        // Determine sort for the API call
+        let sortBy: String
+        switch activeFilter {
+        case .mostPopular:
+            sortBy = mood.sortBy
+        case .trending:
+            sortBy = "popularity.desc"
+        case .oldest:
+            sortBy = "primary_release_date.asc"
+        case .newest:
+            sortBy = "primary_release_date.desc"
+        case .imdb, .rottenTomatoes:
+            sortBy = "vote_average.desc"
+        }
+        
         do {
             let page = Int.random(in: 1...3) // Add randomness
             
             if mood.name == "Nostalgia Trip" {
-                // Special case: classics from 1970-2005
+                // Special case: classics
                 let response: TMDBResponse<MediaItem>
                 if mediaTypeFilter == .movie {
                     response = try await TMDBService.shared.discoverMovies(
                         genres: nil,
                         year: nil,
-                        sortBy: "vote_count.desc",
+                        sortBy: activeFilter == .mostPopular ? "vote_count.desc" : sortBy,
                         page: page
                     )
                 } else {
                     response = try await TMDBService.shared.discoverTV(
                         genres: nil,
                         year: nil,
-                        sortBy: "vote_count.desc",
+                        sortBy: activeFilter == .mostPopular ? "vote_count.desc" : sortBy,
                         page: page
                     )
                 }
-                results = response.results.shuffled()
+                results = activeFilter == .oldest || activeFilter == .newest ? response.results : response.results.shuffled()
             } else {
                 let response: TMDBResponse<MediaItem>
                 if mediaTypeFilter == .movie {
                     response = try await TMDBService.shared.discoverMovies(
                         genres: mood.genreIds.isEmpty ? nil : mood.genreIds,
                         year: nil,
-                        sortBy: mood.sortBy,
+                        sortBy: sortBy,
                         page: page
                     )
                 } else {
                     response = try await TMDBService.shared.discoverTV(
                         genres: mood.genreIds.isEmpty ? nil : mood.genreIds,
                         year: nil,
-                        sortBy: mood.sortBy,
+                        sortBy: sortBy,
                         page: page
                     )
                 }
-                results = response.results.shuffled()
+                results = activeFilter == .oldest || activeFilter == .newest ? response.results : response.results.shuffled()
             }
         } catch {
             print("Mood discovery error: \(error)")
@@ -271,6 +456,240 @@ struct MoodDiscoveryView: View {
         isLoading = false
         withAnimation {
             animateGrid = true
+        }
+    }
+}
+
+// MARK: - Mood Filter Sheet
+struct MoodFilterSheet: View {
+    @Binding var activeFilter: MoodSortFilter
+    @Binding var imdbMinRating: Double
+    @Binding var rtMinPercentage: Double
+    let onApply: () -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var localFilter: MoodSortFilter
+    @State private var localIMDb: Double
+    @State private var localRT: Double
+    
+    init(activeFilter: Binding<MoodSortFilter>, imdbMinRating: Binding<Double>, rtMinPercentage: Binding<Double>, onApply: @escaping () -> Void) {
+        self._activeFilter = activeFilter
+        self._imdbMinRating = imdbMinRating
+        self._rtMinPercentage = rtMinPercentage
+        self.onApply = onApply
+        self._localFilter = State(initialValue: activeFilter.wrappedValue)
+        self._localIMDb = State(initialValue: imdbMinRating.wrappedValue)
+        self._localRT = State(initialValue: rtMinPercentage.wrappedValue)
+    }
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                // Sort/Filter Options
+                Section {
+                    ForEach(MoodSortFilter.allCases) { filter in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                localFilter = filter
+                            }
+                        } label: {
+                            HStack(spacing: 14) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(localFilter == filter ? Color.accentColor.opacity(0.15) : Color(.systemGray5))
+                                        .frame(width: 36, height: 36)
+                                    
+                                    Image(systemName: filter.iconName)
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(localFilter == filter ? .accentColor : .secondary)
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(filter.rawValue)
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                        .foregroundColor(.primary)
+                                    
+                                    Text(filterDescription(for: filter))
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                if localFilter == filter {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.accentColor)
+                                        .transition(.scale.combined(with: .opacity))
+                                }
+                            }
+                        }
+                        .listRowBackground(
+                            localFilter == filter
+                            ? Color.accentColor.opacity(0.06)
+                            : Color.clear
+                        )
+                    }
+                } header: {
+                    Text("Sort & Filter")
+                }
+                
+                // IMDb Rating Slider
+                if localFilter == .imdb {
+                    Section {
+                        VStack(alignment: .leading, spacing: 16) {
+                            HStack {
+                                Image(systemName: "star.fill")
+                                    .foregroundColor(.yellow)
+                                Text("Minimum IMDb Rating")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                Spacer()
+                                Text(String(format: "%.1f", localIMDb))
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.accentColor)
+                                    .monospacedDigit()
+                                Text("/ 10")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Slider(value: $localIMDb, in: 1...10, step: 0.5) {
+                                Text("IMDb Rating")
+                            } minimumValueLabel: {
+                                Text("1")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            } maximumValueLabel: {
+                                Text("10")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .tint(.yellow)
+                            
+                            // Rating reference labels
+                            HStack {
+                                ratingRefLabel("Bad", value: "1-3")
+                                Spacer()
+                                ratingRefLabel("Average", value: "5-6")
+                                Spacer()
+                                ratingRefLabel("Great", value: "8+")
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    } header: {
+                        Text("IMDb Rating Filter")
+                    } footer: {
+                        Text("Only show titles rated \(String(format: "%.1f", localIMDb)) and above on IMDb's 10-point scale")
+                    }
+                }
+                
+                // Rotten Tomatoes Percentage Slider
+                if localFilter == .rottenTomatoes {
+                    Section {
+                        VStack(alignment: .leading, spacing: 16) {
+                            HStack {
+                                Image(systemName: "percent")
+                                    .foregroundColor(.red)
+                                Text("Minimum Tomatometer")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                Spacer()
+                                Text("\(Int(localRT))")
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.red)
+                                    .monospacedDigit()
+                                Text("%")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Slider(value: $localRT, in: 0...100, step: 5) {
+                                Text("Rotten Tomatoes")
+                            } minimumValueLabel: {
+                                Text("0%")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            } maximumValueLabel: {
+                                Text("100%")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .tint(.red)
+                            
+                            // Freshness reference labels
+                            HStack {
+                                freshnessLabel("Rotten", range: "0-59%", color: .green)
+                                Spacer()
+                                freshnessLabel("Fresh", range: "60-74%", color: .red)
+                                Spacer()
+                                freshnessLabel("Certified", range: "75%+", color: .red)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    } header: {
+                        Text("Rotten Tomatoes Filter")
+                    } footer: {
+                        Text("Only show titles with a Tomatometer score of \(Int(localRT))% and above")
+                    }
+                }
+            }
+            .navigationTitle("Filters")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Apply") {
+                        activeFilter = localFilter
+                        imdbMinRating = localIMDb
+                        rtMinPercentage = localRT
+                        onApply()
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+    
+    private func filterDescription(for filter: MoodSortFilter) -> String {
+        switch filter {
+        case .mostPopular: return "Sort by overall popularity"
+        case .trending: return "What's hot right now"
+        case .oldest: return "Earliest release date first"
+        case .newest: return "Latest release date first"
+        case .imdb: return "Filter by IMDb rating"
+        case .rottenTomatoes: return "Filter by Tomatometer score"
+        }
+    }
+    
+    private func ratingRefLabel(_ label: String, value: String) -> some View {
+        VStack(spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.caption2)
+                .foregroundColor(.secondary.opacity(0.7))
+        }
+    }
+    
+    private func freshnessLabel(_ label: String, range: String, color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+            Text(range)
+                .font(.caption2)
+                .foregroundColor(.secondary.opacity(0.7))
         }
     }
 }

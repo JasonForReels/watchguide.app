@@ -478,6 +478,32 @@ struct SettingsView: View {
                     }
                 }
             }
+            
+            // Made with Milq
+            Section {
+                HStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.12))
+                            .frame(width: 44, height: 44)
+                        
+                        Image(systemName: "hammer.fill")
+                            .font(.title3)
+                            .foregroundColor(.accentColor)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Made with Milq")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        Text("Built using the Milq app development platform")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
         }
         .navigationTitle("Settings")
         .onChange(of: settings) { _, newValue in
