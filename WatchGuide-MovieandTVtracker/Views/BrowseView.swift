@@ -60,20 +60,40 @@ struct BrowseView: View {
             logoURL: "https://cdn.brandfetch.io/idxBWIwtz0/w/405/h/396/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1768344714851"
         ),
         ProductionCompanyEntry(
-            name: "Highlight",
-            logoURL: nil
-        ),
-        ProductionCompanyEntry(
             name: "Pixar",
             logoURL: "https://cdn.brandfetch.io/idYVybSjsA/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1764458646138"
         ),
         ProductionCompanyEntry(
-            name: "WingNut Films",
-            logoURL: "https://upload.wikimedia.org/wikipedia/en/4/4d/WingNut_Films_logo.png"
+            name: "Universal Pictures",
+            logoURL: "https://cdn.brandfetch.io/id4AnmmNSk/theme/light/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1767628904850"
         ),
         ProductionCompanyEntry(
-            name: "Miramax",
-            logoURL: "https://upload.wikimedia.org/wikipedia/commons/5/5a/Miramax_Films_logo.svg"
+            name: "Sony Pictures",
+            logoURL: "https://cdn.brandfetch.io/idIBgcvFOi/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1766845823465"
+        ),
+        ProductionCompanyEntry(
+            name: "Metro-Goldwyn-Mayer",
+            logoURL: "https://cdn.brandfetch.io/idLI5gJfl8/w/161/h/86/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1667810266726"
+        ),
+        ProductionCompanyEntry(
+            name: "Lionsgate Films",
+            logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Lionsgate_2025.svg/500px-Lionsgate_2025.svg.png"
+        ),
+        ProductionCompanyEntry(
+            name: "A24",
+            logoURL: "https://cdn.brandfetch.io/idHlMmIC6s/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1748302432792"
+        ),
+        ProductionCompanyEntry(
+            name: "Blumhouse Productions",
+            logoURL: "https://cdn.brandfetch.io/idMdr695hi/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1767230760280"
+        ),
+        ProductionCompanyEntry(
+            name: "Happy Madison Productions",
+            logoURL: "https://upload.wikimedia.org/wikipedia/commons/4/4f/Happy-Madison-Productions-logo.png"
+        ),
+        ProductionCompanyEntry(
+            name: "Amblin Entertainment",
+            logoURL: "https://upload.wikimedia.org/wikipedia/en/1/16/Amblin_Entertainment_%28Print%29.svg"
         )
     ]
     
@@ -336,8 +356,14 @@ struct ProductionCompanyEntry: Identifiable {
         case "Searchlight Pictures": return 127929
         case "Warner Bros.": return 174
         case "Pixar": return 3
-        case "WingNut Films": return 11
-        case "Miramax": return 14
+        case "Universal Pictures": return 33
+        case "Sony Pictures": return 34
+        case "Metro-Goldwyn-Mayer": return 21
+        case "Lionsgate Films": return 1632
+        case "A24": return 41077
+        case "Blumhouse Productions": return 3172
+        case "Happy Madison Productions": return 878
+        case "Amblin Entertainment": return 56
         default: return nil
         }
     }
@@ -349,15 +375,10 @@ struct ProductionCompaniesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Production Companies")
-                    .font(.title3)
-                    .fontWeight(.bold)
-                Text("Movies")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal)
+            Text("Production Companies")
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.horizontal)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {
@@ -445,17 +466,12 @@ struct CompanyHubSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(companyHub.name)
-                        .font(.title3)
-                        .fontWeight(.bold)
-                    Text("Movies")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-                .padding(.top, 12)
+                Text(companyHub.name)
+                    .font(.title3)
+                    .fontWeight(.bold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.top, 12)
 
                 Picker("Content Type", selection: $selectedTab) {
                     Text("Movies").tag(0)

@@ -164,7 +164,7 @@ struct HeroCarouselView: View {
             timerManager.reset(defaultDuration: 15)
         }
         .task {
-            await trailerLoader.loadTrailers(for: items)
+            await trailerLoader.loadTrailers(for: items, isPortrait: isPortrait)
         }
     }
     
@@ -370,7 +370,7 @@ class HeroTrailerLoader: ObservableObject {
     /// item.id → full backdrop URL string from FanArt.tv (nil = use TMDB backdrop)
     @Published var fanartBackdropURLs: [Int: String] = [:]
     
-    func loadTrailers(for items: [MediaItem]) async {
+    func loadTrailers(for items: [MediaItem], isPortrait: Bool) async {
         // Load trailers, logos (FanArt→TMDB), and backdrops in parallel
         await withTaskGroup(of: (Int, String?, String?, String?).self) { group in
             for item in items.prefix(10) {
@@ -387,7 +387,7 @@ class HeroTrailerLoader: ObservableObject {
                         } else {
                             videos = try await TMDBService.shared.getTVShowVideos(id: item.id)
                         }
-                        trailerKey = HeroTrailerLoader.pickTrailerKey(from: videos.results)
+                        trailerKey = HeroTrailerLoader.pickTrailerKey(from: videos.results, preferPortrait: isPortrait)
                     } catch {}
                     
                     // Fetch logo — FanArt.tv first, TMDB fallback
@@ -434,9 +434,41 @@ class HeroTrailerLoader: ObservableObject {
     
     /// Picks the best trailer key from a list of videos.
     /// Broadened logic: accepts official trailers first, then teasers, then any YouTube video.
-    nonisolated static func pickTrailerKey(from videos: [Video]) -> String? {
+    /// In portrait mode, prefer 9:16/vertical trailers or clips when available.
+    nonisolated static func pickTrailerKey(from videos: [Video], preferPortrait: Bool) -> String? {
         let yt = videos.filter { $0.site.lowercased() == "youtube" }
         guard !yt.isEmpty else { return nil }
+        
+        if preferPortrait {
+            let verticalKeywords = ["9:16", "9x16", "vertical", "portrait", "shorts", "reel", "tiktok", "instagram"]
+            let isVertical: (Video) -> Bool = { video in
+                let name = video.name.lowercased()
+                return verticalKeywords.contains { name.contains($0) }
+            }
+            let isTrailerOrTeaser: (Video) -> Bool = { video in
+                let type = video.type.lowercased()
+                return type == "trailer" || type == "teaser"
+            }
+            let isClip: (Video) -> Bool = { video in
+                let type = video.type.lowercased()
+                return type == "clip" || type == "featurette"
+            }
+            
+            let verticalTrailers = yt.filter { isVertical($0) && isTrailerOrTeaser($0) }
+            if let pick = verticalTrailers.first {
+                return pick.key
+            }
+            
+            let verticalClips = yt.filter { isVertical($0) && isClip($0) }
+            if let pick = verticalClips.first {
+                return pick.key
+            }
+            
+            let anyClips = yt.filter { isClip($0) }
+            if let pick = anyClips.first {
+                return pick.key
+            }
+        }
         
         // Priority 1: Official trailer (not a "final" one to avoid spoilers)
         let officialTrailers = yt.filter { v in
