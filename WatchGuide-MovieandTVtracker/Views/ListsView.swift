@@ -22,9 +22,6 @@ struct ListsView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Scout AI Banner
-                ScoutPromoBanner()
-                
                 // Tab selector
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {

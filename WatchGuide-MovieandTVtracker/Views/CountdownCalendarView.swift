@@ -55,9 +55,6 @@ struct CountdownCalendarView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Scout AI banner
-            ScoutPromoBanner()
-            
             // Tab selector
             Picker("Source", selection: $selectedTab) {
                 Text("Upcoming").tag(0)

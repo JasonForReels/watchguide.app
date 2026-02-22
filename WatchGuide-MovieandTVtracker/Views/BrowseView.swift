@@ -153,10 +153,6 @@ struct BrowseView: View {
     
     private var browseScrollContent: some View {
         LazyVStack(spacing: 24) {
-            if isAdultProfile {
-                ScoutPromoBanner()
-            }
-            
             if !viewModel.heroItems.isEmpty {
                 ResizableHeroCarousel(
                     items: viewModel.heroItems,

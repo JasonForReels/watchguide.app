@@ -18,9 +18,6 @@ struct SearchView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Scout AI Banner
-            ScoutPromoBanner()
-            
             // Search bar
             HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
