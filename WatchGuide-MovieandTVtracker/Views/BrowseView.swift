@@ -2139,6 +2139,44 @@ class BrowseViewModel: ObservableObject {
         }
     }
     
+    /// Filters a list of MediaItems to only those that have at least one YouTube trailer/teaser.
+    /// Checks videos concurrently and preserves original order.
+    private func filterItemsWithTrailers(_ items: [MediaItem]) async -> [MediaItem] {
+        guard !items.isEmpty else { return [] }
+        
+        let results = await withTaskGroup(of: (Int, MediaItem, Bool).self, returning: [(Int, MediaItem)].self) { group in
+            for (index, item) in items.enumerated() {
+                group.addTask {
+                    do {
+                        let videos: VideosResponse
+                        if item.resolvedMediaType == .movie {
+                            videos = try await TMDBService.shared.getMovieVideos(id: item.id)
+                        } else {
+                            videos = try await TMDBService.shared.getTVShowVideos(id: item.id)
+                        }
+                        let hasTrailer = videos.results.contains { v in
+                            v.site.lowercased() == "youtube" &&
+                            (v.type.lowercased() == "trailer" || v.type.lowercased() == "teaser")
+                        }
+                        return (index, item, hasTrailer)
+                    } catch {
+                        return (index, item, false)
+                    }
+                }
+            }
+            
+            var matched: [(Int, MediaItem)] = []
+            for await (index, item, hasTrailer) in group {
+                if hasTrailer {
+                    matched.append((index, item))
+                }
+            }
+            return matched.sorted { $0.0 < $1.0 }
+        }
+        
+        return results.map { $0.1 }
+    }
+    
     private func loadHeroItems() async {
         let source = StorageService.shared.settings.heroCarouselSource
         let isAuthenticated = await MainActor.run { AuthService.shared.isAuthenticated }
@@ -2160,17 +2198,25 @@ class BrowseViewModel: ObservableObject {
                     : "dualipafan01/family-friendly-list"
                 let items = try await MDBListService.shared.fetchListItemsAsMediaItems(listId: listId)
                 if !items.isEmpty {
-                    heroItems = Array(items.prefix(10))
-                    ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
-                    return
+                    // Fetch more candidates to ensure we have enough after trailer filtering
+                    let candidates = Array(items.prefix(20))
+                    let withTrailers = await filterItemsWithTrailers(candidates)
+                    if !withTrailers.isEmpty {
+                        heroItems = Array(withTrailers.prefix(10))
+                        ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
+                        return
+                    }
+                    // If no trailers found, fall through to TMDB trending fallback
                 }
             } catch {
                 print("Error loading MDBList hero items: \(error)")
             }
-            // Fallback to TMDB trending if MDBList fails
+            // Fallback to TMDB trending if MDBList fails or no trailers found
             do {
                 let items = try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results
-                heroItems = Array(items.prefix(10))
+                let candidates = Array(items.prefix(20))
+                let withTrailers = await filterItemsWithTrailers(candidates)
+                heroItems = Array(withTrailers.prefix(10))
                 ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
             } catch {
                 print("Error loading fallback hero: \(error)")
@@ -2202,7 +2248,10 @@ class BrowseViewModel: ObservableObject {
                 await loadMDBListPairHeroItems()
                 return
             }
-            heroItems = Array(items.prefix(10))
+            // Filter to only items with trailers
+            let candidates = Array(items.prefix(20))
+            let withTrailers = await filterItemsWithTrailers(candidates)
+            heroItems = Array(withTrailers.prefix(10))
             
             // Prefetch hero backdrop images
             ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
@@ -2227,7 +2276,9 @@ class BrowseViewModel: ObservableObject {
         let movies = movieList?.items.filter { $0.mediaType == .movie }.map { $0.toMediaItem() } ?? []
         let shows = showList?.items.filter { $0.mediaType == .tv }.map { $0.toMediaItem() } ?? []
 
-        heroItems = await buildHeroPair(movies: movies, shows: shows)
+        let combined = await buildHeroPair(movies: movies, shows: shows)
+        let withTrailers = await filterItemsWithTrailers(combined)
+        heroItems = Array(withTrailers.prefix(10))
         ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
     }
 
@@ -2272,7 +2323,9 @@ class BrowseViewModel: ObservableObject {
             }
         }
 
-        heroItems = await buildHeroPair(movies: movies, shows: shows)
+        let combined = await buildHeroPair(movies: movies, shows: shows)
+        let withTrailers = await filterItemsWithTrailers(combined)
+        heroItems = Array(withTrailers.prefix(10))
         ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
     }
 
@@ -2382,14 +2435,17 @@ class BrowseViewModel: ObservableObject {
                 return true
             }
             
-            heroItems = Array(unique.prefix(10))
+            // Filter to only items with trailers
+            let withTrailers = await filterItemsWithTrailers(Array(unique.prefix(20)))
+            heroItems = Array(withTrailers.prefix(10))
             ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
         } catch {
             print("Error loading kids hero items: \(error)")
             // Fallback: try the family-friendly MDBList
             do {
                 let items = try await MDBListService.shared.fetchListItemsAsMediaItems(listId: "dualipafan01/family-friendly-list")
-                heroItems = Array(items.prefix(10))
+                let withTrailers = await filterItemsWithTrailers(Array(items.prefix(20)))
+                heroItems = Array(withTrailers.prefix(10))
                 ImagePrefetchService.shared.prefetchBackdrops(for: heroItems, size: .backdrop)
             } catch {
                 print("Kids hero fallback also failed: \(error)")
