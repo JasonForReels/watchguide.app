@@ -14,6 +14,7 @@ struct SearchView: View {
     @State private var isSyncingUpload = false
     @State private var isSyncingDownload = false
     @State private var syncAlert: (title: String, message: String)?
+    @State private var selectedPerson: Person?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -78,45 +79,48 @@ struct SearchView: View {
                         )
                     }
                     
-                    Divider()
-                        .frame(height: 20)
-                    
-                    // Genre filter
-                    Menu {
-                        Button("All Genres") {
-                            viewModel.selectedGenre = nil
-                        }
+                    // Hide genre/year filters when People is selected (not applicable)
+                    if viewModel.selectedType != .person {
                         Divider()
-                        ForEach(viewModel.genres, id: \.id) { genre in
-                            Button(genre.name) {
-                                viewModel.selectedGenre = genre
+                            .frame(height: 20)
+                        
+                        // Genre filter
+                        Menu {
+                            Button("All Genres") {
+                                viewModel.selectedGenre = nil
                             }
-                        }
-                    } label: {
-                        FilterChip(
-                            title: viewModel.selectedGenre?.name ?? "Genre",
-                            isSelected: viewModel.selectedGenre != nil,
-                            showChevron: true
-                        )
-                    }
-                    
-                    // Year filter
-                    Menu {
-                        Button("Any Year") {
-                            viewModel.selectedYear = nil
-                        }
-                        Divider()
-                        ForEach((1970...2025).reversed(), id: \.self) { year in
-                            Button("\(year)") {
-                                viewModel.selectedYear = year
+                            Divider()
+                            ForEach(viewModel.genres, id: \.id) { genre in
+                                Button(genre.name) {
+                                    viewModel.selectedGenre = genre
+                                }
                             }
+                        } label: {
+                            FilterChip(
+                                title: viewModel.selectedGenre?.name ?? "Genre",
+                                isSelected: viewModel.selectedGenre != nil,
+                                showChevron: true
+                            )
                         }
-                    } label: {
-                        FilterChip(
-                            title: viewModel.selectedYear != nil ? "\(viewModel.selectedYear!)" : "Year",
-                            isSelected: viewModel.selectedYear != nil,
-                            showChevron: true
-                        )
+                        
+                        // Year filter
+                        Menu {
+                            Button("Any Year") {
+                                viewModel.selectedYear = nil
+                            }
+                            Divider()
+                            ForEach((1970...2025).reversed(), id: \.self) { year in
+                                Button("\(year)") {
+                                    viewModel.selectedYear = year
+                                }
+                            }
+                        } label: {
+                            FilterChip(
+                                title: viewModel.selectedYear != nil ? "\(viewModel.selectedYear!)" : "Year",
+                                isSelected: viewModel.selectedYear != nil,
+                                showChevron: true
+                            )
+                        }
                     }
                 }
                 .padding(.horizontal)
@@ -131,7 +135,7 @@ struct SearchView: View {
                 ProgressView()
                     .scaleEffect(1.2)
                 Spacer()
-            } else if viewModel.hasSearched && viewModel.results.isEmpty {
+            } else if viewModel.hasSearched && viewModel.isEmptyResults {
                 Spacer()
                 VStack(spacing: 16) {
                     Image(systemName: "magnifyingglass")
@@ -144,7 +148,7 @@ struct SearchView: View {
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-            } else if viewModel.results.isEmpty {
+            } else if !viewModel.hasSearched && viewModel.isEmptyResults {
                 // Show search history and suggestions
                 SearchSuggestionsView(
                     viewModel: viewModel,
@@ -155,8 +159,42 @@ struct SearchView: View {
                         }
                     }
                 )
+            } else if viewModel.isPeopleSearch {
+                // People results grid
+                ScrollView {
+                    LazyVGrid(columns: [
+                        GridItem(.adaptive(minimum: 100, maximum: 130), spacing: 20)
+                    ], spacing: 24) {
+                        ForEach(viewModel.personResults) { person in
+                            PersonSearchCard(person: person)
+                                .onTapGesture {
+                                    selectedPerson = person
+                                    StorageService.shared.addSearchHistory(viewModel.query)
+                                }
+                        }
+                    }
+                    .padding()
+                    
+                    // Load more
+                    if viewModel.hasMorePages {
+                        Button {
+                            Task {
+                                await viewModel.loadMore()
+                            }
+                        } label: {
+                            if viewModel.isLoadingMore {
+                                ProgressView()
+                            } else {
+                                Text("Load More")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                            }
+                        }
+                        .padding()
+                    }
+                }
             } else {
-                // Results grid
+                // Media results grid
                 ScrollView {
                     LazyVGrid(columns: [
                         GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
@@ -228,6 +266,21 @@ struct SearchView: View {
             Button("OK", role: .cancel) { syncAlert = nil }
         } message: {
             Text(syncAlert?.message ?? "")
+        }
+        .sheet(item: $selectedPerson) { person in
+            PersonDetailView(
+                personId: person.id,
+                personName: person.name,
+                profilePath: person.profilePath
+            )
+        }
+        .onChange(of: viewModel.selectedType) { _, _ in
+            // Re-search when filter type changes (if there's an active query)
+            if viewModel.hasSearched && !viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Task {
+                    await viewModel.search()
+                }
+            }
         }
         .task {
             await viewModel.loadGenres()
@@ -719,6 +772,7 @@ struct FlowLayout: Layout {
 class SearchViewModel: ObservableObject {
     @Published var query = ""
     @Published var results: [MediaItem] = []
+    @Published var personResults: [Person] = []
     @Published var selectedType: MediaType?
     @Published var selectedGenre: Genre?
     @Published var selectedYear: Int?
@@ -731,6 +785,16 @@ class SearchViewModel: ObservableObject {
     
     var hasMorePages: Bool {
         currentPage < totalPages
+    }
+    
+    /// True when the People filter is active
+    var isPeopleSearch: Bool {
+        selectedType == .person
+    }
+    
+    /// True when there are no results at all (media + people)
+    var isEmptyResults: Bool {
+        results.isEmpty && personResults.isEmpty
     }
     
     func loadGenres() async {
@@ -755,6 +819,7 @@ class SearchViewModel: ObservableObject {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else {
             results = []
+            personResults = []
             hasSearched = false
             return
         }
@@ -762,13 +827,20 @@ class SearchViewModel: ObservableObject {
         isLoading = true
         hasSearched = true
         currentPage = 1
+        personResults = []
         
         do {
-            if selectedGenre != nil || selectedYear != nil {
+            if selectedType == .person {
+                // Dedicated person search
+                let response = try await TMDBService.shared.searchPerson(query: trimmedQuery)
+                totalPages = response.totalPages ?? 1
+                personResults = response.results
+                results = []
+            } else if selectedGenre != nil || selectedYear != nil {
                 // Use discover endpoint for filters
                 await searchWithFilters()
             } else {
-                // Regular search
+                // Regular multi-search
                 let response = try await TMDBService.shared.searchMulti(query: trimmedQuery)
                 totalPages = response.totalPages ?? 1
                 results = filterResults(response.results)
@@ -776,6 +848,7 @@ class SearchViewModel: ObservableObject {
         } catch {
             print("Search error: \(error)")
             results = []
+            personResults = []
         }
         
         isLoading = false
@@ -788,8 +861,13 @@ class SearchViewModel: ObservableObject {
         currentPage += 1
         
         do {
-            let response = try await TMDBService.shared.searchMulti(query: query, page: currentPage)
-            results.append(contentsOf: filterResults(response.results))
+            if selectedType == .person {
+                let response = try await TMDBService.shared.searchPerson(query: query, page: currentPage)
+                personResults.append(contentsOf: response.results)
+            } else {
+                let response = try await TMDBService.shared.searchMulti(query: query, page: currentPage)
+                results.append(contentsOf: filterResults(response.results))
+            }
         } catch {
             print("Load more error: \(error)")
             currentPage -= 1
@@ -851,7 +929,51 @@ class SearchViewModel: ObservableObject {
     func clearSearch() {
         query = ""
         results = []
+        personResults = []
         hasSearched = false
+    }
+}
+
+// MARK: - Person Search Card
+struct PersonSearchCard: View {
+    let person: Person
+    @State private var isPressed = false
+    
+    var body: some View {
+        VStack(spacing: 10) {
+            ProfileImageView(profilePath: person.profilePath, size: 90)
+                .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+                .scaleEffect(isPressed ? 0.95 : 1.0)
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
+            
+            VStack(spacing: 3) {
+                Text(person.name)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                
+                if let dept = person.knownForDepartment, !dept.isEmpty {
+                    Text(dept)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                
+                // Show top known-for title
+                if let knownFor = person.knownFor?.first, let title = knownFor.displayTitle as String? {
+                    Text(title)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .italic()
+                }
+            }
+            .frame(width: 100)
+        }
+        .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+            isPressed = pressing
+        }, perform: {})
     }
 }
 
