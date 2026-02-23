@@ -634,7 +634,7 @@ class StorageService: ObservableObject {
     
     /// Sync individual item add to cloud (background)
     private func syncAddToCloud(_ item: SavedMediaItem, listType: SyncListType) {
-        guard cloudSyncEnabled && isCloudConfigured else { return }
+        guard shouldAutoSyncHomeConfig else { return }
         
         Task {
             do {
@@ -651,7 +651,7 @@ class StorageService: ObservableObject {
     
     /// Sync individual item remove from cloud (background)
     private func syncRemoveFromCloud(mediaId: Int, mediaType: MediaType, listType: SyncListType) {
-        guard cloudSyncEnabled && isCloudConfigured else { return }
+        guard shouldAutoSyncHomeConfig else { return }
         
         Task {
             do {
@@ -668,15 +668,13 @@ class StorageService: ObservableObject {
     
     // MARK: - Browse Customization Cloud Sync
     
-    /// Whether browse customization should auto-sync to cloud.
-    /// Syncs if cloud sync is explicitly enabled, OR if user is authenticated with Supabase configured.
+    /// Whether data should auto-sync to cloud.
+    /// Syncs whenever the user is authenticated and cloud is configured.
     private var shouldAutoSyncHomeConfig: Bool {
         #if os(tvOS)
         return false
         #else
         guard isCloudConfigured else { return false }
-        if cloudSyncEnabled { return true }
-        // Also auto-sync if user is authenticated (even without explicit toggle)
         return AuthService.shared.isAuthenticated
         #endif
     }
@@ -790,18 +788,21 @@ class StorageService: ObservableObject {
         let list = CustomList(name: name, description: description, iconName: iconName, displayStyle: displayStyle)
         customLists.append(list)
         save(customLists, to: customListsURL)
+        syncCustomListsToCloud()
     }
     
     func updateCustomList(_ list: CustomList) {
         if let index = customLists.firstIndex(where: { $0.id == list.id }) {
             customLists[index] = list
             save(customLists, to: customListsURL)
+            syncCustomListsToCloud()
         }
     }
     
     func deleteCustomList(id: String) {
         customLists.removeAll { $0.id == id }
         save(customLists, to: customListsURL)
+        syncCustomListsToCloud()
     }
     
     func addToCustomList(listId: String, item: SavedMediaItem) {
@@ -810,6 +811,7 @@ class StorageService: ObservableObject {
             customLists[index].items.insert(item, at: 0)
             customLists[index].updatedAt = Date()
             save(customLists, to: customListsURL)
+            syncCustomListsToCloud()
         }
     }
     
@@ -818,6 +820,24 @@ class StorageService: ObservableObject {
             customLists[index].items.removeAll { $0.id == item.id }
             customLists[index].updatedAt = Date()
             save(customLists, to: customListsURL)
+            syncCustomListsToCloud()
+        }
+    }
+    
+    /// Sync custom lists to cloud (background)
+    private func syncCustomListsToCloud() {
+        guard shouldAutoSyncHomeConfig else { return }
+        let listsCopy = customLists
+        Task {
+            do {
+                if isICloudSync {
+                    try await CloudKitSyncService.shared.uploadCustomLists(listsCopy)
+                } else {
+                    try await SupabaseService.shared.uploadCustomLists(listsCopy)
+                }
+            } catch {
+                print("Cloud sync custom lists failed: \(error)")
+            }
         }
     }
     
@@ -953,6 +973,24 @@ class StorageService: ObservableObject {
     func updateSettings(_ newSettings: UserSettings) {
         settings = newSettings
         save(settings, to: settingsURL)
+        syncSettingsToCloud()
+    }
+    
+    /// Sync settings to cloud (background)
+    private func syncSettingsToCloud() {
+        guard shouldAutoSyncHomeConfig else { return }
+        let settingsCopy = settings
+        Task {
+            do {
+                if isICloudSync {
+                    try await CloudKitSyncService.shared.uploadSettings(settingsCopy)
+                } else {
+                    try await SupabaseService.shared.uploadSettings(settingsCopy)
+                }
+            } catch {
+                print("Cloud sync settings failed: \(error)")
+            }
+        }
     }
     
     // MARK: - Search History

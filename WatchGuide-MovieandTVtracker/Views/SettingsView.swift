@@ -352,90 +352,100 @@ struct SettingsView: View {
             }
             
             // Cloud Sync
-            Section {
-                Toggle("Enable Cloud Sync", isOn: Binding(
-                    get: { storage.cloudSyncEnabled },
-                    set: { storage.setCloudSyncEnabled($0) }
-                ))
-                
-                if authService.isICloudSession {
-                    HStack(spacing: 8) {
-                        Image(systemName: "icloud.fill")
-                            .foregroundColor(.blue)
-                        Text("Syncing via iCloud")
-                            .font(.subheadline)
-                        Spacer()
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+            if authService.isAuthenticated {
+                Section {
+                    if authService.isICloudSession {
+                        HStack(spacing: 8) {
+                            Image(systemName: "icloud.fill")
+                                .foregroundColor(.blue)
+                            Text("Auto-syncing via iCloud")
+                                .font(.subheadline)
+                            Spacer()
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                        }
+                    } else if storage.isSupabaseConfigured {
+                        HStack(spacing: 8) {
+                            Image(systemName: "cloud.fill")
+                                .foregroundColor(.green)
+                            Text("Auto-syncing via Supabase")
+                                .font(.subheadline)
+                            Spacer()
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                        }
+                    } else {
+                        NavigationLink(destination: SupabaseSetupGuideView()) {
+                            Label("Setup Guide", systemImage: "cloud.fill")
+                        }
+                        Text("Supabase is not configured. Sign in with Apple to use iCloud sync instead, or link a Supabase project.")
                             .font(.caption)
-                    }
-                } else if !storage.isSupabaseConfigured {
-                    NavigationLink(destination: SupabaseSetupGuideView()) {
-                        Label("Setup Guide", systemImage: "cloud.fill")
-                    }
-                    Text("Supabase is not configured. Sign in with Apple to use iCloud sync instead, or link a Supabase project.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                HStack {
-                    Text("Last Sync")
-                    Spacer()
-                    if let lastSync = storage.lastSyncTime {
-                        Text(lastSync.formatted(.relative(presentation: .named)))
-                            .foregroundColor(.secondary)
-                    } else {
-                        Text("Never")
                             .foregroundColor(.secondary)
                     }
-                }
-                
-                if let error = storage.lastSyncError, !error.isEmpty {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-                
-                Button {
-                    guard !isManualUpload && !isManualDownload else { return }
-                    isManualUpload = true
-                    Task {
-                        await storage.uploadToCloud()
-                        await MainActor.run {
-                            isManualUpload = false
+                    
+                    HStack {
+                        Text("Last Sync")
+                        Spacer()
+                        if let lastSync = storage.lastSyncTime {
+                            Text(lastSync.formatted(.relative(presentation: .named)))
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Never")
+                                .foregroundColor(.secondary)
                         }
                     }
-                } label: {
-                    if isManualUpload {
-                        Label("Uploading...", systemImage: "arrow.up.circle")
-                    } else {
-                        Label("Upload to Cloud", systemImage: "arrow.up.circle")
+                    
+                    if let error = storage.lastSyncError, !error.isEmpty {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
                     }
-                }
-                .disabled(isManualDownload || isManualUpload)
-                
-                Button {
-                    guard !isManualUpload && !isManualDownload else { return }
-                    isManualDownload = true
-                    Task {
-                        await storage.downloadFromCloud()
-                        await MainActor.run {
-                            isManualDownload = false
+                    
+                    Button {
+                        guard !isManualUpload && !isManualDownload else { return }
+                        isManualUpload = true
+                        Task {
+                            await storage.uploadToCloud()
+                            await MainActor.run {
+                                isManualUpload = false
+                            }
+                        }
+                    } label: {
+                        if isManualUpload {
+                            Label("Uploading...", systemImage: "arrow.up.circle")
+                        } else {
+                            Label("Force Upload All", systemImage: "arrow.up.circle")
                         }
                     }
-                } label: {
-                    if isManualDownload {
-                        Label("Downloading...", systemImage: "arrow.down.circle")
-                    } else {
-                        Label("Download from Cloud", systemImage: "arrow.down.circle")
+                    .disabled(isManualDownload || isManualUpload)
+                    
+                    Button {
+                        guard !isManualUpload && !isManualDownload else { return }
+                        isManualDownload = true
+                        Task {
+                            await storage.downloadFromCloud()
+                            await MainActor.run {
+                                isManualDownload = false
+                            }
+                        }
+                    } label: {
+                        if isManualDownload {
+                            Label("Downloading...", systemImage: "arrow.down.circle")
+                        } else {
+                            Label("Force Download All", systemImage: "arrow.down.circle")
+                        }
                     }
-                }
-                .disabled(isManualDownload || isManualUpload)
-            } header: {
-                Text("Cloud Sync")
-            } footer: {
-                if authService.isICloudSession {
-                    Text("Your data syncs privately through your iCloud account. No external servers involved.")
+                    .disabled(isManualDownload || isManualUpload)
+                } header: {
+                    Text("Cloud Sync")
+                } footer: {
+                    if authService.isICloudSession {
+                        Text("All changes sync automatically to your private iCloud account. Use Force Upload/Download for a full re-sync.")
+                    } else {
+                        Text("All changes sync automatically. Use Force Upload/Download for a full re-sync.")
+                    }
                 }
             }
             
