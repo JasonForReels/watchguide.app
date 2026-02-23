@@ -2,7 +2,7 @@
 //  AuthService.swift
 //  WatchGuide-MovieandTVtracker
 //
-//  User authentication service using Supabase Auth
+//  User authentication service supporting Supabase Auth and local Sign in with Apple (iCloud)
 //
 
 import Foundation
@@ -10,6 +10,14 @@ import Combine
 import AuthenticationServices
 import CryptoKit
 import Security
+
+// MARK: - Auth Backend
+
+/// Which authentication backend is in use
+enum AuthBackend: String, Codable {
+    case supabase = "supabase"
+    case icloud = "icloud"
+}
 
 @MainActor
 class AuthService: ObservableObject {
@@ -19,6 +27,7 @@ class AuthService: ObservableObject {
     @Published private(set) var isAuthenticated = false
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
+    @Published private(set) var authBackend: AuthBackend = .supabase
     
     private var supabaseURL: String {
         ApiKeyManager.shared.get(key: "SUPABASE_URL") ?? ""
@@ -29,9 +38,21 @@ class AuthService: ObservableObject {
     }
     
     private let sessionKey = "supabase_session"
+    private let icloudSessionKey = "icloud_auth_session"
+    private let backendKey = "auth_backend"
     
     var isConfigured: Bool {
         !supabaseURL.isEmpty && !supabaseAnonKey.isEmpty
+    }
+    
+    /// Whether Supabase is available for auth
+    var isSupabaseAvailable: Bool {
+        isConfigured
+    }
+    
+    /// Whether the current session uses iCloud (local Sign in with Apple)
+    var isICloudSession: Bool {
+        authBackend == .icloud
     }
     
     // Current access token for authenticated requests
@@ -45,14 +66,28 @@ class AuthService: ObservableObject {
     }
     
     private init() {
+        // Load stored backend preference
+        if let raw = UserDefaults.standard.string(forKey: backendKey),
+           let backend = AuthBackend(rawValue: raw) {
+            authBackend = backend
+        }
         loadSession()
     }
     
     // MARK: - Session Management
     
     private func loadSession() {
+        // Try iCloud session first
+        if authBackend == .icloud {
+            loadICloudSession()
+            if isAuthenticated { return }
+        }
+        
+        // Fall back to Supabase session
         guard let data = UserDefaults.standard.data(forKey: sessionKey),
               let session = try? JSONDecoder().decode(AuthSession.self, from: data) else {
+            // Also try iCloud if backend wasn't explicitly set
+            loadICloudSession()
             return
         }
         
@@ -61,6 +96,7 @@ class AuthService: ObservableObject {
             self.currentUser = session.user
             self.currentUser?.accessToken = session.accessToken
             self.isAuthenticated = true
+            self.authBackend = .supabase
         } else {
             // Try to refresh the session
             Task {
@@ -69,16 +105,39 @@ class AuthService: ObservableObject {
         }
     }
     
+    private func loadICloudSession() {
+        guard let data = UserDefaults.standard.data(forKey: icloudSessionKey),
+              let user = try? JSONDecoder().decode(AuthUser.self, from: data) else {
+            return
+        }
+        self.currentUser = user
+        self.isAuthenticated = true
+        self.authBackend = .icloud
+    }
+    
     private func saveSession(_ session: AuthSession) {
         if let data = try? JSONEncoder().encode(session) {
             UserDefaults.standard.set(data, forKey: sessionKey)
         }
+        authBackend = .supabase
+        UserDefaults.standard.set(authBackend.rawValue, forKey: backendKey)
+    }
+    
+    private func saveICloudSession(_ user: AuthUser) {
+        if let data = try? JSONEncoder().encode(user) {
+            UserDefaults.standard.set(data, forKey: icloudSessionKey)
+        }
+        authBackend = .icloud
+        UserDefaults.standard.set(authBackend.rawValue, forKey: backendKey)
     }
     
     private func clearSession() {
         UserDefaults.standard.removeObject(forKey: sessionKey)
+        UserDefaults.standard.removeObject(forKey: icloudSessionKey)
+        UserDefaults.standard.removeObject(forKey: backendKey)
         currentUser = nil
         isAuthenticated = false
+        authBackend = .supabase
     }
     
     // MARK: - Sign Up
@@ -285,35 +344,67 @@ class AuthService: ObservableObject {
         return hashed.compactMap { String(format: "%02x", $0) }.joined()
     }
     
+    // MARK: - Local Sign in with Apple (iCloud backend)
+    
+    /// Sign in with Apple using local auth only (for iCloud/CloudKit sync, no Supabase required)
+    func signInWithAppleLocal(userIdentifier: String, fullName: PersonNameComponents?, email: String?) async -> Bool {
+        isLoading = true
+        errorMessage = nil
+        
+        // Build a local user from Apple ID credentials
+        let displayEmail = email ?? "\(userIdentifier.prefix(8))@apple.id"
+        
+        let user = AuthUser(
+            id: userIdentifier,
+            email: displayEmail,
+            createdAt: ISO8601DateFormatter().string(from: Date())
+        )
+        
+        // Persist full name if provided (Apple only sends it on first sign-in)
+        if let givenName = fullName?.givenName {
+            UserDefaults.standard.set(givenName, forKey: "apple_user_given_name")
+        }
+        if let familyName = fullName?.familyName {
+            UserDefaults.standard.set(familyName, forKey: "apple_user_family_name")
+        }
+        
+        saveICloudSession(user)
+        currentUser = user
+        isAuthenticated = true
+        authBackend = .icloud
+        isLoading = false
+        return true
+    }
+    
     // MARK: - Sign Out
     
     func signOut() async {
-        guard isConfigured, let token = accessToken else {
-            clearSession()
-            // Reset active profile on sign out (keep profiles for next login)
-            ProfileService.shared.activeProfile = nil
-            ProfileService.shared.needsProfileSelection = false
-            ProfileService.shared.resetSessionFlag()
-            return
-        }
+        let wasICloud = authBackend == .icloud
         
-        isLoading = true
-        
-        do {
-            let url = URL(string: "\(supabaseURL)/auth/v1/logout")!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.addValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
-            request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if !wasICloud {
+            guard isConfigured, let token = accessToken else {
+                clearSession()
+                resetProfileState()
+                return
+            }
             
-            _ = try? await URLSession.shared.data(for: request)
+            isLoading = true
+            
+            do {
+                let url = URL(string: "\(supabaseURL)/auth/v1/logout")!
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.addValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
+                request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                
+                _ = try? await URLSession.shared.data(for: request)
+            }
+        } else {
+            isLoading = true
         }
         
         clearSession()
-        // Reset active profile on sign out (keep profiles for next login)
-        ProfileService.shared.activeProfile = nil
-        ProfileService.shared.needsProfileSelection = false
-        ProfileService.shared.resetSessionFlag()
+        resetProfileState()
         
         // Reset kids profile setting when signing out
         var settings = StorageService.shared.settings
@@ -321,6 +412,12 @@ class AuthService: ObservableObject {
         StorageService.shared.updateSettings(settings)
         
         isLoading = false
+    }
+    
+    private func resetProfileState() {
+        ProfileService.shared.activeProfile = nil
+        ProfileService.shared.needsProfileSelection = false
+        ProfileService.shared.resetSessionFlag()
     }
     
     // MARK: - Refresh Session
@@ -366,20 +463,31 @@ class AuthService: ObservableObject {
     // MARK: - Delete Account
     
     /// Deletes the user's cloud data, clears local data, and signs out.
-    /// Also attempts to delete the auth user via Supabase Admin API (requires service_role key configured as a Supabase Edge Function).
     func deleteAccount() async -> Bool {
-        guard isConfigured else {
-            errorMessage = "Supabase not configured."
-            return false
-        }
-        
-        guard let userId = currentUser?.id, let token = accessToken else {
+        guard let userId = currentUser?.id else {
             errorMessage = "Not signed in."
             return false
         }
         
         isLoading = true
         errorMessage = nil
+        
+        if authBackend == .icloud {
+            // iCloud backend: just clear local data and session
+            await MainActor.run {
+                StorageService.shared.clearAllData()
+            }
+            clearSession()
+            isLoading = false
+            return true
+        }
+        
+        // Supabase backend
+        guard isConfigured, let token = accessToken else {
+            errorMessage = "Supabase not configured."
+            isLoading = false
+            return false
+        }
         
         do {
             // Step 1: Delete all user data from cloud (media_items table)
@@ -393,8 +501,7 @@ class AuthService: ObservableObject {
             
             // Step 2: Clear all local data
             await MainActor.run {
-                let storage = StorageService.shared
-                storage.clearAllData()
+                StorageService.shared.clearAllData()
             }
             
             // Step 3: Sign out from Supabase Auth

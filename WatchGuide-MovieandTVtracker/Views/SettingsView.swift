@@ -352,17 +352,28 @@ struct SettingsView: View {
             }
             
             // Cloud Sync
-            Section("Cloud Sync") {
+            Section {
                 Toggle("Enable Cloud Sync", isOn: Binding(
                     get: { storage.cloudSyncEnabled },
                     set: { storage.setCloudSyncEnabled($0) }
                 ))
                 
-                if !storage.isCloudConfigured {
+                if authService.isICloudSession {
+                    HStack(spacing: 8) {
+                        Image(systemName: "icloud.fill")
+                            .foregroundColor(.blue)
+                        Text("Syncing via iCloud")
+                            .font(.subheadline)
+                        Spacer()
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.caption)
+                    }
+                } else if !storage.isSupabaseConfigured {
                     NavigationLink(destination: SupabaseSetupGuideView()) {
                         Label("Setup Guide", systemImage: "cloud.fill")
                     }
-                    Text("Supabase is not configured. Cloud sync will remain off until setup is complete.")
+                    Text("Supabase is not configured. Sign in with Apple to use iCloud sync instead, or link a Supabase project.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -420,6 +431,12 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(isManualDownload || isManualUpload)
+            } header: {
+                Text("Cloud Sync")
+            } footer: {
+                if authService.isICloudSession {
+                    Text("Your data syncs privately through your iCloud account. No external servers involved.")
+                }
             }
             
 

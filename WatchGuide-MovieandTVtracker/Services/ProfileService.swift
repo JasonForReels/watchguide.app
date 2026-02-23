@@ -214,12 +214,14 @@ class ProfileService: ObservableObject {
     /// the cloud so that changes made on other devices are reflected immediately.
     private func syncFromCloudOnLaunchIfNeeded() {
         guard !hasSyncedThisSession else { return }
-        guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
         
-        // The AuthService session is restored synchronously in its init, so
-        // isAuthenticated may already be true at this point. However, if the
-        // session was expired and a refresh is in-flight we might miss it.
-        // Use a short delay to give the auth refresh a chance to complete.
+        // For Supabase sessions, require Supabase config
+        // For iCloud sessions, always allow
+        let isICloud = AuthService.shared.isICloudSession
+        if !isICloud {
+            guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
+        }
+        
         Task { @MainActor in
             // Give auth session refresh a moment to complete (up to 2 seconds)
             for _ in 0..<10 {
@@ -246,8 +248,23 @@ class ProfileService: ObservableObject {
     }
     
     func syncProfilesToCloud() {
+        guard AuthService.shared.isAuthenticated else { return }
+        
+        if AuthService.shared.isICloudSession {
+            // CloudKit sync
+            Task {
+                do {
+                    try await CloudKitSyncService.shared.uploadProfiles(profiles)
+                } catch {
+                    print("CloudKit profile sync failed: \(error)")
+                }
+            }
+            return
+        }
+        
+        // Supabase sync
         guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
-        guard AuthService.shared.isAuthenticated, let userId = AuthService.shared.userId else { return }
+        guard let userId = AuthService.shared.userId else { return }
         
         Task {
             do {
@@ -259,8 +276,24 @@ class ProfileService: ObservableObject {
     }
     
     func downloadProfilesFromCloud() async {
+        guard AuthService.shared.isAuthenticated else { return }
+        
+        if AuthService.shared.isICloudSession {
+            // CloudKit download
+            do {
+                let cloudProfiles = try await CloudKitSyncService.shared.downloadProfiles()
+                if !cloudProfiles.isEmpty {
+                    applyCloudProfiles(cloudProfiles)
+                }
+            } catch {
+                print("CloudKit profile download failed: \(error)")
+            }
+            return
+        }
+        
+        // Supabase download
         guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
-        guard AuthService.shared.isAuthenticated, let userId = AuthService.shared.userId else { return }
+        guard let userId = AuthService.shared.userId else { return }
 
         do {
             let cloudProfiles = try await fetchProfiles(userId: userId)

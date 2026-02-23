@@ -244,6 +244,8 @@ class CarouselTimerManager: ObservableObject {
     static let postTrailerBackdropDuration: TimeInterval = 6.5
     /// Extra grace period for the progress-bar → dots morph animation
     static let morphGracePeriod: TimeInterval = 1.5
+    /// Extra time to allow trailer player to load before auto-advancing
+    static let trailerLoadGracePeriod: TimeInterval = 8.0
     
     func reset(defaultDuration: TimeInterval) {
         timer?.invalidate()
@@ -291,7 +293,7 @@ class CarouselTimerManager: ObservableObject {
                 self.backdropTimerExpired = true
                 // If no trailer hooks in within a short window, auto-advance
                 // (This is a fallback; normally the slide will call beginTrailerPlayback)
-                self.timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+                self.timer = Timer.scheduledTimer(withTimeInterval: CarouselTimerManager.trailerLoadGracePeriod, repeats: false) { [weak self] _ in
                     DispatchQueue.main.async {
                         guard let self = self, !self.isTrailerPlaying else { return }
                         self.shouldAdvance = true
@@ -434,7 +436,7 @@ class HeroTrailerLoader: ObservableObject {
     
     /// Picks the best trailer key from a list of videos.
     /// Broadened logic: accepts official trailers first, then teasers, then any YouTube video.
-    /// In portrait mode, prefer 9:16/vertical trailers or clips when available.
+    /// In portrait mode, prefer 9:16/vertical trailers or teasers when available.
     nonisolated static func pickTrailerKey(from videos: [Video], preferPortrait: Bool) -> String? {
         let yt = videos.filter { $0.site.lowercased() == "youtube" }
         guard !yt.isEmpty else { return nil }
@@ -449,23 +451,9 @@ class HeroTrailerLoader: ObservableObject {
                 let type = video.type.lowercased()
                 return type == "trailer" || type == "teaser"
             }
-            let isClip: (Video) -> Bool = { video in
-                let type = video.type.lowercased()
-                return type == "clip" || type == "featurette"
-            }
             
             let verticalTrailers = yt.filter { isVertical($0) && isTrailerOrTeaser($0) }
             if let pick = verticalTrailers.first {
-                return pick.key
-            }
-            
-            let verticalClips = yt.filter { isVertical($0) && isClip($0) }
-            if let pick = verticalClips.first {
-                return pick.key
-            }
-            
-            let anyClips = yt.filter { isClip($0) }
-            if let pick = anyClips.first {
                 return pick.key
             }
         }

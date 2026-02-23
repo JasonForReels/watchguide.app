@@ -2,10 +2,11 @@
 //  AuthView.swift
 //  WatchGuide-MovieandTVtracker
 //
-//  Sign in / Sign up view for user authentication
+//  Sign in / Sign up view — supports Supabase email auth & Sign in with Apple (iCloud)
 //
 
 import SwiftUI
+import AuthenticationServices
 
 struct AuthView: View {
     @ObservedObject var authService = AuthService.shared
@@ -19,11 +20,13 @@ struct AuthView: View {
     @State private var showForgotPassword = false
     @State private var resetEmailSent = false
     @State private var showProfileSetup = false
+    @State private var showEmailForm = false
+    @State private var currentNonce: String?
     
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 32) {
+                VStack(spacing: 28) {
                     // Header
                     VStack(spacing: 12) {
                         ZStack {
@@ -36,147 +39,94 @@ struct AuthView: View {
                                 .foregroundColor(.accentColor)
                         }
                         
-                        Text(isSignUp ? "Create Account" : "Welcome Back")
+                        Text("Sign In")
                             .font(.title2)
                             .fontWeight(.bold)
                         
-                        Text(isSignUp ? "Sign up to sync your lists across devices" : "Sign in to access your synced lists")
+                        Text("Sync your lists and profiles across all your devices")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16)
                     }
                     .padding(.top, 20)
                     
-                    // Form
-                    VStack(spacing: 16) {
-                        // Email field
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Email")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                            
-                            HStack {
-                                Image(systemName: "envelope")
-                                    .foregroundColor(.secondary)
-                                TextField("you@example.com", text: $email)
-                                    .textContentType(.emailAddress)
-                                    .keyboardType(.emailAddress)
-                                    .autocapitalization(.none)
-                                    .autocorrectionDisabled()
-                            }
-                            .padding()
-                            .background(Color(.systemGray6))
-                            .cornerRadius(12)
-                        }
-                        
-                        // Password field
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Password")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                            
-                            HStack {
-                                Image(systemName: "lock")
-                                    .foregroundColor(.secondary)
-                                SecureField("Password", text: $password)
-                                    .textContentType(isSignUp ? .newPassword : .password)
-                            }
-                            .padding()
-                            .background(Color(.systemGray6))
-                            .cornerRadius(12)
-                        }
-                        
-                        // Confirm password (sign up only)
-                        if isSignUp {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Confirm Password")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                                
-                                HStack {
-                                    Image(systemName: "lock")
-                                        .foregroundColor(.secondary)
-                                    SecureField("Confirm password", text: $confirmPassword)
-                                        .textContentType(.newPassword)
-                                }
-                                .padding()
-                                .background(Color(.systemGray6))
-                                .cornerRadius(12)
-                            }
-                        }
-                        
-                        // Forgot password (sign in only)
-                        if !isSignUp {
-                            HStack {
-                                Spacer()
-                                Button("Forgot Password?") {
-                                    showForgotPassword = true
-                                }
-                                .font(.subheadline)
+                    // Sign in with Apple (iCloud sync)
+                    VStack(spacing: 14) {
+                        VStack(spacing: 6) {
+                            Text("Recommended")
+                                .font(.caption)
+                                .fontWeight(.semibold)
                                 .foregroundColor(.accentColor)
-                            }
-                        }
-                    }
-                    
-                    // Error message
-                    if let error = authService.errorMessage {
-                        HStack {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
-                            Text(error)
-                                .font(.subheadline)
+                            
+                            Text("Sign in with Apple to sync via iCloud. No account setup needed.")
+                                .font(.caption)
                                 .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 20)
                         }
-                        .padding()
-                        .background(Color.orange.opacity(0.1))
-                        .cornerRadius(10)
-                    }
-                    
-                    // Submit button
-                    Button {
-                        Task {
-                            await handleSubmit()
+                        
+                        SignInWithAppleButton(.signIn) { request in
+                            let nonce = AuthService.randomNonceString()
+                            currentNonce = nonce
+                            request.requestedScopes = [.fullName, .email]
+                            request.nonce = AuthService.sha256(nonce)
+                        } onCompletion: { result in
+                            handleAppleSignIn(result: result)
                         }
-                    } label: {
-                        HStack {
-                            if authService.isLoading {
-                                ProgressView()
-                                    .tint(.white)
-                            } else {
-                                Text(isSignUp ? "Create Account" : "Sign In")
-                                    .fontWeight(.semibold)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(isFormValid ? Color.accentColor : Color.gray)
-                        .foregroundColor(.white)
+                        .signInWithAppleButtonStyle(.whiteOutline)
+                        .frame(height: 50)
                         .cornerRadius(12)
                     }
-                    .disabled(!isFormValid || authService.isLoading)
-
-                    // Toggle sign up / sign in
+                    
+                    // Divider
                     HStack {
-                        Text(isSignUp ? "Already have an account?" : "Don't have an account?")
+                        Rectangle()
+                            .fill(Color(.systemGray4))
+                            .frame(height: 1)
+                        Text("or")
+                            .font(.caption)
                             .foregroundColor(.secondary)
-                        Button(isSignUp ? "Sign In" : "Sign Up") {
-                            withAnimation {
-                                isSignUp.toggle()
-                                password = ""
-                                confirmPassword = ""
-                                authService.errorMessage = nil
-                            }
-                        }
-                        .fontWeight(.medium)
-                        .foregroundColor(.accentColor)
+                            .padding(.horizontal, 8)
+                        Rectangle()
+                            .fill(Color(.systemGray4))
+                            .frame(height: 1)
                     }
-                    .font(.subheadline)
+                    
+                    // Email option
+                    if showEmailForm {
+                        emailFormSection
+                    } else {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                showEmailForm = true
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "envelope.fill")
+                                Text("Continue with Email")
+                                    .fontWeight(.medium)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color(.systemGray6))
+                            .foregroundColor(.primary)
+                            .cornerRadius(12)
+                        }
+                        
+                        if !authService.isSupabaseAvailable {
+                            Text("Email sign-in requires a linked Supabase project.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
                     
                     Spacer(minLength: 40)
                 }
                 .padding(.horizontal, 24)
             }
-            .navigationTitle(isSignUp ? "Sign Up" : "Sign In")
+            .navigationTitle("Sign In")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -215,6 +165,137 @@ struct AuthView: View {
         }
     }
     
+    // MARK: - Email Form
+    
+    @ViewBuilder
+    private var emailFormSection: some View {
+        VStack(spacing: 16) {
+            // Email field
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Email")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                HStack {
+                    Image(systemName: "envelope")
+                        .foregroundColor(.secondary)
+                    TextField("you@example.com", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                }
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+            }
+            
+            // Password field
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Password")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                HStack {
+                    Image(systemName: "lock")
+                        .foregroundColor(.secondary)
+                    SecureField("Password", text: $password)
+                        .textContentType(isSignUp ? .newPassword : .password)
+                }
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+            }
+            
+            // Confirm password (sign up only)
+            if isSignUp {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Confirm Password")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    HStack {
+                        Image(systemName: "lock")
+                            .foregroundColor(.secondary)
+                        SecureField("Confirm password", text: $confirmPassword)
+                            .textContentType(.newPassword)
+                    }
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
+                }
+            }
+            
+            // Forgot password (sign in only)
+            if !isSignUp {
+                HStack {
+                    Spacer()
+                    Button("Forgot Password?") {
+                        showForgotPassword = true
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.accentColor)
+                }
+            }
+            
+            // Error message
+            if let error = authService.errorMessage {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .padding()
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(10)
+            }
+            
+            // Submit button
+            Button {
+                Task {
+                    await handleEmailSubmit()
+                }
+            } label: {
+                HStack {
+                    if authService.isLoading {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Text(isSignUp ? "Create Account" : "Sign In")
+                            .fontWeight(.semibold)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(isFormValid ? Color.accentColor : Color.gray)
+                .foregroundColor(.white)
+                .cornerRadius(12)
+            }
+            .disabled(!isFormValid || authService.isLoading)
+
+            // Toggle sign up / sign in
+            HStack {
+                Text(isSignUp ? "Already have an account?" : "Don't have an account?")
+                    .foregroundColor(.secondary)
+                Button(isSignUp ? "Sign In" : "Sign Up") {
+                    withAnimation {
+                        isSignUp.toggle()
+                        password = ""
+                        confirmPassword = ""
+                        authService.errorMessage = nil
+                    }
+                }
+                .fontWeight(.medium)
+                .foregroundColor(.accentColor)
+            }
+            .font(.subheadline)
+        }
+    }
+    
+    // MARK: - Validation
+    
     private var isFormValid: Bool {
         let emailValid = email.contains("@") && email.contains(".")
         let passwordValid = password.count >= 6
@@ -225,30 +306,71 @@ struct AuthView: View {
         return emailValid && passwordValid
     }
     
-    private func handleSubmit() async {
+    // MARK: - Apple Sign In
+    
+    private func handleAppleSignIn(result: Result<ASAuthorization, Error>) {
+        switch result {
+        case .success(let authorization):
+            if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
+                let userIdentifier = appleIDCredential.user
+                let fullName = appleIDCredential.fullName
+                let email = appleIDCredential.email
+                
+                Task {
+                    let success = await authService.signInWithAppleLocal(
+                        userIdentifier: userIdentifier,
+                        fullName: fullName,
+                        email: email
+                    )
+                    if success {
+                        // Try downloading profiles from CloudKit
+                        await downloadICloudProfiles()
+                        
+                        if profileService.hasProfiles && !profileService.hasActiveProfile {
+                            profileService.requestProfileSelection()
+                        }
+                        dismiss()
+                    }
+                }
+            }
+        case .failure(let error):
+            authService.errorMessage = error.localizedDescription
+        }
+    }
+    
+    private func downloadICloudProfiles() async {
+        do {
+            let profiles = try await CloudKitSyncService.shared.downloadProfiles()
+            if !profiles.isEmpty {
+                profileService.applyCloudProfiles(profiles)
+            }
+        } catch {
+            print("CloudKit profile download failed: \(error)")
+        }
+    }
+    
+    // MARK: - Email Auth
+    
+    private func handleEmailSubmit() async {
         if isSignUp {
             let success = await authService.signUp(email: email, password: password)
             if success {
-                // Dismiss — ContentView will detect no profiles and show FirstProfileSetupView
                 dismiss()
             }
         } else {
             let success = await authService.signIn(email: email, password: password)
             if success {
-                await handleAuthSuccess()
+                await handleEmailAuthSuccess()
             }
         }
     }
 
-    private func handleAuthSuccess() async {
-        // Try to download existing profiles from cloud
+    private func handleEmailAuthSuccess() async {
         await profileService.downloadProfilesFromCloud()
 
         if profileService.hasProfiles && !profileService.hasActiveProfile {
-            // Has existing profiles — ContentView will show profile picker
             profileService.requestProfileSelection()
         }
-        // Dismiss — ContentView handles what to show next
         dismiss()
     }
 }
@@ -268,26 +390,49 @@ struct AccountView: View {
                 HStack(spacing: 16) {
                     ZStack {
                         Circle()
-                            .fill(Color.accentColor.opacity(0.15))
+                            .fill(authService.isICloudSession ? Color.blue.opacity(0.15) : Color.accentColor.opacity(0.15))
                             .frame(width: 56, height: 56)
                         
-                        Text(userInitials(from: user.email))
-                            .font(.title2)
-                            .fontWeight(.bold)
-                            .foregroundColor(.accentColor)
+                        if authService.isICloudSession {
+                            Image(systemName: "apple.logo")
+                                .font(.title2)
+                                .foregroundColor(.primary)
+                        } else {
+                            Text(userInitials(from: user.email))
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.accentColor)
+                        }
                     }
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(user.email ?? "User")
-                            .font(.headline)
+                        if authService.isICloudSession {
+                            let givenName = UserDefaults.standard.string(forKey: "apple_user_given_name")
+                            Text(givenName ?? "Apple ID User")
+                                .font(.headline)
+                        } else {
+                            Text(user.email ?? "User")
+                                .font(.headline)
+                        }
                         
                         HStack(spacing: 4) {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption)
                                 .foregroundColor(.green)
-                            Text("Signed in")
+                            Text(authService.isICloudSession ? "Signed in with Apple" : "Signed in")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+                        }
+                        
+                        if authService.isICloudSession {
+                            HStack(spacing: 4) {
+                                Image(systemName: "icloud.fill")
+                                    .font(.caption2)
+                                    .foregroundColor(.blue)
+                                Text("Syncing via iCloud")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
                     

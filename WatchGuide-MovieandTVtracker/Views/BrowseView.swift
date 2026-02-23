@@ -16,6 +16,10 @@ struct BrowseView: View {
     @State private var selectedPerson: Person?
     @State private var showProfileSwitcher = false
     @State private var selectedJSONHub: CustomJSONHub?
+    @State private var dailyPickCache: DailyPickCache?
+    @State private var isDailyPickHidden = false
+    @State private var selectedMiniGame: MiniGame?
+    @State private var miniGameCandidates: [MediaItem] = []
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var profileService = ProfileService.shared
     
@@ -32,6 +36,56 @@ struct BrowseView: View {
     private var isAdultProfile: Bool {
         !ScoutAgeGateManager.shared.isScoutHidden
     }
+
+    private enum DailyPickSource: String, Codable {
+        case forYou
+        case hero
+        case row
+        case unknown
+    }
+
+    enum MiniGame: String, Identifiable, CaseIterable {
+        case guessThePoster
+        case thisOrThat
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .guessThePoster:
+                return "Guess the Poster"
+            case .thisOrThat:
+                return "This or That"
+            }
+        }
+        
+        var subtitle: String {
+            switch self {
+            case .guessThePoster:
+                return "Blurred poster challenge"
+            case .thisOrThat:
+                return "Pick your vibe"
+            }
+        }
+        
+        var iconName: String {
+            switch self {
+            case .guessThePoster:
+                return "sparkles"
+            case .thisOrThat:
+                return "arrow.left.arrow.right.circle.fill"
+            }
+        }
+    }
+
+    private struct DailyPickCache: Codable {
+        let item: MediaItem
+        let source: DailyPickSource
+    }
+
+    private let dailyPickDateKey = "daily_pick_date"
+    private let dailyPickItemKey = "daily_pick_item"
+    private let dailyPickHiddenDateKey = "daily_pick_hidden_date"
     
     /// Ordered sections from StorageService
     private var orderedSections: [BrowseSectionItem] {
@@ -108,6 +162,7 @@ struct BrowseView: View {
             .task {
                 await viewModel.loadContent()
                 await forYouVM.loadIfNeeded()
+                updateDailyPickIfNeeded()
             }
             .toolbar { browseToolbarContent }
             .sheet(item: $selectedNetworkHub) { hub in
@@ -121,6 +176,9 @@ struct BrowseView: View {
             }
             .sheet(item: $selectedJSONHub) { hub in
                 CustomJSONHubSheet(hub: hub, selectedItem: $selectedItem)
+            }
+            .sheet(item: $selectedMiniGame) { game in
+                MiniGameSheet(game: game, candidates: miniGameCandidates)
             }
             #if os(iOS)
             .sheet(isPresented: $showCustomizeSheet) {
@@ -139,6 +197,12 @@ struct BrowseView: View {
             .onChange(of: StorageService.shared.settings.isKidsProfile) { _, _ in
                 Task { await viewModel.refresh() }
             }
+            .onChange(of: viewModel.heroItems) { _, _ in
+                updateDailyPickIfNeeded()
+            }
+            .onChange(of: forYouVM.items) { _, _ in
+                updateDailyPickIfNeeded()
+            }
             .sheet(item: $selectedPerson) { person in
                 PersonDetailView(
                     personId: person.id,
@@ -153,6 +217,14 @@ struct BrowseView: View {
     
     private var browseScrollContent: some View {
         LazyVStack(spacing: 24) {
+            if let cache = dailyPickCache, !isDailyPickHidden {
+                DailyPickCard(
+                    item: cache.item,
+                    reason: dailyPickReason(for: cache.source),
+                    onTap: { selectedItem = cache.item },
+                    onDismiss: dismissDailyPickForToday
+                )
+            }
             if !viewModel.heroItems.isEmpty {
                 ResizableHeroCarousel(
                     items: viewModel.heroItems,
@@ -233,10 +305,35 @@ struct BrowseView: View {
                         selectedItem = item
                     }
                 )
+                if row.title == "Now Playing", !isKidsProfile {
+                    MiniGamesSection { game in
+                        miniGameCandidates = buildMiniGameCandidates()
+                        selectedMiniGame = game
+                    }
+                }
             } else {
                 EmptyView()
             }
         }
+    }
+
+    private func buildMiniGameCandidates() -> [MediaItem] {
+        var pool = viewModel.heroItems
+        for row in viewModel.rows {
+            pool.append(contentsOf: row.items)
+        }
+        let filtered = pool.filter { item in
+            guard item.resolvedMediaType != .person else { return false }
+            if isKidsProfile, item.adult == true { return false }
+            return item.posterPath != nil
+        }
+        var seen = Set<Int>()
+        let unique = filtered.filter { item in
+            if seen.contains(item.id) { return false }
+            seen.insert(item.id)
+            return true
+        }
+        return Array(unique.prefix(40))
     }
     
     @ViewBuilder
@@ -295,6 +392,519 @@ struct BrowseView: View {
         case .sonyPictures:
             SonyPicturesSheet(selectedItem: $selectedItem)
         }
+    }
+
+    private func updateDailyPickIfNeeded() {
+        let today = dayString(Date())
+        let hiddenDate = UserDefaults.standard.string(forKey: dailyPickHiddenDateKey)
+        isDailyPickHidden = hiddenDate == today
+
+        guard !isDailyPickHidden else {
+            dailyPickCache = nil
+            return
+        }
+
+        if let cachedDate = UserDefaults.standard.string(forKey: dailyPickDateKey),
+           cachedDate == today,
+           let data = UserDefaults.standard.data(forKey: dailyPickItemKey),
+           let cached = try? JSONDecoder().decode(DailyPickCache.self, from: data) {
+            dailyPickCache = cached
+            return
+        }
+
+        if let picked = pickDailyCandidate() {
+            dailyPickCache = picked
+            if let data = try? JSONEncoder().encode(picked) {
+                UserDefaults.standard.set(today, forKey: dailyPickDateKey)
+                UserDefaults.standard.set(data, forKey: dailyPickItemKey)
+            }
+        } else {
+            dailyPickCache = nil
+        }
+    }
+
+    private func pickDailyCandidate() -> DailyPickCache? {
+        if let item = firstEligibleItem(from: forYouVM.items) {
+            return DailyPickCache(item: item, source: .forYou)
+        }
+        if let item = firstEligibleItem(from: viewModel.heroItems) {
+            return DailyPickCache(item: item, source: .hero)
+        }
+        for row in viewModel.rows {
+            if let item = firstEligibleItem(from: row.items) {
+                return DailyPickCache(item: item, source: .row)
+            }
+        }
+        return nil
+    }
+
+    private func firstEligibleItem(from items: [MediaItem]) -> MediaItem? {
+        items.first(where: { item in
+            guard item.resolvedMediaType != .person else { return false }
+            if isKidsProfile, item.adult == true { return false }
+            return true
+        })
+    }
+
+    private func dailyPickReason(for source: DailyPickSource) -> String {
+        switch source {
+        case .forYou:
+            return "Based on what you've liked"
+        case .hero:
+            return "Trending right now"
+        case .row:
+            return "Popular on your home feed"
+        case .unknown:
+            return "A quick pick for today"
+        }
+    }
+
+    private func dismissDailyPickForToday() {
+        let today = dayString(Date())
+        UserDefaults.standard.set(today, forKey: dailyPickHiddenDateKey)
+        isDailyPickHidden = true
+        dailyPickCache = nil
+    }
+
+    private func dayString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+}
+
+// MARK: - Daily Pick Card
+private struct DailyPickCard: View {
+    let item: MediaItem
+    let reason: String
+    let onTap: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Today's Pick")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Text(reason)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button("Not today") {
+                    onDismiss()
+                }
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .buttonStyle(.plain)
+            }
+
+            Button(action: onTap) {
+                HStack(spacing: 10) {
+                    DailyPickPoster(item: item)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.displayTitle)
+                            .font(.subheadline)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+
+                        if let year = item.year {
+                            Text(year)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+
+                        HStack(spacing: 6) {
+                            Image(systemName: "play.circle.fill")
+                                .foregroundColor(.accentColor)
+                            Text("Open")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(Color.secondary.opacity(0.6))
+                }
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(.systemGray6))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color(.systemGray4).opacity(0.3), lineWidth: 0.5)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal)
+        .padding(.top, 2)
+    }
+}
+
+private struct DailyPickPoster: View {
+    let item: MediaItem
+
+    var body: some View {
+        let posterURL = TMDBService.shared.imageURL(path: item.posterPath, size: .medium)
+        AsyncImage(url: posterURL) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFill()
+            case .empty:
+                Rectangle()
+                    .fill(Color(.systemGray5))
+                    .overlay { ProgressView() }
+            default:
+                Rectangle()
+                    .fill(Color(.systemGray5))
+                    .overlay {
+                        Image(systemName: "film")
+                            .foregroundColor(.secondary)
+                    }
+            }
+        }
+        .frame(width: 64, height: 96)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct MiniGamesSection: View {
+    let onTap: (BrowseView.MiniGame) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Mini Games")
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(BrowseView.MiniGame.allCases) { game in
+                        Button {
+                            onTap(game)
+                        } label: {
+                            MiniGameCard(game: game)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+private struct MiniGameCard: View {
+    let game: BrowseView.MiniGame
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: game.iconName)
+                .font(.title3)
+                .foregroundColor(.accentColor)
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(game.title)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                Text(game.subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(Color.secondary.opacity(0.6))
+        }
+        .padding(12)
+        .frame(width: 220)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(.systemGray6))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(.systemGray4).opacity(0.3), lineWidth: 0.5)
+        )
+    }
+}
+
+private struct MiniGameSheet: View {
+    let game: BrowseView.MiniGame
+    let candidates: [MediaItem]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            switch game {
+            case .thisOrThat:
+                ThisOrThatGameView(candidates: candidates)
+            case .guessThePoster:
+                GuessThePosterGameView(candidates: candidates)
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") { dismiss() }
+            }
+        }
+    }
+}
+
+private struct ThisOrThatGameView: View {
+    let candidates: [MediaItem]
+    @State private var leftItem: MediaItem?
+    @State private var rightItem: MediaItem?
+    @State private var round = 1
+    @State private var totalRounds = 5
+    @State private var isComplete = false
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("This or That")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            Text("Round \(round) of \(totalRounds)")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            if let leftItem, let rightItem {
+                HStack(spacing: 12) {
+                    MiniGamePosterCard(item: leftItem) {
+                        advanceRound()
+                    }
+                    MiniGamePosterCard(item: rightItem) {
+                        advanceRound()
+                    }
+                }
+                .padding(.horizontal)
+            } else {
+                Text("Not enough titles to play yet.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.top, 16)
+        .onAppear {
+            startRound()
+        }
+        .alert("All done!", isPresented: $isComplete) {
+            Button("Play again") {
+                round = 1
+                isComplete = false
+                startRound()
+            }
+        } message: {
+            Text("Nice picks. Want another quick round?")
+        }
+    }
+
+    private func startRound() {
+        guard candidates.count >= 2 else { return }
+        let shuffled = candidates.shuffled()
+        leftItem = shuffled.first
+        rightItem = shuffled.dropFirst().first
+    }
+
+    private func advanceRound() {
+        if round >= totalRounds {
+            isComplete = true
+            return
+        }
+        round += 1
+        startRound()
+    }
+}
+
+private struct GuessThePosterGameView: View {
+    let candidates: [MediaItem]
+    @State private var correctItem: MediaItem?
+    @State private var options: [MediaItem] = []
+    @State private var round = 1
+    @State private var totalRounds = 5
+    @State private var feedback: String?
+    @State private var score = 0
+    @State private var isComplete = false
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Guess the Poster")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            Text("Round \(round) of \(totalRounds) • Score \(score)")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            if let correctItem {
+                BlurredPosterView(item: correctItem)
+                    .padding(.top, 4)
+
+                VStack(spacing: 10) {
+                    ForEach(options, id: \.id) { option in
+                        Button {
+                            handleGuess(option)
+                        } label: {
+                            Text(option.displayTitle)
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(Color(.systemGray6))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal)
+            } else {
+                Text("Not enough titles to play yet.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
+            if let feedback {
+                Text(feedback)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.top, 16)
+        .onAppear {
+            startRound()
+        }
+        .alert("Nice!", isPresented: $isComplete) {
+            Button("Play again") {
+                round = 1
+                score = 0
+                isComplete = false
+                startRound()
+            }
+        } message: {
+            Text("Your final score: \(score)/\(totalRounds)")
+        }
+    }
+
+    private func startRound() {
+        guard candidates.count >= 4 else { return }
+        let shuffled = candidates.shuffled()
+        correctItem = shuffled.first
+        options = Array(shuffled.prefix(4)).shuffled()
+        feedback = nil
+    }
+
+    private func handleGuess(_ option: MediaItem) {
+        guard let correctItem else { return }
+        if option.id == correctItem.id {
+            score += 1
+            feedback = "Correct!"
+        } else {
+            feedback = "Not quite — it was \(correctItem.displayTitle)."
+        }
+        if round >= totalRounds {
+            isComplete = true
+        } else {
+            round += 1
+            startRound()
+        }
+    }
+}
+
+private struct MiniGamePosterCard: View {
+    let item: MediaItem
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 8) {
+                MiniGamePosterImage(item: item)
+                Text(item.displayTitle)
+                    .font(.caption)
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(.systemGray6))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct MiniGamePosterImage: View {
+    let item: MediaItem
+
+    var body: some View {
+        let posterURL = TMDBService.shared.imageURL(path: item.posterPath, size: .medium)
+        AsyncImage(url: posterURL) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFill()
+            default:
+                Rectangle()
+                    .fill(Color(.systemGray5))
+                    .overlay {
+                        Image(systemName: "film")
+                            .foregroundColor(.secondary)
+                    }
+            }
+        }
+        .frame(width: 110, height: 160)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct BlurredPosterView: View {
+    let item: MediaItem
+
+    var body: some View {
+        let posterURL = TMDBService.shared.imageURL(path: item.posterPath, size: .medium)
+        AsyncImage(url: posterURL) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: 10)
+            default:
+                Rectangle()
+                    .fill(Color(.systemGray5))
+            }
+        }
+        .frame(width: 180, height: 260)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color(.systemGray4).opacity(0.3), lineWidth: 0.5)
+        )
     }
 }
 
