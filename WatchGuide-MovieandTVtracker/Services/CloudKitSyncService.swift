@@ -11,8 +11,16 @@ import CloudKit
 actor CloudKitSyncService {
     static let shared = CloudKitSyncService()
     
-    private let container: CKContainer
-    private let privateDB: CKDatabase
+    private var _container: CKContainer?
+    private var container: CKContainer {
+        if let c = _container { return c }
+        let c = CKContainer(identifier: "iCloud.com.JasonSmith.WatchGuide-MovieandTVtracker")
+        _container = c
+        return c
+    }
+    private var privateDB: CKDatabase {
+        container.privateCloudDatabase
+    }
     
     // Record types
     private let mediaItemType = "MediaItem"
@@ -30,8 +38,7 @@ actor CloudKitSyncService {
     private let customJSONHubType = "CustomJSONHub"
     
     private init() {
-        container = CKContainer(identifier: "iCloud.com.JasonSmith.WatchGuide-MovieandTVtracker")
-        privateDB = container.privateCloudDatabase
+        // Lazy initialization — container is created on first use, not at init time
     }
     
     // MARK: - Account Status

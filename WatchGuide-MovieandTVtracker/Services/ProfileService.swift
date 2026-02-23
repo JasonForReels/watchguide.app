@@ -215,14 +215,21 @@ class ProfileService: ObservableObject {
     private func syncFromCloudOnLaunchIfNeeded() {
         guard !hasSyncedThisSession else { return }
         
-        // For Supabase sessions, require Supabase config
-        // For iCloud sessions, always allow
-        let isICloud = AuthService.shared.isICloudSession
-        if !isICloud {
-            guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
-        }
-        
-        Task { @MainActor in
+        // Defer the actual cloud check to the next run-loop iteration to avoid
+        // circular singleton access during init (ProfileService → AuthService → StorageService).
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            
+            // Small delay to let all singletons finish initializing first
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+            
+            // For Supabase sessions, require Supabase config
+            // For iCloud sessions, always allow
+            let isICloud = AuthService.shared.isICloudSession
+            if !isICloud {
+                guard !self.supabaseURL.isEmpty, !self.supabaseAnonKey.isEmpty else { return }
+            }
+            
             // Give auth session refresh a moment to complete (up to 2 seconds)
             for _ in 0..<10 {
                 if AuthService.shared.isAuthenticated { break }
@@ -230,9 +237,9 @@ class ProfileService: ObservableObject {
             }
             
             guard AuthService.shared.isAuthenticated else { return }
-            guard !hasSyncedThisSession else { return }
-            hasSyncedThisSession = true
-            await downloadProfilesFromCloud()
+            guard !self.hasSyncedThisSession else { return }
+            self.hasSyncedThisSession = true
+            await self.downloadProfilesFromCloud()
         }
     }
     

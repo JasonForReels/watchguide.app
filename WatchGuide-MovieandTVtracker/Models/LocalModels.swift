@@ -119,6 +119,7 @@ struct CustomList: Identifiable, Codable {
         self.createdAt = Date()
         self.updatedAt = Date()
     }
+    
 }
 
 // MARK: - Network Hub (Streaming Services)

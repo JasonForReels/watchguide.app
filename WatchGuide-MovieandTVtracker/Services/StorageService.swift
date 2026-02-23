@@ -32,15 +32,19 @@ class StorageService: ObservableObject {
     @Published var cloudSyncEnabled = false
 
     var lastSyncTime: Date? {
-        if AuthService.shared.isICloudSession {
+        // Use UserDefaults to determine backend without triggering AuthService.shared
+        // during init. This avoids potential circular singleton access.
+        let isICloud = UserDefaults.standard.string(forKey: "auth_backend") == AuthBackend.icloud.rawValue
+        if isICloud {
             return UserDefaults.standard.object(forKey: "cloudkit_last_sync") as? Date
         }
         return UserDefaults.standard.object(forKey: "supabase_last_sync") as? Date
     }
     
     var isCloudConfigured: Bool {
-        // iCloud is always "configured" when user is signed in with Apple
-        if AuthService.shared.isICloudSession { return true }
+        // Check iCloud via UserDefaults to avoid triggering AuthService singleton during init
+        let isICloud = UserDefaults.standard.string(forKey: "auth_backend") == AuthBackend.icloud.rawValue
+        if isICloud { return true }
         let url = ApiKeyManager.shared.get(key: "SUPABASE_URL") ?? ""
         let key = ApiKeyManager.shared.get(key: "SUPABASE_ANON_KEY") ?? ""
         return !url.isEmpty && !key.isEmpty
