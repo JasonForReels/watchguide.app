@@ -66,17 +66,10 @@ struct AuthView: View {
                                 .padding(.horizontal, 20)
                         }
                         
-                        SignInWithAppleButton(.signIn) { request in
-                            let nonce = AuthService.randomNonceString()
-                            currentNonce = nonce
-                            request.requestedScopes = [.fullName, .email]
-                            request.nonce = AuthService.sha256(nonce)
-                        } onCompletion: { result in
+                        AppleSignInButton { result in
                             handleAppleSignIn(result: result)
                         }
-                        .signInWithAppleButtonStyle(.whiteOutline)
                         .frame(height: 50)
-                        .cornerRadius(12)
                     }
                     
                     // Divider
@@ -527,6 +520,91 @@ struct AccountView: View {
         return "?"
     }
 }
+
+// MARK: - Apple Sign In Button (UIKit-backed for reliable presentation anchor)
+
+#if os(iOS)
+struct AppleSignInButton: UIViewRepresentable {
+    var onCompletion: (Result<ASAuthorization, Error>) -> Void
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onCompletion: onCompletion)
+    }
+    
+    func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
+        let button = ASAuthorizationAppleIDButton(type: .signIn, style: .whiteOutline)
+        button.cornerRadius = 12
+        button.addTarget(context.coordinator, action: #selector(Coordinator.handleTap), for: .touchUpInside)
+        return button
+    }
+    
+    func updateUIView(_ uiView: ASAuthorizationAppleIDButton, context: Context) {
+        context.coordinator.onCompletion = onCompletion
+    }
+    
+    class Coordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+        var onCompletion: (Result<ASAuthorization, Error>) -> Void
+        
+        init(onCompletion: @escaping (Result<ASAuthorization, Error>) -> Void) {
+            self.onCompletion = onCompletion
+        }
+        
+        @objc func handleTap() {
+            let provider = ASAuthorizationAppleIDProvider()
+            let request = provider.createRequest()
+            request.requestedScopes = [.fullName, .email]
+            
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            controller.performRequests()
+        }
+        
+        // MARK: - ASAuthorizationControllerDelegate
+        
+        func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+            onCompletion(.success(authorization))
+        }
+        
+        func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+            // Don't report cancellation as an error
+            if let authError = error as? ASAuthorizationError, authError.code == .canceled {
+                return
+            }
+            onCompletion(.failure(error))
+        }
+        
+        // MARK: - ASAuthorizationControllerPresentationContextProviding
+        
+        func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+            // Find the key window reliably, even when presented in a sheet
+            guard let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }),
+                  let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first
+            else {
+                return UIWindow()
+            }
+            return window
+        }
+    }
+}
+#else
+// Fallback for non-iOS (tvOS, etc.)
+struct AppleSignInButton: View {
+    var onCompletion: (Result<ASAuthorization, Error>) -> Void
+    
+    var body: some View {
+        Button("Sign in with Apple") {
+            // tvOS fallback — not fully supported
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
+    }
+}
+#endif
 
 #Preview {
     AuthView()
