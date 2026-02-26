@@ -176,7 +176,7 @@ struct BrowseView: View {
                 browseFilterBar
                     .padding(.top, 8)
                     .padding(.bottom, 6)
-                    .background(.ultraThinMaterial)
+                    .background(.bar)
             }
             .task {
                 await viewModel.loadContent()
@@ -297,8 +297,7 @@ struct BrowseView: View {
                         .padding(.vertical, 8)
                         .background(
                             Capsule()
-                                .fill(.ultraThinMaterial)
-                                .opacity(isSelected ? 1 : 0.6)
+                                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(.systemGray5).opacity(0.6))
                                 .shadow(color: isSelected ? Color.accentColor.opacity(0.2) : Color.clear, radius: 6, y: 2)
                         )
                         .overlay(
@@ -306,7 +305,7 @@ struct BrowseView: View {
                                 .stroke(
                                     isSelected
                                         ? Color.accentColor.opacity(0.4)
-                                        : Color.white.opacity(0.15),
+                                        : Color(.systemGray3).opacity(0.3),
                                     lineWidth: isSelected ? 1 : 0.5
                                 )
                         )
