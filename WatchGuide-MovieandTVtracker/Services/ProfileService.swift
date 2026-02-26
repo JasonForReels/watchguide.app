@@ -15,6 +15,8 @@ class ProfileService: ObservableObject {
     @Published private(set) var profiles: [UserProfile] = []
     @Published var activeProfile: UserProfile?
     @Published var needsProfileSelection = false
+    @Published private(set) var isSyncingFromCloud = false
+    @Published private(set) var hasCompletedInitialSync = false
     
     /// Whether the profile picker has been shown at least once this app session.
     /// Resets every cold launch so the picker always appears on startup.
@@ -53,6 +55,7 @@ class ProfileService: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             profiles = try decoder.decode([UserProfile].self, from: data)
+            hasCompletedInitialSync = !profiles.isEmpty
             
             // On cold launch, if there are multiple profiles, require selection (Netflix-style).
             // If there is exactly 1 profile, auto-select it.
@@ -223,12 +226,8 @@ class ProfileService: ObservableObject {
             // Small delay to let all singletons finish initializing first
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
             
-            // For Supabase sessions, require Supabase config
-            // For iCloud sessions, always allow
-            let isICloud = AuthService.shared.isICloudSession
-            if !isICloud {
-                guard !self.supabaseURL.isEmpty, !self.supabaseAnonKey.isEmpty else { return }
-            }
+            // Require Supabase config for cloud sync
+            guard !self.supabaseURL.isEmpty, !self.supabaseAnonKey.isEmpty else { return }
             
             // Give auth session refresh a moment to complete (up to 2 seconds)
             for _ in 0..<10 {
@@ -256,19 +255,7 @@ class ProfileService: ObservableObject {
     
     func syncProfilesToCloud() {
         guard AuthService.shared.isAuthenticated else { return }
-        
-        if AuthService.shared.isICloudSession {
-            // CloudKit sync
-            Task {
-                do {
-                    try await CloudKitSyncService.shared.uploadProfiles(profiles)
-                } catch {
-                    print("CloudKit profile sync failed: \(error)")
-                }
-            }
-            return
-        }
-        
+
         // Supabase sync
         guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
         guard let userId = AuthService.shared.userId else { return }
@@ -284,18 +271,11 @@ class ProfileService: ObservableObject {
     
     func downloadProfilesFromCloud() async {
         guard AuthService.shared.isAuthenticated else { return }
-        
-        if AuthService.shared.isICloudSession {
-            // CloudKit download
-            do {
-                let cloudProfiles = try await CloudKitSyncService.shared.downloadProfiles()
-                if !cloudProfiles.isEmpty {
-                    applyCloudProfiles(cloudProfiles)
-                }
-            } catch {
-                print("CloudKit profile download failed: \(error)")
-            }
-            return
+        if isSyncingFromCloud { return }
+        isSyncingFromCloud = true
+        defer {
+            isSyncingFromCloud = false
+            hasCompletedInitialSync = true
         }
         
         // Supabase download
@@ -462,6 +442,7 @@ class ProfileService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: activeProfileKey)
         needsProfileSelection = false
         hasShownPickerThisSession = false
+        hasCompletedInitialSync = false
         saveProfiles()
     }
 }

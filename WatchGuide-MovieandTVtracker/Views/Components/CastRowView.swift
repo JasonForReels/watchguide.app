@@ -39,10 +39,13 @@ struct CastRowView: View {
 struct CastMemberCard: View {
     let member: CastMember
     @State private var isHovered = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     var body: some View {
+        let avatarSize = ResponsiveSizing.avatarSize(horizontalSizeClass: horizontalSizeClass, base: 80)
+        let textWidth = ResponsiveSizing.avatarSize(horizontalSizeClass: horizontalSizeClass, base: 80)
         VStack(spacing: 8) {
-            ProfileImageView(profilePath: member.profilePath, size: 80)
+            ProfileImageView(profilePath: member.profilePath, size: avatarSize)
                 .shadow(color: .black.opacity(0.15), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
                 .scaleEffect(isHovered ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
@@ -61,7 +64,7 @@ struct CastMemberCard: View {
                         .lineLimit(1)
                 }
             }
-            .frame(width: 80)
+            .frame(width: textWidth)
         }
         #if !os(tvOS)
         .onHover { hovering in
@@ -115,10 +118,13 @@ struct CrewRowView: View {
 struct CrewMemberCard: View {
     let member: CrewMember
     @State private var isHovered = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     var body: some View {
+        let avatarSize = ResponsiveSizing.avatarSize(horizontalSizeClass: horizontalSizeClass, base: 70)
+        let textWidth = ResponsiveSizing.avatarSize(horizontalSizeClass: horizontalSizeClass, base: 70)
         VStack(spacing: 8) {
-            ProfileImageView(profilePath: member.profilePath, size: 70)
+            ProfileImageView(profilePath: member.profilePath, size: avatarSize)
                 .shadow(color: .black.opacity(0.15), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
                 .scaleEffect(isHovered ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
@@ -137,7 +143,7 @@ struct CrewMemberCard: View {
                         .lineLimit(1)
                 }
             }
-            .frame(width: 70)
+            .frame(width: textWidth)
         }
         #if !os(tvOS)
         .onHover { hovering in

@@ -56,6 +56,9 @@ struct ListsView: View {
                 }
             }
             .navigationTitle("My Lists")
+            .sheet(item: $selectedItem) { item in
+                MediaDetailView(item: item)
+            }
             .toolbar {
                 if selectedTab == .custom {
                     ToolbarItem(placement: .primaryAction) {
@@ -101,10 +104,13 @@ struct ListsView: View {
                     GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
                 ], spacing: 20) {
                     ForEach(items) { item in
-                        SavedMediaPosterCard(item: item)
-                            .onTapGesture {
-                                // Convert to MediaItem for detail view
-                            }
+                        Button {
+                            selectedItem = item.toMediaItem()
+                        } label: {
+                            SavedMediaPosterCard(item: item)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding()
@@ -202,6 +208,7 @@ struct TabButton: View {
 struct CustomListDetailView: View {
     let list: CustomList
     @ObservedObject private var storage = StorageService.shared
+    @State private var selectedItem: MediaItem?
     
     var body: some View {
         Group {
@@ -222,7 +229,13 @@ struct CustomListDetailView: View {
                         GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
                     ], spacing: 20) {
                         ForEach(list.items) { item in
-                            SavedMediaPosterCard(item: item)
+                            Button {
+                                selectedItem = item.toMediaItem()
+                            } label: {
+                                SavedMediaPosterCard(item: item)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding()
@@ -230,10 +243,12 @@ struct CustomListDetailView: View {
             }
         }
         .navigationTitle(list.name)
+        .sheet(item: $selectedItem) { item in
+            MediaDetailView(item: item)
+        }
     }
 }
 
 #Preview {
     ListsView()
 }
-

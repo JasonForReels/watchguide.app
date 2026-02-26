@@ -210,8 +210,10 @@ struct ProviderSection: View {
 struct ProviderLogo: View {
     let provider: WatchProvider
     var onTap: ((WatchProvider) -> Void)?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     var body: some View {
+        let logoSize = ResponsiveSizing.providerLogoSize(horizontalSizeClass: horizontalSizeClass)
         Button {
             onTap?(provider)
         } label: {
@@ -238,13 +240,13 @@ struct ProviderLogo: View {
                             .fill(Color(.systemGray5))
                     }
                 }
-                .frame(width: 48, height: 48)
+                .frame(width: logoSize, height: logoSize)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 
                 Text(provider.providerName)
                     .font(.caption2)
                     .lineLimit(1)
-                    .frame(width: 48)
+                    .frame(width: logoSize)
                     .foregroundColor(.primary)
             }
         }

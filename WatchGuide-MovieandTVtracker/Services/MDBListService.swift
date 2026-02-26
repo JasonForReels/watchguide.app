@@ -88,7 +88,20 @@ actor MDBListService {
 
         let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
         let publicURLString = "https://mdblist.com/lists/\(encoded)/json"
-        guard let url = URL(string: publicURLString) else { throw MDBListError.invalidURL }
+        return try await getListItemsFromDirectURL(publicURLString)
+    }
+
+    /// Fetch list items from an exact MDBList JSON export URL (supports query params like sort=imdb_popular).
+    func getListItemsFromDirectURL(_ urlString: String) async throws -> [MDBListItem] {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw MDBListError.invalidURL }
+
+        let cacheKey = "directURL::\(trimmed)"
+        if let cached = listCache[cacheKey], Date().timeIntervalSince(cached.timestamp) < cacheTTL {
+            return cached.items
+        }
+
+        guard let url = URL(string: trimmed) else { throw MDBListError.invalidURL }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -98,11 +111,12 @@ actor MDBListService {
         guard let httpResponse = response as? HTTPURLResponse else { throw MDBListError.networkError }
         guard (200...299).contains(httpResponse.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            print("MDBList public URL fetch failed (\(httpResponse.statusCode)): \(body.prefix(300))")
+            print("MDBList direct URL fetch failed (\(httpResponse.statusCode)): \(body.prefix(300))")
             throw MDBListError.apiError(httpResponse.statusCode)
         }
 
         let items = try decodeListItems(from: data)
+        listCache[cacheKey] = (items: items, timestamp: Date())
         return items
     }
     

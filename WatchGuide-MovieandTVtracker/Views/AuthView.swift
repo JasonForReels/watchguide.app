@@ -2,7 +2,7 @@
 //  AuthView.swift
 //  WatchGuide-MovieandTVtracker
 //
-//  Sign in / Sign up view — supports Supabase email auth & Sign in with Apple (iCloud)
+//  Sign in / Sign up view — supports Supabase email auth & Sign in with Apple
 //
 
 import SwiftUI
@@ -21,7 +21,6 @@ struct AuthView: View {
     @State private var resetEmailSent = false
     @State private var showProfileSetup = false
     @State private var showEmailForm = false
-    @State private var currentNonce: String?
     
     var body: some View {
         NavigationStack {
@@ -51,7 +50,7 @@ struct AuthView: View {
                     }
                     .padding(.top, 20)
                     
-                    // Sign in with Apple (iCloud sync)
+                    // Sign in with Apple
                     VStack(spacing: 14) {
                         VStack(spacing: 6) {
                             Text("Recommended")
@@ -59,7 +58,7 @@ struct AuthView: View {
                                 .fontWeight(.semibold)
                                 .foregroundColor(.accentColor)
                             
-                            Text("Sign in with Apple to sync via iCloud. No account setup needed.")
+                            Text("Sign in with Apple to sync across devices. No account setup needed.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
@@ -305,40 +304,21 @@ struct AuthView: View {
         switch result {
         case .success(let authorization):
             if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
-                let userIdentifier = appleIDCredential.user
-                let fullName = appleIDCredential.fullName
-                let email = appleIDCredential.email
+                guard let tokenData = appleIDCredential.identityToken,
+                      let idToken = String(data: tokenData, encoding: .utf8) else {
+                    authService.errorMessage = "Unable to read Apple ID token."
+                    return
+                }
                 
                 Task {
-                    let success = await authService.signInWithAppleLocal(
-                        userIdentifier: userIdentifier,
-                        fullName: fullName,
-                        email: email
-                    )
+                    let success = await authService.signInWithApple(idToken: idToken, nonce: nil)
                     if success {
-                        // Try downloading profiles from CloudKit
-                        await downloadICloudProfiles()
-                        
-                        if profileService.hasProfiles && !profileService.hasActiveProfile {
-                            profileService.requestProfileSelection()
-                        }
-                        dismiss()
+                        await handleEmailAuthSuccess()
                     }
                 }
             }
         case .failure(let error):
             authService.errorMessage = error.localizedDescription
-        }
-    }
-    
-    private func downloadICloudProfiles() async {
-        do {
-            let profiles = try await CloudKitSyncService.shared.downloadProfiles()
-            if !profiles.isEmpty {
-                profileService.applyCloudProfiles(profiles)
-            }
-        } catch {
-            print("CloudKit profile download failed: \(error)")
         }
     }
     
@@ -383,49 +363,26 @@ struct AccountView: View {
                 HStack(spacing: 16) {
                     ZStack {
                         Circle()
-                            .fill(authService.isICloudSession ? Color.blue.opacity(0.15) : Color.accentColor.opacity(0.15))
+                            .fill(Color.accentColor.opacity(0.15))
                             .frame(width: 56, height: 56)
                         
-                        if authService.isICloudSession {
-                            Image(systemName: "apple.logo")
-                                .font(.title2)
-                                .foregroundColor(.primary)
-                        } else {
-                            Text(userInitials(from: user.email))
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .foregroundColor(.accentColor)
-                        }
+                        Text(userInitials(from: user.email))
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.accentColor)
                     }
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        if authService.isICloudSession {
-                            let givenName = UserDefaults.standard.string(forKey: "apple_user_given_name")
-                            Text(givenName ?? "Apple ID User")
-                                .font(.headline)
-                        } else {
-                            Text(user.email ?? "User")
-                                .font(.headline)
-                        }
+                        Text(user.email ?? "User")
+                            .font(.headline)
                         
                         HStack(spacing: 4) {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption)
                                 .foregroundColor(.green)
-                            Text(authService.isICloudSession ? "Signed in with Apple" : "Signed in")
+                            Text("Signed in")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                        }
-                        
-                        if authService.isICloudSession {
-                            HStack(spacing: 4) {
-                                Image(systemName: "icloud.fill")
-                                    .font(.caption2)
-                                    .foregroundColor(.blue)
-                                Text("Syncing via iCloud")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
                         }
                     }
                     

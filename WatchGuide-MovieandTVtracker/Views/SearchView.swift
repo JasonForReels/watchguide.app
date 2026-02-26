@@ -123,6 +123,19 @@ struct SearchView: View {
                 .padding(.horizontal)
             }
             .padding(.bottom, 8)
+
+            if !viewModel.streamingServices.isEmpty {
+                StreamingServiceFilterSection(
+                    services: viewModel.streamingServices,
+                    selectedServiceIds: viewModel.selectedStreamingServiceIds,
+                    onToggle: { service in
+                        Task {
+                            await viewModel.toggleStreamingService(service)
+                        }
+                    }
+                )
+                .padding(.bottom, 8)
+            }
             
             Divider()
             
@@ -166,7 +179,10 @@ struct SearchView: View {
                             PersonSearchCard(person: person)
                                 .onTapGesture {
                                     selectedPerson = person
-                                    StorageService.shared.addSearchHistory(viewModel.query)
+                                    let trimmed = viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    if !trimmed.isEmpty {
+                                        StorageService.shared.addSearchHistory(trimmed)
+                                    }
                                 }
                         }
                     }
@@ -193,36 +209,49 @@ struct SearchView: View {
             } else {
                 // Media results grid
                 ScrollView {
-                    LazyVGrid(columns: [
-                        GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
-                    ], spacing: 20) {
-                        ForEach(viewModel.results) { item in
-                            MediaPosterCard(item: item)
-                                .onTapGesture {
-                                    selectedItem = item
-                                    StorageService.shared.addSearchHistory(viewModel.query)
-                                }
+                    VStack(alignment: .leading, spacing: 12) {
+                        if viewModel.isStreamingMode && viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            StreamingRecommendationHeader(
+                                serviceNames: viewModel.selectedStreamingServiceNames
+                            )
+                            .padding(.horizontal)
                         }
-                    }
-                    .padding()
+
+                        LazyVGrid(columns: [
+                            GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                        ], spacing: 20) {
+                            ForEach(viewModel.results) { item in
+                                MediaPosterCard(item: item)
+                                    .onTapGesture {
+                                        selectedItem = item
+                                        let trimmed = viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        if !trimmed.isEmpty {
+                                            StorageService.shared.addSearchHistory(trimmed)
+                                        }
+                                    }
+                            }
+                        }
+                        .padding(.horizontal)
                     
-                    // Load more
-                    if viewModel.hasMorePages {
-                        Button {
-                            Task {
-                                await viewModel.loadMore()
+                        // Load more
+                        if viewModel.hasMorePages {
+                            Button {
+                                Task {
+                                    await viewModel.loadMore()
+                                }
+                            } label: {
+                                if viewModel.isLoadingMore {
+                                    ProgressView()
+                                } else {
+                                    Text("Load More")
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                }
                             }
-                        } label: {
-                            if viewModel.isLoadingMore {
-                                ProgressView()
-                            } else {
-                                Text("Load More")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                            }
+                            .padding()
                         }
-                        .padding()
                     }
+                    .padding(.top, 8)
                 }
             }
         }
@@ -273,7 +302,9 @@ struct SearchView: View {
         }
         .onChange(of: viewModel.selectedType) { _, _ in
             // Re-search when filter type changes (if there's an active query)
-            if viewModel.hasSearched && !viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if viewModel.isStreamingMode && viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                viewModel.applyStreamingFilters()
+            } else if viewModel.hasSearched && !viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Task {
                     await viewModel.search()
                 }
@@ -340,6 +371,135 @@ struct FilterChip: View {
         .onTapGesture {
             action?()
         }
+    }
+}
+
+// MARK: - Streaming Service Filter Section
+struct StreamingServiceOption: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let logoURL: String
+    let brandColorHex: String
+    let listURL: String
+}
+
+struct StreamingServiceFilterSection: View {
+    let services: [StreamingServiceOption]
+    let selectedServiceIds: Set<String>
+    let onToggle: (StreamingServiceOption) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Networks")
+                .font(.headline)
+                .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(services) { service in
+                        Button {
+                            onToggle(service)
+                        } label: {
+                            StreamingServiceCard(
+                                service: service,
+                                isSelected: selectedServiceIds.contains(service.id)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+struct StreamingServiceCard: View {
+    let service: StreamingServiceOption
+    let isSelected: Bool
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var backgroundColor: Color {
+        Color(hex: service.brandColorHex)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(backgroundColor)
+                    .opacity(colorScheme == .dark ? 0.85 : 1.0)
+
+                AsyncImage(url: URL(string: service.logoURL)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(height: 26)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                    case .failure:
+                        Text(service.name)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                    case .empty:
+                        ProgressView()
+                            .tint(.white)
+                            .frame(height: 26)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                    @unknown default:
+                        EmptyView()
+                    }
+                }
+            }
+            .frame(width: 140, height: 54)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(isSelected ? Color.white.opacity(0.9) : Color.white.opacity(0.15), lineWidth: isSelected ? 2 : 1)
+            )
+            .shadow(color: .black.opacity(isSelected ? 0.25 : 0.12), radius: isSelected ? 8 : 4, y: 3)
+
+            Text(service.name)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+                .lineLimit(1)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(isSelected ? Color.accentColor.opacity(0.8) : Color(.systemGray4), lineWidth: isSelected ? 2 : 1)
+        )
+        .animation(.easeInOut(duration: 0.2), value: isSelected)
+    }
+}
+
+struct StreamingRecommendationHeader: View {
+    let serviceNames: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Top 10 recommendations")
+                .font(.headline)
+                .fontWeight(.bold)
+            if !serviceNames.isEmpty {
+                Text(serviceNames.joined(separator: " · "))
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
     }
 }
 
@@ -779,6 +939,33 @@ class SearchViewModel: ObservableObject {
     @Published var hasSearched = false
     @Published var currentPage = 1
     @Published var totalPages = 1
+    @Published var selectedStreamingServiceIds: Set<String> = []
+
+    let streamingServices: [StreamingServiceOption] = [
+        StreamingServiceOption(
+            id: "netflix",
+            name: "Netflix",
+            logoURL: "https://cdn.brandfetch.io/ideQwN5lBE/w/800/h/216/theme/light/logo.png?c=1bxid64Mup7aczewSAYMX&t=1741362568562",
+            brandColorHex: "#000000",
+            listURL: "https://mdblist.com/lists/dualipafan01/netflix"
+        ),
+        StreamingServiceOption(
+            id: "disney-plus",
+            name: "Disney+",
+            logoURL: "https://cdn.brandfetch.io/idhQlYRiX2/w/800/h/434/theme/light/logo.png?c=1bxid64Mup7aczewSAYMX&t=1769147818509",
+            brandColorHex: "#084F60",
+            listURL: "https://mdblist.com/lists/dualipafan01/disney"
+        ),
+        StreamingServiceOption(
+            id: "cartoon-network",
+            name: "Cartoon Network",
+            logoURL: "https://cdn.brandfetch.io/idFmMXJiW_/w/820/h/491/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1727089154071",
+            brandColorHex: "#030327",
+            listURL: "https://mdblist.com/lists/dualipafan01/cartoon-network"
+        )
+    ]
+
+    private var streamingBaseResults: [MediaItem] = []
     
     var hasMorePages: Bool {
         currentPage < totalPages
@@ -787,6 +974,16 @@ class SearchViewModel: ObservableObject {
     /// True when the People filter is active
     var isPeopleSearch: Bool {
         selectedType == .person
+    }
+
+    var isStreamingMode: Bool {
+        !selectedStreamingServiceIds.isEmpty
+    }
+
+    var selectedStreamingServiceNames: [String] {
+        streamingServices
+            .filter { selectedStreamingServiceIds.contains($0.id) }
+            .map { $0.name }
     }
     
     /// True when there are no results at all (media + people)
@@ -820,7 +1017,10 @@ class SearchViewModel: ObservableObject {
             hasSearched = false
             return
         }
-        
+
+        selectedStreamingServiceIds.removeAll()
+        streamingBaseResults = []
+
         isLoading = true
         hasSearched = true
         currentPage = 1
@@ -852,6 +1052,8 @@ class SearchViewModel: ObservableObject {
     }
     
     func loadMore() async {
+        if isStreamingMode { return }
+        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
         guard hasMorePages && !isLoadingMore else { return }
         
         isLoadingMore = true
@@ -922,12 +1124,72 @@ class SearchViewModel: ObservableObject {
         
         return filtered
     }
+
+    func toggleStreamingService(_ service: StreamingServiceOption) async {
+        if selectedStreamingServiceIds.contains(service.id) {
+            selectedStreamingServiceIds.remove(service.id)
+        } else {
+            selectedStreamingServiceIds.insert(service.id)
+        }
+        await loadStreamingRecommendations()
+    }
+
+    func applyStreamingFilters() {
+        guard isStreamingMode else { return }
+        results = filterResults(streamingBaseResults)
+    }
+
+    private func loadStreamingRecommendations() async {
+        if selectedStreamingServiceIds.isEmpty {
+            streamingBaseResults = []
+            results = []
+            personResults = []
+            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                hasSearched = false
+            }
+            return
+        }
+
+        query = ""
+        selectedGenre = nil
+        selectedYear = nil
+        selectedType = nil
+
+        isLoading = true
+        hasSearched = true
+        currentPage = 1
+        totalPages = 1
+        personResults = []
+
+        let listInputs = streamingServices
+            .filter { selectedStreamingServiceIds.contains($0.id) }
+            .map { $0.listURL }
+
+        do {
+            let savedItems = try await MDBListService.shared.fetchMultipleListsAsSavedMedia(
+                inputs: listInputs,
+                perListLimit: 20,
+                totalLimit: 10,
+                preferTMDBDetails: true
+            )
+            streamingBaseResults = savedItems.map { $0.toMediaItem() }
+            results = filterResults(streamingBaseResults)
+        } catch {
+            print("Streaming recommendations error: \(error)")
+            streamingBaseResults = []
+            results = []
+        }
+
+        isLoading = false
+    }
     
     func clearSearch() {
         query = ""
         results = []
         personResults = []
         hasSearched = false
+        selectedStreamingServiceIds.removeAll()
+        streamingBaseResults = []
     }
 }
 

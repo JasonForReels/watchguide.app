@@ -123,7 +123,7 @@ struct FirstProfileSetupView: View {
                 featureRow(icon: "person.2.fill", title: "Multiple Profiles", subtitle: "Each person gets their own experience")
                 featureRow(icon: "shield.checkered", title: "Age Verification", subtitle: "Content is tailored to your age group")
                 featureRow(icon: "figure.child", title: "Kids Profile", subtitle: "A safe, locked profile for younger viewers")
-                featureRow(icon: "icloud.fill", title: "Cloud Synced", subtitle: "Profiles sync to all your devices automatically")
+                featureRow(icon: "cloud.fill", title: "Cloud Synced", subtitle: "Profiles sync to all your devices automatically")
             }
             .padding(20)
             .background(

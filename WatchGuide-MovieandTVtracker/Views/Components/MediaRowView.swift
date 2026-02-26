@@ -65,10 +65,12 @@ struct MediaRowView: View {
 struct MediaPosterCard: View {
     let item: MediaItem
     @State private var isHovered = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     var body: some View {
+        let posterSize = ResponsiveSizing.posterSize(horizontalSizeClass: horizontalSizeClass)
         PosterImageView(posterPath: item.posterPath, size: .medium, mediaId: item.id, mediaType: item.resolvedMediaType)
-            .frame(width: 130, height: 195)
+            .frame(width: posterSize.width, height: posterSize.height)
             .clipped()
             .shadow(color: .black.opacity(0.2), radius: isHovered ? 12 : 4, y: isHovered ? 8 : 2)
             .scaleEffect(isHovered ? 1.05 : 1.0)
@@ -138,10 +140,12 @@ struct SavedMediaRowView: View {
 struct SavedMediaPosterCard: View {
     let item: SavedMediaItem
     @State private var isHovered = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     var body: some View {
+        let posterSize = ResponsiveSizing.posterSize(horizontalSizeClass: horizontalSizeClass)
         PosterImageView(posterPath: item.posterPath, size: .medium, mediaId: item.mediaId, mediaType: item.mediaType)
-            .frame(width: 130, height: 195)
+            .frame(width: posterSize.width, height: posterSize.height)
             .clipped()
             .shadow(color: .black.opacity(0.2), radius: isHovered ? 12 : 4, y: isHovered ? 8 : 2)
             .scaleEffect(isHovered ? 1.05 : 1.0)

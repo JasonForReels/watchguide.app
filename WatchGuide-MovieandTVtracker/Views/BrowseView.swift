@@ -138,6 +138,10 @@ struct BrowseView: View {
             logoURL: "https://cdn.brandfetch.io/idHlMmIC6s/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1748302432792"
         ),
         ProductionCompanyEntry(
+            name: "DreamWorks",
+            logoURL: "https://cdn.brandfetch.io/idj7QnEvUG/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1764869429974"
+        ),
+        ProductionCompanyEntry(
             name: "Blumhouse Productions",
             logoURL: "https://cdn.brandfetch.io/idMdr695hi/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1767230760280"
         ),
@@ -163,6 +167,11 @@ struct BrowseView: View {
                 await viewModel.loadContent()
                 await forYouVM.loadIfNeeded()
                 updateDailyPickIfNeeded()
+            }
+            .onAppear {
+                if viewModel.heroItems.isEmpty {
+                    Task { await viewModel.refresh() }
+                }
             }
             .toolbar { browseToolbarContent }
             .sheet(item: $selectedNetworkHub) { hub in
@@ -967,6 +976,7 @@ struct ProductionCompanyEntry: Identifiable {
         case "Metro-Goldwyn-Mayer": return 21
         case "Lionsgate Films": return 1632
         case "A24": return 41077
+        case "DreamWorks": return 521
         case "Blumhouse Productions": return 3172
         case "Happy Madison Productions": return 878
         case "Amblin Entertainment": return 56
@@ -1104,7 +1114,9 @@ struct CompanyHubSheet: View {
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                     }
-                    .padding()
+                    .padding(.horizontal)
+                        .padding(.top, 4)
+                        .padding(.bottom, 16)
                     Spacer()
                 } else {
                     let items = selectedTab == 0 ? movieItems : tvItems
@@ -1123,7 +1135,7 @@ struct CompanyHubSheet: View {
                         ScrollView {
                             LazyVGrid(columns: [
                                 GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
-                            ], spacing: 20) {
+                            ], spacing: 16) {
                                 ForEach(items) { item in
                                     MediaPosterCard(item: item)
                                         .onTapGesture {
@@ -2318,17 +2330,29 @@ struct BrowseDiscoverSection: View {
             
             // Feature Cards Grid
             VStack(spacing: 14) {
-                // Mood Discovery - Hero card
-                NavigationLink(destination: MoodDiscoveryView()) {
-                    DiscoverFeatureCard(
-                        title: "Mood Discovery",
-                        subtitle: "Pick your vibe, get curated results",
-                        iconName: "sparkles",
-                        accentColor: .purple,
-                        isLarge: true
-                    )
+                HStack(spacing: 14) {
+                    NavigationLink(destination: TimelinesView()) {
+                        DiscoverFeatureCard(
+                            title: "Timelines",
+                            subtitle: "Follow story arcs in order",
+                            iconName: "list.bullet.rectangle",
+                            accentColor: .indigo,
+                            isLarge: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    
+                    NavigationLink(destination: MoodDiscoveryView()) {
+                        DiscoverFeatureCard(
+                            title: "Mood Discovery",
+                            subtitle: "Pick your vibe, get curated results",
+                            iconName: "sparkles",
+                            accentColor: .purple,
+                            isLarge: false
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
                 
                 HStack(spacing: 14) {
                     NavigationLink(destination: RandomPickView()) {
@@ -2784,7 +2808,11 @@ class BrowseViewModel: ObservableObject {
             return matched.sorted { $0.0 < $1.0 }
         }
         
-        return results.map { $0.1 }
+        let filtered = results.map { $0.1 }
+        if filtered.isEmpty {
+            return items
+        }
+        return filtered
     }
     
     private func loadHeroItems() async {
@@ -3351,8 +3379,10 @@ struct NetworkHubSheet: View {
     @Binding var selectedItem: MediaItem?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var movies: [MediaItem] = []
     @State private var tvShows: [MediaItem] = []
+    @State private var heroCarouselItems: [MediaItem] = []
     @State private var isLoading = true
     @State private var selectedTab = 0
     
@@ -3389,12 +3419,12 @@ struct NetworkHubSheet: View {
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
-                                .frame(height: 40)
+                                .frame(height: ResponsiveSizing.hubLogoHeight(horizontalSizeClass: horizontalSizeClass))
                         default:
                             EmptyView()
                         }
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
                 }
                 
                 // Tab picker
@@ -3403,7 +3433,10 @@ struct NetworkHubSheet: View {
                     Text("TV Shows").tag(1)
                 }
                 .pickerStyle(.segmented)
-                .padding()
+                .controlSize(horizontalSizeClass == .regular ? .small : .regular)
+                .padding(.horizontal)
+                .padding(.top, 4)
+                .padding(.bottom, 12)
                 
                 if isLoading {
                     Spacer()
@@ -3412,19 +3445,47 @@ struct NetworkHubSheet: View {
                     Spacer()
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: [
-                            GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
-                        ], spacing: 20) {
-                            let items = selectedTab == 0 ? movies : tvShows
-                            ForEach(items) { item in
-                                MediaPosterCard(item: item)
-                                    .onTapGesture {
+                        LazyVStack(spacing: 16) {
+                            if hub.name == "Disney+", !heroCarouselItems.isEmpty {
+                                HeroCarouselView(
+                                    items: heroCarouselItems,
+                                    onItemTap: { item in
                                         selectedItem = item
                                         dismiss()
                                     }
+                                )
+                                .frame(height: ResponsiveSizing.hubHeroHeight(horizontalSizeClass: horizontalSizeClass))
+                                .frame(maxWidth: .infinity)
+                                .clipped()
+                                .padding(.horizontal)
+                            } else if hub.name != "Disney+" && !heroCarouselItems.isEmpty {
+                                ResizableHeroCarousel(items: heroCarouselItems) { item in
+                                    selectedItem = item
+                                    dismiss()
+                                }
                             }
+
+                            LazyVGrid(columns: [
+                                GridItem(
+                                    .adaptive(
+                                        minimum: ResponsiveSizing.gridPosterWidth(horizontalSizeClass: horizontalSizeClass),
+                                        maximum: ResponsiveSizing.gridPosterWidth(horizontalSizeClass: horizontalSizeClass) + 30
+                                    ),
+                                    spacing: 16
+                                )
+                            ], spacing: 16) {
+                                let items = selectedTab == 0 ? movies : tvShows
+                                ForEach(items) { item in
+                                    MediaPosterCard(item: item)
+                                        .onTapGesture {
+                                            selectedItem = item
+                                            dismiss()
+                                        }
+                                }
+                            }
+                            .padding(.horizontal)
+                            .padding(.bottom, 12)
                         }
-                        .padding()
                     }
                 }
             }
@@ -3457,11 +3518,19 @@ struct NetworkHubSheet: View {
             await MainActor.run {
                 self.movies = []
                 self.tvShows = []
+                self.heroCarouselItems = []
                 self.isLoading = false
             }
             return
         }
-        
+
+        if hub.name == "Disney+" {
+            let disneyItems = await fetchDisneyPlusHeroItems()
+            await MainActor.run { heroCarouselItems = disneyItems }
+        } else {
+            await MainActor.run { heroCarouselItems = [] }
+        }
+
         // Load movies: try provider-based first; fallback to empty if no providers
         do {
             if !hub.providerIds.isEmpty {
@@ -3493,6 +3562,102 @@ struct NetworkHubSheet: View {
         }
         
         await MainActor.run { isLoading = false }
+    }
+
+    private func fetchDisneyPlusHeroItems() async -> [MediaItem] {
+        let listURL = "https://mdblist.com/lists/dualipafan01/disney"
+        do {
+            let listItems = try await MDBListService.shared.getListItemsFromURL(listURL)
+            let curated = pickNewestMoviesAndShows(from: listItems, movieLimit: 5, showLimit: 5)
+            return await resolveMDBListItems(curated)
+        } catch {
+            print("Disney+ hero list error: \(error)")
+            return []
+        }
+    }
+
+    private func pickNewestMoviesAndShows(from items: [MDBListItem], movieLimit: Int, showLimit: Int) -> [MDBListItem] {
+        let movies = items
+            .filter { !$0.isShow }
+            .sorted { ($0.resolvedYear ?? 0) > ($1.resolvedYear ?? 0) }
+            .prefix(movieLimit)
+
+        let shows = items
+            .filter { $0.isShow }
+            .sorted { ($0.resolvedYear ?? 0) > ($1.resolvedYear ?? 0) }
+            .prefix(showLimit)
+
+        return Array(movies) + Array(shows)
+    }
+
+    private func resolveMDBListItems(_ items: [MDBListItem]) async -> [MediaItem] {
+        var results: [MediaItem] = []
+        results.reserveCapacity(items.count)
+
+        for item in items {
+            guard let tmdbId = item.id, tmdbId > 0 else { continue }
+            let normalized = item.mediatype?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            let isShow = normalized == "show" || normalized == "tv" || normalized == "series"
+
+            do {
+                if isShow {
+                    let details = try await TMDBService.shared.getTVShowDetails(id: tmdbId)
+                    let mediaItem = MediaItem(
+                        id: details.id,
+                        title: nil,
+                        name: details.name,
+                        originalTitle: nil,
+                        originalName: details.originalName,
+                        overview: details.overview,
+                        posterPath: details.posterPath,
+                        backdropPath: details.backdropPath,
+                        releaseDate: nil,
+                        firstAirDate: details.firstAirDate,
+                        voteAverage: details.voteAverage,
+                        voteCount: nil,
+                        popularity: nil,
+                        genreIds: nil,
+                        mediaType: "tv",
+                        adult: nil,
+                        originalLanguage: nil
+                    )
+                    results.append(mediaItem)
+                } else {
+                    let details = try await TMDBService.shared.getMovieDetails(id: tmdbId)
+                    let mediaItem = MediaItem(
+                        id: details.id,
+                        title: details.title,
+                        name: nil,
+                        originalTitle: details.originalTitle,
+                        originalName: nil,
+                        overview: details.overview,
+                        posterPath: details.posterPath,
+                        backdropPath: details.backdropPath,
+                        releaseDate: details.releaseDate,
+                        firstAirDate: nil,
+                        voteAverage: details.voteAverage,
+                        voteCount: nil,
+                        popularity: nil,
+                        genreIds: nil,
+                        mediaType: "movie",
+                        adult: nil,
+                        originalLanguage: nil
+                    )
+                    results.append(mediaItem)
+                }
+            } catch {
+                print("Disney+ hero item fetch error: \(error)")
+            }
+        }
+
+        return results
+    }
+}
+
+private extension MDBListItem {
+    var isShow: Bool {
+        let normalized = mediatype?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return normalized == "show" || normalized == "tv" || normalized == "series"
     }
 }
 

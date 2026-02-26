@@ -23,6 +23,8 @@ struct SettingsView: View {
     @State private var passcodeAction: PasscodeAction = .disableKids
     @State private var showEditProfile = false
     
+    private let communityURLString = "https://discord.watchguide.app"
+    
     enum PasscodeAction {
         case disableKids       // Turn off kids profile
         case enableAdult       // Turn on "Include Adult Content"
@@ -351,21 +353,22 @@ struct SettingsView: View {
                 }
             }
             
+            // Community & Support
+            if authService.isAuthenticated {
+                Section("Community & Support") {
+                    Button {
+                        openCommunity()
+                    } label: {
+                        communitySupportCard
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            
             // Cloud Sync
             if authService.isAuthenticated {
                 Section {
-                    if authService.isICloudSession {
-                        HStack(spacing: 8) {
-                            Image(systemName: "icloud.fill")
-                                .foregroundColor(.blue)
-                            Text("Auto-syncing via iCloud")
-                                .font(.subheadline)
-                            Spacer()
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                                .font(.caption)
-                        }
-                    } else if storage.isSupabaseConfigured {
+                    if storage.isSupabaseConfigured {
                         HStack(spacing: 8) {
                             Image(systemName: "cloud.fill")
                                 .foregroundColor(.green)
@@ -380,7 +383,7 @@ struct SettingsView: View {
                         NavigationLink(destination: SupabaseSetupGuideView()) {
                             Label("Setup Guide", systemImage: "cloud.fill")
                         }
-                        Text("Supabase is not configured. Sign in with Apple to use iCloud sync instead, or link a Supabase project.")
+                        Text("Supabase is not configured. Link a Supabase project to enable sync.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -441,11 +444,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Cloud Sync")
                 } footer: {
-                    if authService.isICloudSession {
-                        Text("All changes sync automatically to your private iCloud account. Use Force Upload/Download for a full re-sync.")
-                    } else {
-                        Text("All changes sync automatically. Use Force Upload/Download for a full re-sync.")
-                    }
+                    Text("All changes sync automatically. Use Force Upload/Download for a full re-sync.")
                 }
             }
             
@@ -575,6 +574,65 @@ struct SettingsView: View {
     private var appVersionString: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
         return "v\(version)"
+    }
+    
+    private var communitySupportCard: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.90, green: 0.91, blue: 1.0),
+                    Color(red: 0.80, green: 0.83, blue: 0.98)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Discord")
+                    .font(.custom("ABCGintoDiscordNord-Bold", size: 34))
+                    .foregroundColor(Color(red: 0.36, green: 0.40, blue: 0.95))
+                
+                HStack(spacing: 10) {
+                    ForEach(0..<6, id: \.self) { index in
+                        Circle()
+                            .fill(Color.white.opacity(0.9))
+                            .frame(width: 26, height: 26)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                            )
+                            .offset(y: index.isMultiple(of: 2) ? -2 : 2)
+                    }
+                }
+                
+                HStack(spacing: 10) {
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .foregroundColor(.white)
+                    Text("Join the community for support and updates")
+                        .font(.subheadline)
+                        .foregroundColor(.white)
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(red: 0.36, green: 0.40, blue: 0.95))
+                )
+            }
+            .padding(16)
+        }
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+    
+    private func openCommunity() {
+        guard let url = URL(string: communityURLString) else { return }
+        if PlatformURLHandler.canOpenURL(url) {
+            PlatformURLHandler.openURL(url)
+        }
     }
     
     private var regionOptions: [(code: String, name: String)] {

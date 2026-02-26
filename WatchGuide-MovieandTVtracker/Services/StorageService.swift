@@ -32,25 +32,16 @@ class StorageService: ObservableObject {
     @Published var cloudSyncEnabled = false
 
     var lastSyncTime: Date? {
-        // Use UserDefaults to determine backend without triggering AuthService.shared
-        // during init. This avoids potential circular singleton access.
-        let isICloud = UserDefaults.standard.string(forKey: "auth_backend") == AuthBackend.icloud.rawValue
-        if isICloud {
-            return UserDefaults.standard.object(forKey: "cloudkit_last_sync") as? Date
-        }
         return UserDefaults.standard.object(forKey: "supabase_last_sync") as? Date
     }
     
     var isCloudConfigured: Bool {
-        // Check iCloud via UserDefaults to avoid triggering AuthService singleton during init
-        let isICloud = UserDefaults.standard.string(forKey: "auth_backend") == AuthBackend.icloud.rawValue
-        if isICloud { return true }
         let url = ApiKeyManager.shared.get(key: "SUPABASE_URL") ?? ""
         let key = ApiKeyManager.shared.get(key: "SUPABASE_ANON_KEY") ?? ""
         return !url.isEmpty && !key.isEmpty
     }
     
-    /// Whether Supabase is configured (separate from iCloud check)
+    /// Whether Supabase is configured
     var isSupabaseConfigured: Bool {
         let url = ApiKeyManager.shared.get(key: "SUPABASE_URL") ?? ""
         let key = ApiKeyManager.shared.get(key: "SUPABASE_ANON_KEY") ?? ""
@@ -378,12 +369,7 @@ class StorageService: ObservableObject {
         
         isSyncing = true
         lastSyncError = nil
-        
-        if AuthService.shared.isICloudSession {
-            await uploadToCloudKit()
-        } else {
-            await uploadToSupabase()
-        }
+        await uploadToSupabase()
         
         isSyncing = false
     }
@@ -417,31 +403,6 @@ class StorageService: ObservableObject {
         }
     }
     
-    private func uploadToCloudKit() async {
-        do {
-            let ck = CloudKitSyncService.shared
-            
-            try await ck.uploadAllMediaItems(
-                wantToWatch: wantToWatch,
-                watched: watched,
-                liked: liked
-            )
-            try await ck.uploadSettings(settings)
-            try await ck.uploadCustomLists(customLists)
-            try await ck.uploadProfiles(ProfileService.shared.profiles)
-            try await ck.uploadBrowseConfig(browseRows)
-            try await ck.uploadNetworkHubsConfig(networkHubs)
-            try await ck.uploadHiddenSections(hiddenSections)
-            try await ck.uploadBrowseSections(browseSections)
-            
-            await ck.updateLastSyncTime()
-            objectWillChange.send()
-        } catch {
-            lastSyncError = error.localizedDescription
-            print("CloudKit upload failed: \(error)")
-        }
-    }
-    
     /// Download all cloud data to local
     func downloadFromCloud() async {
         guard isCloudConfigured else {
@@ -451,12 +412,7 @@ class StorageService: ObservableObject {
         
         isSyncing = true
         lastSyncError = nil
-        
-        if AuthService.shared.isICloudSession {
-            await downloadFromCloudKit()
-        } else {
-            await downloadFromSupabase()
-        }
+        await downloadFromSupabase()
         
         isSyncing = false
     }
@@ -490,82 +446,6 @@ class StorageService: ObservableObject {
         } catch {
             lastSyncError = error.localizedDescription
             print("Supabase download failed: \(error)")
-        }
-    }
-    
-    private func downloadFromCloudKit() async {
-        do {
-            let ck = CloudKitSyncService.shared
-            
-            let data = try await ck.downloadAllMediaItems()
-            applyDownloadedMediaItems(data.wantToWatch, data.watched, data.liked)
-            
-            if let cloudSettings = try await ck.downloadSettings() {
-                settings = cloudSettings
-                save(settings, to: settingsURL)
-            }
-            
-            let cloudLists = try await ck.downloadCustomLists()
-            if !cloudLists.isEmpty {
-                customLists = cloudLists
-                save(customLists, to: customListsURL)
-            }
-            
-            let cloudProfiles = try await ck.downloadProfiles()
-            if !cloudProfiles.isEmpty {
-                ProfileService.shared.applyCloudProfiles(cloudProfiles)
-            }
-            
-            let cloudBrowseRows = try await ck.downloadBrowseConfig()
-            if !cloudBrowseRows.isEmpty {
-                var merged = cloudBrowseRows
-                let cloudEndpoints = Set(merged.map { $0.endpoint })
-                for defaultRow in BrowseRowConfig.defaultRows where !cloudEndpoints.contains(defaultRow.endpoint) {
-                    var newRow = defaultRow
-                    newRow.sortOrder = merged.count
-                    newRow.isEnabled = false
-                    merged.append(newRow)
-                }
-                browseRows = merged
-                save(browseRows, to: browseRowsURL)
-            }
-            
-            let hubsConfig = try await ck.downloadNetworkHubsConfig()
-            if !hubsConfig.isEmpty {
-                for config in hubsConfig {
-                    if let idx = networkHubs.firstIndex(where: { $0.name.lowercased() == config.hubId.lowercased() }) {
-                        networkHubs[idx].isEnabled = config.isEnabled
-                        networkHubs[idx].sortOrder = config.sortOrder
-                    }
-                }
-                networkHubs.sort { $0.sortOrder < $1.sortOrder }
-                save(networkHubs, to: networkHubsURL)
-            }
-            
-            if let cloudHidden = try await ck.downloadHiddenSections() {
-                hiddenSections = cloudHidden
-                save(hiddenSections, to: hiddenSectionsURL)
-            }
-            
-            let cloudSections = try await ck.downloadBrowseSections()
-            if !cloudSections.isEmpty {
-                var merged = cloudSections
-                let cloudTypes = Set(merged.map { $0.sectionType })
-                for def in BrowseSectionItem.defaultSections where !cloudTypes.contains(def.sectionType) {
-                    var newSec = def
-                    newSec.sortOrder = merged.count
-                    newSec.isEnabled = false
-                    merged.append(newSec)
-                }
-                browseSections = merged
-                save(browseSections, to: browseSectionsURL)
-            }
-            
-            await ck.updateLastSyncTime()
-            objectWillChange.send()
-        } catch {
-            lastSyncError = error.localizedDescription
-            print("CloudKit download failed: \(error)")
         }
     }
     
@@ -638,11 +518,7 @@ class StorageService: ObservableObject {
         
         Task {
             do {
-                if AuthService.shared.isICloudSession {
-                    try await CloudKitSyncService.shared.addMediaItem(item, listType: listType)
-                } else {
-                    try await SupabaseService.shared.addItem(item, listType: listType)
-                }
+                try await SupabaseService.shared.addItem(item, listType: listType)
             } catch {
                 print("Cloud sync add failed: \(error)")
             }
@@ -655,11 +531,7 @@ class StorageService: ObservableObject {
         
         Task {
             do {
-                if AuthService.shared.isICloudSession {
-                    try await CloudKitSyncService.shared.removeMediaItem(mediaId: mediaId, mediaType: mediaType, listType: listType)
-                } else {
-                    try await SupabaseService.shared.removeItem(mediaId: mediaId, mediaType: mediaType, listType: listType)
-                }
+                try await SupabaseService.shared.removeItem(mediaId: mediaId, mediaType: mediaType, listType: listType)
             } catch {
                 print("Cloud sync remove failed: \(error)")
             }
@@ -679,22 +551,13 @@ class StorageService: ObservableObject {
         #endif
     }
     
-    /// Whether the current session is iCloud-based
-    private var isICloudSync: Bool {
-        AuthService.shared.isICloudSession
-    }
-    
     /// Sync browse row config to cloud (background)
     private func syncBrowseConfigToCloud() {
         guard shouldAutoSyncHomeConfig else { return }
         let rowsCopy = browseRows
         Task {
             do {
-                if isICloudSync {
-                    try await CloudKitSyncService.shared.uploadBrowseConfig(rowsCopy)
-                } else {
-                    try await HomeScreenSyncService.shared.uploadBrowseConfig(rowsCopy)
-                }
+                try await HomeScreenSyncService.shared.uploadBrowseConfig(rowsCopy)
             } catch {
                 print("Cloud sync browse config failed: \(error)")
             }
@@ -707,11 +570,7 @@ class StorageService: ObservableObject {
         let hubsCopy = networkHubs
         Task {
             do {
-                if isICloudSync {
-                    try await CloudKitSyncService.shared.uploadNetworkHubsConfig(hubsCopy)
-                } else {
-                    try await HomeScreenSyncService.shared.uploadNetworkHubsConfig(hubsCopy)
-                }
+                try await HomeScreenSyncService.shared.uploadNetworkHubsConfig(hubsCopy)
             } catch {
                 print("Cloud sync network hubs failed: \(error)")
             }
@@ -724,11 +583,7 @@ class StorageService: ObservableObject {
         let sectionsCopy = hiddenSections
         Task {
             do {
-                if isICloudSync {
-                    try await CloudKitSyncService.shared.uploadHiddenSections(sectionsCopy)
-                } else {
-                    try await HomeScreenSyncService.shared.uploadHiddenSections(sectionsCopy)
-                }
+                try await HomeScreenSyncService.shared.uploadHiddenSections(sectionsCopy)
             } catch {
                 print("Cloud sync hidden sections failed: \(error)")
             }
@@ -741,10 +596,7 @@ class StorageService: ObservableObject {
         let hubsCopy = customJSONHubs
         Task {
             do {
-                if !isICloudSync {
-                    try await HomeScreenSyncService.shared.uploadCustomJSONHubs(hubsCopy)
-                }
-                // CloudKit custom JSON hub sync is done via full upload
+                try await HomeScreenSyncService.shared.uploadCustomJSONHubs(hubsCopy)
             } catch {
                 print("Cloud sync custom JSON hubs failed: \(error)")
             }
@@ -757,10 +609,7 @@ class StorageService: ObservableObject {
         let listsCopy = importedLists
         Task {
             do {
-                if !isICloudSync {
-                    try await HomeScreenSyncService.shared.uploadExtensionLists(listsCopy)
-                }
-                // CloudKit extension list sync is done via full upload
+                try await HomeScreenSyncService.shared.uploadExtensionLists(listsCopy)
             } catch {
                 print("Cloud sync extension lists failed: \(error)")
             }
@@ -773,10 +622,7 @@ class StorageService: ObservableObject {
         let rowsCopy = customHomeRows
         Task {
             do {
-                if !isICloudSync {
-                    try await HomeScreenSyncService.shared.uploadCustomHomeRows(rowsCopy)
-                }
-                // CloudKit custom home row sync is done via full upload
+                try await HomeScreenSyncService.shared.uploadCustomHomeRows(rowsCopy)
             } catch {
                 print("Cloud sync custom home rows failed: \(error)")
             }
@@ -830,11 +676,7 @@ class StorageService: ObservableObject {
         let listsCopy = customLists
         Task {
             do {
-                if isICloudSync {
-                    try await CloudKitSyncService.shared.uploadCustomLists(listsCopy)
-                } else {
-                    try await SupabaseService.shared.uploadCustomLists(listsCopy)
-                }
+                try await SupabaseService.shared.uploadCustomLists(listsCopy)
             } catch {
                 print("Cloud sync custom lists failed: \(error)")
             }
@@ -982,11 +824,7 @@ class StorageService: ObservableObject {
         let settingsCopy = settings
         Task {
             do {
-                if isICloudSync {
-                    try await CloudKitSyncService.shared.uploadSettings(settingsCopy)
-                } else {
-                    try await SupabaseService.shared.uploadSettings(settingsCopy)
-                }
+                try await SupabaseService.shared.uploadSettings(settingsCopy)
             } catch {
                 print("Cloud sync settings failed: \(error)")
             }
@@ -1064,11 +902,7 @@ class StorageService: ObservableObject {
         let sectionsCopy = browseSections
         Task {
             do {
-                if isICloudSync {
-                    try await CloudKitSyncService.shared.uploadBrowseSections(sectionsCopy)
-                } else {
-                    try await HomeScreenSyncService.shared.uploadBrowseSections(sectionsCopy)
-                }
+                try await HomeScreenSyncService.shared.uploadBrowseSections(sectionsCopy)
             } catch {
                 print("Cloud sync browse sections failed: \(error)")
             }

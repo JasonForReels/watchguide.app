@@ -82,7 +82,7 @@ struct OnboardingFlowView: View {
             HStack(spacing: 12) {
                 Pill(text: "Personalized", icon: "sparkles")
                 Pill(text: "Curated Lists", icon: "square.stack.3d.up.fill")
-                Pill(text: "Sync", icon: "icloud.fill")
+                Pill(text: "Sync", icon: "cloud.fill")
             }
         }
         .padding(28)

@@ -51,8 +51,10 @@ struct VideoCard: View {
     let video: Video
     @State private var isPlaying = false
     @State private var showSheet = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     var body: some View {
+        let cardSize = ResponsiveSizing.videoCardSize(horizontalSizeClass: horizontalSizeClass)
         VStack(alignment: .leading, spacing: 6) {
             if isPlaying {
                 // Inline embedded player (user tapped play)
@@ -62,7 +64,7 @@ struct VideoCard: View {
                     compact: true,
                     autoPlay: true
                 )
-                .frame(width: 240, height: 135)
+                .frame(width: cardSize.width, height: cardSize.height)
             } else {
                 // Thumbnail with play button — does NOT auto-play
                 ZStack {
@@ -77,7 +79,7 @@ struct VideoCard: View {
                                 .fill(Color(.systemGray5))
                         }
                     }
-                    .frame(width: 240, height: 135)
+                    .frame(width: cardSize.width, height: cardSize.height)
                     .clipped()
                     
                     // Dark overlay
@@ -110,7 +112,7 @@ struct VideoCard: View {
                         }
                     }
                 }
-                .frame(width: 240, height: 135)
+                .frame(width: cardSize.width, height: cardSize.height)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -125,7 +127,7 @@ struct VideoCard: View {
                 .font(.caption)
                 .fontWeight(.medium)
                 .lineLimit(2)
-                .frame(width: 240, alignment: .leading)
+                .frame(width: cardSize.width, alignment: .leading)
         }
     }
 }
