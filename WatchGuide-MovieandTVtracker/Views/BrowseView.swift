@@ -20,17 +20,8 @@ struct BrowseView: View {
     @State private var isDailyPickHidden = false
     @State private var selectedMiniGame: MiniGame?
     @State private var miniGameCandidates: [MediaItem] = []
-    @State private var browseFilter: BrowseFilterOption = .all
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var profileService = ProfileService.shared
-    
-    enum BrowseFilterOption: String, CaseIterable, Identifiable {
-        case all = "All"
-        case movies = "Movies"
-        case tvShows = "TV Shows"
-        
-        var id: String { rawValue }
-    }
     
     enum StudioSheet: String, Identifiable {
         case twentiethCentury, warnerBros, dreamWorks, dcStudios, universalPictures, sonyPictures
@@ -172,12 +163,6 @@ struct BrowseView: View {
             } content: {
                 browseScrollContent
             }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                browseFilterBar
-                    .padding(.top, 8)
-                    .padding(.bottom, 6)
-                    .background(.bar)
-            }
             .task {
                 await viewModel.loadContent()
                 await forYouVM.loadIfNeeded()
@@ -250,118 +235,35 @@ struct BrowseView: View {
                 )
             }
             if !viewModel.heroItems.isEmpty {
-                let filteredHero = filteredHeroItems
-                if !filteredHero.isEmpty {
-                    ResizableHeroCarousel(
-                        items: filteredHero,
-                        onItemTap: { item in
-                            selectedItem = item
-                        }
-                    )
-                }
+                ResizableHeroCarousel(
+                    items: viewModel.heroItems,
+                    onItemTap: { item in
+                        selectedItem = item
+                    }
+                )
             }
             
             ForEach(orderedSections) { section in
                 browseSectionView(for: section)
             }
 
-            if browseFilter == .all {
-                ProductionCompaniesSection(
-                    companies: productionCompanies,
-                    onCompanyTap: { company in
-                        if let hub = company.toCompanyHub() {
-                            selectedCompanyHub = hub
-                        }
+            ProductionCompaniesSection(
+                companies: productionCompanies,
+                onCompanyTap: { company in
+                    if let hub = company.toCompanyHub() {
+                        selectedCompanyHub = hub
                     }
-                )
-            }
+                }
+            )
         }
         .padding(.vertical)
-    }
-    
-    // MARK: - Filter Bar
-    private var browseFilterBar: some View {
-        HStack(spacing: 10) {
-            ForEach(BrowseFilterOption.allCases) { option in
-                let isSelected = browseFilter == option
-                Button {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                        browseFilter = option
-                    }
-                } label: {
-                    Text(option.rawValue)
-                        .font(.subheadline)
-                        .fontWeight(isSelected ? .semibold : .medium)
-                        .foregroundStyle(isSelected ? .primary : .secondary)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule()
-                                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(.systemGray5).opacity(0.6))
-                                .shadow(color: isSelected ? Color.accentColor.opacity(0.2) : Color.clear, radius: 6, y: 2)
-                        )
-                        .overlay(
-                            Capsule()
-                                .stroke(
-                                    isSelected
-                                        ? Color.accentColor.opacity(0.4)
-                                        : Color(.systemGray3).opacity(0.3),
-                                    lineWidth: isSelected ? 1 : 0.5
-                                )
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-            Spacer()
-        }
-        .padding(.horizontal)
-    }
-    
-    // MARK: - Filtered Hero Items
-    private var filteredHeroItems: [MediaItem] {
-        switch browseFilter {
-        case .all:
-            return viewModel.heroItems
-        case .movies:
-            let filtered = viewModel.heroItems.filter { $0.resolvedMediaType == .movie }
-            return filtered.isEmpty ? viewModel.heroItems : filtered
-        case .tvShows:
-            let filtered = viewModel.heroItems.filter { $0.resolvedMediaType == .tv }
-            return filtered.isEmpty ? viewModel.heroItems : filtered
-        }
-    }
-    
-    // MARK: - Row Filtering Helpers
-    private func isRowVisibleForFilter(_ config: BrowseRowConfig) -> Bool {
-        switch browseFilter {
-        case .all:
-            return true
-        case .movies:
-            switch config.endpoint {
-            case .trendingMovies, .popularMovies, .topRatedMovies, .nowPlayingMovies, .upcomingMovies:
-                return true
-            case .trendingPeople:
-                return true // People are relevant for both
-            default:
-                return false
-            }
-        case .tvShows:
-            switch config.endpoint {
-            case .trendingTV, .popularTV, .topRatedTV, .airingTodayTV, .onTheAirTV:
-                return true
-            case .trendingPeople:
-                return true
-            default:
-                return false
-            }
-        }
     }
     
     @ViewBuilder
     private func browseSectionView(for section: BrowseSectionItem) -> some View {
         switch section.sectionType {
         case .networks:
-            if browseFilter == .all, !isKidsProfile, !viewModel.networkHubs.isEmpty {
+            if !isKidsProfile, !viewModel.networkHubs.isEmpty {
                 NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
                     selectedNetworkHub = hub
                 }
@@ -369,7 +271,7 @@ struct BrowseView: View {
         case .rows:
             browseRowsSection
         case .studios:
-            if browseFilter == .all, !isKidsProfile {
+            if !isKidsProfile {
                 StudiosHubRow(
                     onTwentiethCenturyTap: { activeStudioSheet = .twentiethCentury },
                     onWarnerBrosTap: { activeStudioSheet = .warnerBros },
@@ -380,17 +282,15 @@ struct BrowseView: View {
                 )
             }
         case .customHubs:
-            if browseFilter == .all {
-                customHubsSection
-            }
+            customHubsSection
         case .forYou:
-            if browseFilter == .all, authService.isAuthenticated, isAdultProfile {
+            if authService.isAuthenticated, isAdultProfile {
                 ForYouRow(viewModel: forYouVM) { item in
                     selectedItem = item
                 }
             }
         case .discover:
-            if browseFilter == .all, isAdultProfile {
+            if isAdultProfile {
                 BrowseDiscoverSection()
             }
         }
@@ -399,34 +299,28 @@ struct BrowseView: View {
     private var browseRowsSection: some View {
         ForEach(Array(viewModel.rows.enumerated()), id: \.element.title) { _, row in
             if !row.people.isEmpty {
-                // People rows show for all filters
-                if browseFilter == .all {
-                    PeopleRowView(
-                        title: row.title,
-                        people: row.people,
-                        onPersonTap: { person in
-                            selectedPerson = person
-                        }
-                    )
-                }
+                PeopleRowView(
+                    title: row.title,
+                    people: row.people,
+                    onPersonTap: { person in
+                        selectedPerson = person
+                    }
+                )
             } else if !row.items.isEmpty {
-                let filteredItems = filterRowItems(row.items)
-                if !filteredItems.isEmpty {
-                    MediaRowView(
-                        title: row.title,
-                        items: filteredItems,
-                        onItemTap: { item in
-                            selectedItem = item
-                        }
-                    )
-                    if row.title == "Now Playing", !isKidsProfile, browseFilter == .all {
-                        MiniGamesSection { game in
-                            Task {
-                                let candidates = await loadMiniGameCandidates()
-                                await MainActor.run {
-                                    miniGameCandidates = candidates
-                                    selectedMiniGame = game
-                                }
+                MediaRowView(
+                    title: row.title,
+                    items: row.items,
+                    onItemTap: { item in
+                        selectedItem = item
+                    }
+                )
+                if row.title == "Now Playing", !isKidsProfile {
+                    MiniGamesSection { game in
+                        Task {
+                            let candidates = await loadMiniGameCandidates()
+                            await MainActor.run {
+                                miniGameCandidates = candidates
+                                selectedMiniGame = game
                             }
                         }
                     }
@@ -434,21 +328,6 @@ struct BrowseView: View {
             } else {
                 EmptyView()
             }
-        }
-    }
-    
-    /// Filters row items based on the current browse filter selection
-    private func filterRowItems(_ items: [MediaItem]) -> [MediaItem] {
-        switch browseFilter {
-        case .all:
-            return items
-        case .movies:
-            let filtered = items.filter { $0.resolvedMediaType == .movie }
-            // If all items in a row are the same type (e.g., "Trending Movies"), return them as-is
-            return filtered.isEmpty ? [] : filtered
-        case .tvShows:
-            let filtered = items.filter { $0.resolvedMediaType == .tv }
-            return filtered.isEmpty ? [] : filtered
         }
     }
 
