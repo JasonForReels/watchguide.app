@@ -172,6 +172,12 @@ struct BrowseView: View {
             } content: {
                 browseScrollContent
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                browseFilterBar
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
+                    .background(.ultraThinMaterial)
+            }
             .task {
                 await viewModel.loadContent()
                 await forYouVM.loadIfNeeded()
@@ -235,9 +241,6 @@ struct BrowseView: View {
     
     private var browseScrollContent: some View {
         LazyVStack(spacing: 24) {
-            // Filter bar
-            browseFilterBar
-            
             if let cache = dailyPickCache, !isDailyPickHidden {
                 DailyPickCard(
                     item: cache.item,
@@ -278,26 +281,34 @@ struct BrowseView: View {
     
     // MARK: - Filter Bar
     private var browseFilterBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             ForEach(BrowseFilterOption.allCases) { option in
+                let isSelected = browseFilter == option
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
                         browseFilter = option
                     }
                 } label: {
                     Text(option.rawValue)
                         .font(.subheadline)
-                        .fontWeight(browseFilter == option ? .semibold : .regular)
-                        .foregroundColor(browseFilter == option ? .primary : .secondary)
-                        .padding(.horizontal, 16)
+                        .fontWeight(isSelected ? .semibold : .medium)
+                        .foregroundStyle(isSelected ? .primary : .secondary)
+                        .padding(.horizontal, 18)
                         .padding(.vertical, 8)
                         .background(
                             Capsule()
-                                .fill(browseFilter == option ? Color(.systemGray5) : Color.clear)
+                                .fill(.ultraThinMaterial)
+                                .opacity(isSelected ? 1 : 0.6)
+                                .shadow(color: isSelected ? Color.accentColor.opacity(0.2) : Color.clear, radius: 6, y: 2)
                         )
                         .overlay(
                             Capsule()
-                                .stroke(browseFilter == option ? Color.clear : Color(.systemGray4).opacity(0.5), lineWidth: 0.5)
+                                .stroke(
+                                    isSelected
+                                        ? Color.accentColor.opacity(0.4)
+                                        : Color.white.opacity(0.15),
+                                    lineWidth: isSelected ? 1 : 0.5
+                                )
                         )
                 }
                 .buttonStyle(.plain)
