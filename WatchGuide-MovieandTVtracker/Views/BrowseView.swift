@@ -20,8 +20,17 @@ struct BrowseView: View {
     @State private var isDailyPickHidden = false
     @State private var selectedMiniGame: MiniGame?
     @State private var miniGameCandidates: [MediaItem] = []
+    @State private var browseFilter: BrowseFilterOption = .all
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var profileService = ProfileService.shared
+    
+    enum BrowseFilterOption: String, CaseIterable, Identifiable {
+        case all = "All"
+        case movies = "Movies"
+        case tvShows = "TV Shows"
+        
+        var id: String { rawValue }
+    }
     
     enum StudioSheet: String, Identifiable {
         case twentiethCentury, warnerBros, dreamWorks, dcStudios, universalPictures, sonyPictures
@@ -226,6 +235,9 @@ struct BrowseView: View {
     
     private var browseScrollContent: some View {
         LazyVStack(spacing: 24) {
+            // Filter bar
+            browseFilterBar
+            
             if let cache = dailyPickCache, !isDailyPickHidden {
                 DailyPickCard(
                     item: cache.item,
@@ -235,35 +247,111 @@ struct BrowseView: View {
                 )
             }
             if !viewModel.heroItems.isEmpty {
-                ResizableHeroCarousel(
-                    items: viewModel.heroItems,
-                    onItemTap: { item in
-                        selectedItem = item
-                    }
-                )
+                let filteredHero = filteredHeroItems
+                if !filteredHero.isEmpty {
+                    ResizableHeroCarousel(
+                        items: filteredHero,
+                        onItemTap: { item in
+                            selectedItem = item
+                        }
+                    )
+                }
             }
             
             ForEach(orderedSections) { section in
                 browseSectionView(for: section)
             }
 
-            ProductionCompaniesSection(
-                companies: productionCompanies,
-                onCompanyTap: { company in
-                    if let hub = company.toCompanyHub() {
-                        selectedCompanyHub = hub
+            if browseFilter == .all {
+                ProductionCompaniesSection(
+                    companies: productionCompanies,
+                    onCompanyTap: { company in
+                        if let hub = company.toCompanyHub() {
+                            selectedCompanyHub = hub
+                        }
                     }
-                }
-            )
+                )
+            }
         }
         .padding(.vertical)
+    }
+    
+    // MARK: - Filter Bar
+    private var browseFilterBar: some View {
+        HStack(spacing: 8) {
+            ForEach(BrowseFilterOption.allCases) { option in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        browseFilter = option
+                    }
+                } label: {
+                    Text(option.rawValue)
+                        .font(.subheadline)
+                        .fontWeight(browseFilter == option ? .semibold : .regular)
+                        .foregroundColor(browseFilter == option ? .primary : .secondary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(browseFilter == option ? Color(.systemGray5) : Color.clear)
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(browseFilter == option ? Color.clear : Color(.systemGray4).opacity(0.5), lineWidth: 0.5)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(.horizontal)
+    }
+    
+    // MARK: - Filtered Hero Items
+    private var filteredHeroItems: [MediaItem] {
+        switch browseFilter {
+        case .all:
+            return viewModel.heroItems
+        case .movies:
+            let filtered = viewModel.heroItems.filter { $0.resolvedMediaType == .movie }
+            return filtered.isEmpty ? viewModel.heroItems : filtered
+        case .tvShows:
+            let filtered = viewModel.heroItems.filter { $0.resolvedMediaType == .tv }
+            return filtered.isEmpty ? viewModel.heroItems : filtered
+        }
+    }
+    
+    // MARK: - Row Filtering Helpers
+    private func isRowVisibleForFilter(_ config: BrowseRowConfig) -> Bool {
+        switch browseFilter {
+        case .all:
+            return true
+        case .movies:
+            switch config.endpoint {
+            case .trendingMovies, .popularMovies, .topRatedMovies, .nowPlayingMovies, .upcomingMovies:
+                return true
+            case .trendingPeople:
+                return true // People are relevant for both
+            default:
+                return false
+            }
+        case .tvShows:
+            switch config.endpoint {
+            case .trendingTV, .popularTV, .topRatedTV, .airingTodayTV, .onTheAirTV:
+                return true
+            case .trendingPeople:
+                return true
+            default:
+                return false
+            }
+        }
     }
     
     @ViewBuilder
     private func browseSectionView(for section: BrowseSectionItem) -> some View {
         switch section.sectionType {
         case .networks:
-            if !isKidsProfile && !viewModel.networkHubs.isEmpty {
+            if browseFilter == .all, !isKidsProfile, !viewModel.networkHubs.isEmpty {
                 NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
                     selectedNetworkHub = hub
                 }
@@ -271,7 +359,7 @@ struct BrowseView: View {
         case .rows:
             browseRowsSection
         case .studios:
-            if !isKidsProfile {
+            if browseFilter == .all, !isKidsProfile {
                 StudiosHubRow(
                     onTwentiethCenturyTap: { activeStudioSheet = .twentiethCentury },
                     onWarnerBrosTap: { activeStudioSheet = .warnerBros },
@@ -282,15 +370,17 @@ struct BrowseView: View {
                 )
             }
         case .customHubs:
-            customHubsSection
+            if browseFilter == .all {
+                customHubsSection
+            }
         case .forYou:
-            if authService.isAuthenticated && isAdultProfile {
+            if browseFilter == .all, authService.isAuthenticated, isAdultProfile {
                 ForYouRow(viewModel: forYouVM) { item in
                     selectedItem = item
                 }
             }
         case .discover:
-            if isAdultProfile {
+            if browseFilter == .all, isAdultProfile {
                 BrowseDiscoverSection()
             }
         }
@@ -299,30 +389,56 @@ struct BrowseView: View {
     private var browseRowsSection: some View {
         ForEach(Array(viewModel.rows.enumerated()), id: \.element.title) { _, row in
             if !row.people.isEmpty {
-                PeopleRowView(
-                    title: row.title,
-                    people: row.people,
-                    onPersonTap: { person in
-                        selectedPerson = person
-                    }
-                )
+                // People rows show for all filters
+                if browseFilter == .all {
+                    PeopleRowView(
+                        title: row.title,
+                        people: row.people,
+                        onPersonTap: { person in
+                            selectedPerson = person
+                        }
+                    )
+                }
             } else if !row.items.isEmpty {
-                MediaRowView(
-                    title: row.title,
-                    items: row.items,
-                    onItemTap: { item in
-                        selectedItem = item
-                    }
-                )
-                if row.title == "Now Playing", !isKidsProfile {
-                    MiniGamesSection { game in
-                        miniGameCandidates = buildMiniGameCandidates()
-                        selectedMiniGame = game
+                let filteredItems = filterRowItems(row.items)
+                if !filteredItems.isEmpty {
+                    MediaRowView(
+                        title: row.title,
+                        items: filteredItems,
+                        onItemTap: { item in
+                            selectedItem = item
+                        }
+                    )
+                    if row.title == "Now Playing", !isKidsProfile, browseFilter == .all {
+                        MiniGamesSection { game in
+                            Task {
+                                let candidates = await loadMiniGameCandidates()
+                                await MainActor.run {
+                                    miniGameCandidates = candidates
+                                    selectedMiniGame = game
+                                }
+                            }
+                        }
                     }
                 }
             } else {
                 EmptyView()
             }
+        }
+    }
+    
+    /// Filters row items based on the current browse filter selection
+    private func filterRowItems(_ items: [MediaItem]) -> [MediaItem] {
+        switch browseFilter {
+        case .all:
+            return items
+        case .movies:
+            let filtered = items.filter { $0.resolvedMediaType == .movie }
+            // If all items in a row are the same type (e.g., "Trending Movies"), return them as-is
+            return filtered.isEmpty ? [] : filtered
+        case .tvShows:
+            let filtered = items.filter { $0.resolvedMediaType == .tv }
+            return filtered.isEmpty ? [] : filtered
         }
     }
 
@@ -343,6 +459,54 @@ struct BrowseView: View {
             return true
         }
         return Array(unique.prefix(40))
+    }
+
+    private func loadMiniGameCandidates() async -> [MediaItem] {
+        var base = buildMiniGameCandidates()
+        if base.count >= 8 { return base }
+
+        let listId = isKidsProfile ? "dualipafan01/family-friendly-list" : "dualipafan01/new-content-list"
+        do {
+            let items = try await MDBListService.shared.fetchListItemsAsMediaItems(listId: listId, limit: 40)
+            base.append(contentsOf: items)
+        } catch {
+            print("Mini game list error: \(error)")
+        }
+
+        var filtered = base.filter { item in
+            guard item.resolvedMediaType != .person else { return false }
+            if isKidsProfile, item.adult == true { return false }
+            return item.posterPath != nil
+        }
+        var seen = Set<Int>()
+        let unique = filtered.filter { item in
+            if seen.contains(item.id) { return false }
+            seen.insert(item.id)
+            return true
+        }
+        if unique.count >= 4 {
+            return Array(unique.prefix(40))
+        }
+
+        do {
+            let movieResults = try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results
+            let tvResults = try await TMDBService.shared.getTrending(mediaType: .tv, timeWindow: "day").results
+            filtered.append(contentsOf: movieResults)
+            filtered.append(contentsOf: tvResults)
+        } catch {
+            print("Mini game TMDB fallback error: \(error)")
+        }
+
+        seen.removeAll()
+        let fallbackUnique = filtered.filter { item in
+            guard item.resolvedMediaType != .person else { return false }
+            if isKidsProfile, item.adult == true { return false }
+            guard item.posterPath != nil else { return false }
+            if seen.contains(item.id) { return false }
+            seen.insert(item.id)
+            return true
+        }
+        return Array(fallbackUnique.prefix(40))
     }
     
     @ViewBuilder
@@ -682,6 +846,7 @@ private struct ThisOrThatGameView: View {
     @State private var round = 1
     @State private var totalRounds = 5
     @State private var isComplete = false
+    @State private var localCandidates: [MediaItem] = []
 
     var body: some View {
         VStack(spacing: 16) {
@@ -713,7 +878,17 @@ private struct ThisOrThatGameView: View {
         }
         .padding(.top, 16)
         .onAppear {
+            localCandidates = uniqueCandidates(from: candidates)
             startRound()
+        }
+        .task {
+            guard localCandidates.count < 2 else { return }
+            let fallback = await fetchFallbackCandidates(minimum: 2)
+            let merged = uniqueCandidates(from: localCandidates + fallback)
+            if merged.count >= 2 {
+                localCandidates = merged
+                startRound()
+            }
         }
         .alert("All done!", isPresented: $isComplete) {
             Button("Play again") {
@@ -727,8 +902,12 @@ private struct ThisOrThatGameView: View {
     }
 
     private func startRound() {
-        guard candidates.count >= 2 else { return }
-        let shuffled = candidates.shuffled()
+        guard localCandidates.count >= 2 else {
+            leftItem = nil
+            rightItem = nil
+            return
+        }
+        let shuffled = localCandidates.shuffled()
         leftItem = shuffled.first
         rightItem = shuffled.dropFirst().first
     }
@@ -741,10 +920,33 @@ private struct ThisOrThatGameView: View {
         round += 1
         startRound()
     }
+
+    private func fetchFallbackCandidates(minimum: Int) async -> [MediaItem] {
+        do {
+            let movieResults = try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results
+            let tvResults = try await TMDBService.shared.getTrending(mediaType: .tv, timeWindow: "day").results
+            let combined = (movieResults + tvResults).filter { $0.posterPath != nil }
+            return Array(combined.prefix(max(minimum, 8)))
+        } catch {
+            print("Mini game fallback error: \(error)")
+            return []
+        }
+    }
+
+    private func uniqueCandidates(from items: [MediaItem]) -> [MediaItem] {
+        var seen = Set<Int>()
+        return items.filter { item in
+            guard item.posterPath != nil else { return false }
+            if seen.contains(item.id) { return false }
+            seen.insert(item.id)
+            return true
+        }
+    }
 }
 
 private struct GuessThePosterGameView: View {
     let candidates: [MediaItem]
+    @State private var localCandidates: [MediaItem] = []
     @State private var correctItem: MediaItem?
     @State private var options: [MediaItem] = []
     @State private var round = 1
@@ -802,7 +1004,17 @@ private struct GuessThePosterGameView: View {
         }
         .padding(.top, 16)
         .onAppear {
+            localCandidates = uniqueCandidates(from: candidates)
             startRound()
+        }
+        .task {
+            guard localCandidates.count < 4 else { return }
+            let fallback = await fetchFallbackCandidates(minimum: 4)
+            let merged = uniqueCandidates(from: localCandidates + fallback)
+            if merged.count >= 4 {
+                localCandidates = merged
+                startRound()
+            }
         }
         .alert("Nice!", isPresented: $isComplete) {
             Button("Play again") {
@@ -817,8 +1029,12 @@ private struct GuessThePosterGameView: View {
     }
 
     private func startRound() {
-        guard candidates.count >= 4 else { return }
-        let shuffled = candidates.shuffled()
+        guard localCandidates.count >= 4 else {
+            correctItem = nil
+            options = []
+            return
+        }
+        let shuffled = localCandidates.shuffled()
         correctItem = shuffled.first
         options = Array(shuffled.prefix(4)).shuffled()
         feedback = nil
@@ -837,6 +1053,28 @@ private struct GuessThePosterGameView: View {
         } else {
             round += 1
             startRound()
+        }
+    }
+
+    private func fetchFallbackCandidates(minimum: Int) async -> [MediaItem] {
+        do {
+            let movieResults = try await TMDBService.shared.getTrending(mediaType: .movie, timeWindow: "day").results
+            let tvResults = try await TMDBService.shared.getTrending(mediaType: .tv, timeWindow: "day").results
+            let combined = (movieResults + tvResults).filter { $0.posterPath != nil }
+            return Array(combined.prefix(max(minimum, 8)))
+        } catch {
+            print("Guess the Poster fallback error: \(error)")
+            return []
+        }
+    }
+
+    private func uniqueCandidates(from items: [MediaItem]) -> [MediaItem] {
+        var seen = Set<Int>()
+        return items.filter { item in
+            guard item.posterPath != nil else { return false }
+            if seen.contains(item.id) { return false }
+            seen.insert(item.id)
+            return true
         }
     }
 }
@@ -1134,8 +1372,8 @@ struct CompanyHubSheet: View {
                     } else {
                         ScrollView {
                             LazyVGrid(columns: [
-                                GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
-                            ], spacing: 16) {
+                                GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 32)
+                            ], spacing: 32) {
                                 ForEach(items) { item in
                                     MediaPosterCard(item: item)
                                         .onTapGesture {
@@ -1144,7 +1382,8 @@ struct CompanyHubSheet: View {
                                         }
                                 }
                             }
-                            .padding()
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 24)
                         }
                     }
                 }
@@ -3446,19 +3685,7 @@ struct NetworkHubSheet: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 16) {
-                            if hub.name == "Disney+", !heroCarouselItems.isEmpty {
-                                HeroCarouselView(
-                                    items: heroCarouselItems,
-                                    onItemTap: { item in
-                                        selectedItem = item
-                                        dismiss()
-                                    }
-                                )
-                                .frame(height: ResponsiveSizing.hubHeroHeight(horizontalSizeClass: horizontalSizeClass))
-                                .frame(maxWidth: .infinity)
-                                .clipped()
-                                .padding(.horizontal)
-                            } else if hub.name != "Disney+" && !heroCarouselItems.isEmpty {
+                            if hub.name != "Disney+" && !heroCarouselItems.isEmpty {
                                 ResizableHeroCarousel(items: heroCarouselItems) { item in
                                     selectedItem = item
                                     dismiss()
@@ -3524,12 +3751,7 @@ struct NetworkHubSheet: View {
             return
         }
 
-        if hub.name == "Disney+" {
-            let disneyItems = await fetchDisneyPlusHeroItems()
-            await MainActor.run { heroCarouselItems = disneyItems }
-        } else {
-            await MainActor.run { heroCarouselItems = [] }
-        }
+        await MainActor.run { heroCarouselItems = [] }
 
         // Load movies: try provider-based first; fallback to empty if no providers
         do {
@@ -3564,101 +3786,6 @@ struct NetworkHubSheet: View {
         await MainActor.run { isLoading = false }
     }
 
-    private func fetchDisneyPlusHeroItems() async -> [MediaItem] {
-        let listURL = "https://mdblist.com/lists/dualipafan01/disney"
-        do {
-            let listItems = try await MDBListService.shared.getListItemsFromURL(listURL)
-            let curated = pickNewestMoviesAndShows(from: listItems, movieLimit: 5, showLimit: 5)
-            return await resolveMDBListItems(curated)
-        } catch {
-            print("Disney+ hero list error: \(error)")
-            return []
-        }
-    }
-
-    private func pickNewestMoviesAndShows(from items: [MDBListItem], movieLimit: Int, showLimit: Int) -> [MDBListItem] {
-        let movies = items
-            .filter { !$0.isShow }
-            .sorted { ($0.resolvedYear ?? 0) > ($1.resolvedYear ?? 0) }
-            .prefix(movieLimit)
-
-        let shows = items
-            .filter { $0.isShow }
-            .sorted { ($0.resolvedYear ?? 0) > ($1.resolvedYear ?? 0) }
-            .prefix(showLimit)
-
-        return Array(movies) + Array(shows)
-    }
-
-    private func resolveMDBListItems(_ items: [MDBListItem]) async -> [MediaItem] {
-        var results: [MediaItem] = []
-        results.reserveCapacity(items.count)
-
-        for item in items {
-            guard let tmdbId = item.id, tmdbId > 0 else { continue }
-            let normalized = item.mediatype?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-            let isShow = normalized == "show" || normalized == "tv" || normalized == "series"
-
-            do {
-                if isShow {
-                    let details = try await TMDBService.shared.getTVShowDetails(id: tmdbId)
-                    let mediaItem = MediaItem(
-                        id: details.id,
-                        title: nil,
-                        name: details.name,
-                        originalTitle: nil,
-                        originalName: details.originalName,
-                        overview: details.overview,
-                        posterPath: details.posterPath,
-                        backdropPath: details.backdropPath,
-                        releaseDate: nil,
-                        firstAirDate: details.firstAirDate,
-                        voteAverage: details.voteAverage,
-                        voteCount: nil,
-                        popularity: nil,
-                        genreIds: nil,
-                        mediaType: "tv",
-                        adult: nil,
-                        originalLanguage: nil
-                    )
-                    results.append(mediaItem)
-                } else {
-                    let details = try await TMDBService.shared.getMovieDetails(id: tmdbId)
-                    let mediaItem = MediaItem(
-                        id: details.id,
-                        title: details.title,
-                        name: nil,
-                        originalTitle: details.originalTitle,
-                        originalName: nil,
-                        overview: details.overview,
-                        posterPath: details.posterPath,
-                        backdropPath: details.backdropPath,
-                        releaseDate: details.releaseDate,
-                        firstAirDate: nil,
-                        voteAverage: details.voteAverage,
-                        voteCount: nil,
-                        popularity: nil,
-                        genreIds: nil,
-                        mediaType: "movie",
-                        adult: nil,
-                        originalLanguage: nil
-                    )
-                    results.append(mediaItem)
-                }
-            } catch {
-                print("Disney+ hero item fetch error: \(error)")
-            }
-        }
-
-        return results
-    }
-}
-
-private extension MDBListItem {
-    var isShow: Bool {
-        let normalized = mediatype?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-        return normalized == "show" || normalized == "tv" || normalized == "series"
-    }
 }
 
 
