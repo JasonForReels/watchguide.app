@@ -2530,16 +2530,29 @@ struct BrowseDiscoverSection: View {
                     .buttonStyle(.plain)
                 }
                 
-                NavigationLink(destination: AIRecommendView()) {
-                    DiscoverFeatureCard(
-                        title: "AI Recommendations",
-                        subtitle: "Get personalized picks from AI assistants",
-                        iconName: "brain.head.profile.fill",
-                        accentColor: Color(.systemGray),
-                        isLarge: true
-                    )
+                HStack(spacing: 14) {
+                    NavigationLink(destination: AIRecommendView()) {
+                        DiscoverFeatureCard(
+                            title: "AI Recommendations",
+                            subtitle: "Get personalized picks from AI assistants",
+                            iconName: "brain.head.profile.fill",
+                            accentColor: Color(.systemGray),
+                            isLarge: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    NavigationLink(destination: BoxOfficeCinemaSelectorView()) {
+                        DiscoverFeatureCard(
+                            title: "Box Office",
+                            subtitle: "Find your nearest cinema",
+                            iconName: "ticket.fill",
+                            accentColor: .red,
+                            isLarge: false
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal)
             

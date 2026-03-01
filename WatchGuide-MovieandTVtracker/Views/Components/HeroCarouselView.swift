@@ -25,7 +25,8 @@ struct HeroCarouselView: View {
     let onItemTap: (MediaItem) -> Void
     let aspectRatio: CGFloat
     let isPortrait: Bool
-    var showTrailers: Bool { StorageService.shared.settings.autoPlayTrailers }
+    // Trailer/video overlay disabled: hero carousel shows artwork only.
+    private let showTrailers: Bool = false
     
     @State private var currentIndex = 0
     @State private var dragOffset: CGFloat = 0
@@ -161,9 +162,10 @@ struct HeroCarouselView: View {
             else if currentIndex >= newCount { currentIndex = 0 }
         }
         .onAppear {
-            timerManager.reset(defaultDuration: 15)
+            timerManager.reset(defaultDuration: CarouselTimerManager.backdropDuration)
         }
         .task {
+            guard showTrailers else { return }
             await trailerLoader.loadTrailers(for: items, isPortrait: isPortrait)
         }
     }
@@ -203,7 +205,7 @@ struct HeroCarouselView: View {
             currentIndex = index
             dragOffset = 0
         }
-        timerManager.reset(defaultDuration: 15)
+        timerManager.reset(defaultDuration: CarouselTimerManager.backdropDuration)
     }
 }
 
@@ -239,7 +241,7 @@ class CarouselTimerManager: ObservableObject {
     private var duration: TimeInterval = 15
     
     /// How long to show the backdrop before starting the trailer
-    static let backdropDuration: TimeInterval = 15
+    static let backdropDuration: TimeInterval = 5
     /// How long to show the backdrop after a trailer finishes before advancing
     static let postTrailerBackdropDuration: TimeInterval = 6.5
     /// Extra grace period for the progress-bar → dots morph animation

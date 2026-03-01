@@ -4,11 +4,24 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct ResponsiveSizing {
     static func screenWidth() -> CGFloat {
         #if canImport(UIKit)
-        return UIScreen.main.bounds.width
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+
+        if let activeScene = scenes.first(where: { $0.activationState == .foregroundActive }) {
+            return activeScene.screen.bounds.width
+        }
+
+        if let firstScene = scenes.first {
+            return firstScene.screen.bounds.width
+        }
+
+        return 800
         #else
         return 800
         #endif
@@ -17,14 +30,14 @@ struct ResponsiveSizing {
     static func posterSize(horizontalSizeClass: UserInterfaceSizeClass?) -> CGSize {
         let width = screenWidth()
         let isRegular = horizontalSizeClass == .regular
-        let posterWidth = isRegular ? min(max(width * 0.16, 120), 160) : min(max(width * 0.30, 110), 150)
+        let posterWidth = isRegular ? min(max(width * 0.19, 140), 220) : min(max(width * 0.30, 110), 150)
         return CGSize(width: posterWidth, height: posterWidth * 1.5)
     }
 
     static func gridPosterWidth(horizontalSizeClass: UserInterfaceSizeClass?) -> CGFloat {
         let width = screenWidth()
         let isRegular = horizontalSizeClass == .regular
-        return isRegular ? min(max(width * 0.16, 120), 165) : min(max(width * 0.30, 120), 150)
+        return isRegular ? min(max(width * 0.19, 140), 220) : min(max(width * 0.30, 120), 150)
     }
 
     static func compactPosterSize(horizontalSizeClass: UserInterfaceSizeClass?) -> CGSize {
