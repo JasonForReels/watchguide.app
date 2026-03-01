@@ -6,9 +6,16 @@ private struct CinemaRouteInfo: Equatable {
     let cinema: CinemaLocation
     let distanceMeters: CLLocationDistance
     let expectedTravelTime: TimeInterval?
+    let route: MKRoute?
 
     var distanceText: String {
         let km = distanceMeters / 1_000
+        return String(format: "%.1f km", km)
+    }
+
+    var drivingDistanceText: String? {
+        guard let route else { return nil }
+        let km = route.distance / 1_000
         return String(format: "%.1f km", km)
     }
 
@@ -39,6 +46,8 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
     @Published var selectedCinema: CinemaLocation?
     @Published var showSafari = false
     @Published var safariURL: URL?
+    @Published var activeRoute: MKRoute?
+    @Published var showingRouteForCinema: CinemaLocation?
 
     /// Map camera position — starts centered on South Africa
     @Published var cameraPosition: MapCameraPosition = .region(
@@ -107,8 +116,13 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
         await withTaskGroup(of: CinemaRouteInfo?.self) { group in
             for (cinema, straightDistance) in withDistance.prefix(8) {
                 group.addTask {
-                    let eta = await self.fetchETA(from: location.coordinate, to: cinema.coordinate)
-                    return CinemaRouteInfo(cinema: cinema, distanceMeters: straightDistance, expectedTravelTime: eta)
+                    let route = await self.fetchRoute(from: location.coordinate, to: cinema.coordinate)
+                    return CinemaRouteInfo(
+                        cinema: cinema,
+                        distanceMeters: straightDistance,
+                        expectedTravelTime: route?.expectedTravelTime,
+                        route: route
+                    )
                 }
             }
             for await info in group {
@@ -152,7 +166,7 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
         }
     }
 
-    private func fetchETA(from source: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D) async -> TimeInterval? {
+    private func fetchRoute(from source: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D) async -> MKRoute? {
         let request = MKDirections.Request()
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: source))
         request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination))
@@ -161,22 +175,54 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
         let directions = MKDirections(request: request)
         do {
             let response = try await directions.calculate()
-            return response.routes.first?.expectedTravelTime
+            return response.routes.first
         } catch {
             return nil
         }
     }
 
-    func openDirections(to cinema: CinemaLocation) {
-        guard let currentLocation else { return }
-        let source = MKMapItem(placemark: MKPlacemark(coordinate: currentLocation.coordinate))
-        source.name = "My Location"
+    /// Show driving route on the map without leaving the app
+    func showRoute(to cinema: CinemaLocation) {
+        guard let info = routeInfo(for: cinema), let route = info.route else {
+            // No cached route, fetch one
+            Task {
+                guard let loc = currentLocation else { return }
+                if let route = await fetchRoute(from: loc.coordinate, to: cinema.coordinate) {
+                    activeRoute = route
+                    showingRouteForCinema = cinema
+                    zoomToRoute(route, cinema: cinema)
+                }
+            }
+            return
+        }
+        activeRoute = route
+        showingRouteForCinema = cinema
+        zoomToRoute(route, cinema: cinema)
+    }
+
+    func clearRoute() {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            activeRoute = nil
+            showingRouteForCinema = nil
+        }
+    }
+
+    private func zoomToRoute(_ route: MKRoute, cinema: CinemaLocation) {
+        let rect = route.polyline.boundingMapRect
+        let padding = rect.size.width * 0.3
+        let padded = rect.insetBy(dx: -padding, dy: -padding)
+        withAnimation(.easeInOut(duration: 0.6)) {
+            cameraPosition = .rect(padded)
+        }
+    }
+
+    /// Open Apple Maps with the exact business name search for accurate navigation
+    func openInAppleMaps(cinema: CinemaLocation) {
         let destination = MKMapItem(placemark: MKPlacemark(coordinate: cinema.coordinate))
-        destination.name = cinema.name
-        MKMapItem.openMaps(
-            with: [source, destination],
-            launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving]
-        )
+        destination.name = cinema.mapSearchName
+        destination.openInMaps(launchOptions: [
+            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+        ])
     }
 
     func openWebsite(for cinema: CinemaLocation) {
@@ -186,6 +232,7 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
     }
 
     func focusCinema(_ cinema: CinemaLocation) {
+        clearRoute()
         withAnimation(.easeInOut(duration: 0.5)) {
             selectedCinema = cinema
             cameraPosition = .region(
@@ -225,13 +272,20 @@ struct BoxOfficeCinemaSelectorView: View {
                     Annotation(cinema.name, coordinate: cinema.coordinate, anchor: .bottom) {
                         CinemaMapPin(
                             isSelected: viewModel.selectedCinema?.id == cinema.id,
-                            isNearest: viewModel.nearest?.cinema.id == cinema.id
+                            isNearest: viewModel.nearest?.cinema.id == cinema.id,
+                            hasIMAX: cinema.hasIMAX
                         )
                         .onTapGesture {
                             viewModel.focusCinema(cinema)
                         }
                     }
                     .tag(cinema.id)
+                }
+
+                // Driving route overlay
+                if let route = viewModel.activeRoute {
+                    MapPolyline(route.polyline)
+                        .stroke(.blue, lineWidth: 5)
                 }
             }
             .mapStyle(.standard(pointsOfInterest: .including([.movieTheater])))
@@ -244,13 +298,26 @@ struct BoxOfficeCinemaSelectorView: View {
 
             // Bottom card overlay
             VStack(spacing: 0) {
-                if let selected = viewModel.selectedCinema {
+                // Route info banner when showing directions
+                if let routeCinema = viewModel.showingRouteForCinema, let route = viewModel.activeRoute {
+                    RouteInfoBanner(
+                        cinema: routeCinema,
+                        route: route,
+                        onOpenMaps: { viewModel.openInAppleMaps(cinema: routeCinema) },
+                        onDismiss: { viewModel.clearRoute() }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.bottom, 8)
+                }
+
+                if let selected = viewModel.selectedCinema, viewModel.showingRouteForCinema == nil {
                     // Selected cinema detail card
                     CinemaDetailCard(
                         cinema: selected,
                         routeInfo: viewModel.routeInfo(for: selected),
                         onShowtimes: { viewModel.openWebsite(for: selected) },
-                        onDirections: { viewModel.openDirections(to: selected) },
+                        onDirections: { viewModel.showRoute(to: selected) },
+                        onOpenMaps: { viewModel.openInAppleMaps(cinema: selected) },
                         onDismiss: {
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 viewModel.selectedCinema = nil
@@ -258,26 +325,29 @@ struct BoxOfficeCinemaSelectorView: View {
                         }
                     )
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else if let nearest = viewModel.nearest {
-                    // Nearest cinema quick card
-                    NearestCinemaCard(
-                        info: nearest,
-                        onTap: { viewModel.focusCinema(nearest.cinema) },
-                        onShowAll: { showList = true }
-                    )
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else {
-                    // Location prompt card
-                    LocationPromptCard(
-                        isLoading: viewModel.isLoading,
-                        error: viewModel.errorMessage,
-                        onLocate: { viewModel.requestLocation() }
-                    )
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if viewModel.showingRouteForCinema == nil {
+                    if let nearest = viewModel.nearest {
+                        // Nearest cinema quick card
+                        NearestCinemaCard(
+                            info: nearest,
+                            onTap: { viewModel.focusCinema(nearest.cinema) },
+                            onShowAll: { showList = true }
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else {
+                        // Location prompt card
+                        LocationPromptCard(
+                            isLoading: viewModel.isLoading,
+                            error: viewModel.errorMessage,
+                            onLocate: { viewModel.requestLocation() }
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: viewModel.selectedCinema?.id)
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: viewModel.nearest?.cinema.id)
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: viewModel.showingRouteForCinema?.id)
             .padding(.horizontal)
             .padding(.bottom, 8)
         }
@@ -303,6 +373,7 @@ struct BoxOfficeCinemaSelectorView: View {
 private struct CinemaMapPin: View {
     let isSelected: Bool
     let isNearest: Bool
+    let hasIMAX: Bool
 
     var body: some View {
         ZStack {
@@ -318,6 +389,17 @@ private struct CinemaMapPin: View {
             Image(systemName: "film.fill")
                 .font(.system(size: isSelected ? 14 : 10, weight: .bold))
                 .foregroundColor(.white)
+        }
+        .overlay(alignment: .topTrailing) {
+            if hasIMAX {
+                Text("IMAX")
+                    .font(.system(size: 5, weight: .heavy))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.blue))
+                    .offset(x: 6, y: -4)
+            }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
     }
@@ -409,12 +491,26 @@ private struct NearestCinemaCard: View {
                         Text("Nearest Cinema")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        Text(info.cinema.name)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.primary)
                         HStack(spacing: 6) {
-                            Text(info.distanceText)
+                            Text(info.cinema.name)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                            if info.cinema.hasIMAX {
+                                Text("IMAX")
+                                    .font(.system(size: 7, weight: .heavy))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1.5)
+                                    .background(Capsule().fill(Color.blue))
+                            }
+                        }
+                        HStack(spacing: 6) {
+                            if let drivingDist = info.drivingDistanceText {
+                                Text(drivingDist)
+                            } else {
+                                Text(info.distanceText)
+                            }
                             if !info.etaText.isEmpty {
                                 Text("·")
                                 Text(info.etaText)
@@ -456,6 +552,7 @@ private struct CinemaDetailCard: View {
     let routeInfo: CinemaRouteInfo?
     let onShowtimes: () -> Void
     let onDirections: () -> Void
+    let onOpenMaps: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
@@ -463,8 +560,18 @@ private struct CinemaDetailCard: View {
             // Header with dismiss
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(cinema.name)
-                        .font(.headline)
+                    HStack(spacing: 6) {
+                        Text(cinema.name)
+                            .font(.headline)
+                        if cinema.hasIMAX {
+                            Text("IMAX")
+                                .font(.system(size: 8, weight: .heavy))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.blue))
+                        }
+                    }
                     Text("\(cinema.suburb), \(cinema.city)")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -472,7 +579,11 @@ private struct CinemaDetailCard: View {
                         HStack(spacing: 6) {
                             Image(systemName: "car.fill")
                                 .font(.caption2)
-                            Text(info.distanceText)
+                            if let drivingDist = info.drivingDistanceText {
+                                Text(drivingDist)
+                            } else {
+                                Text(info.distanceText)
+                            }
                             if !info.etaText.isEmpty {
                                 Text("·")
                                 Text(info.etaText)
@@ -492,11 +603,11 @@ private struct CinemaDetailCard: View {
             }
 
             // Action buttons
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Button(action: onShowtimes) {
                     HStack(spacing: 6) {
                         Image(systemName: "ticket.fill")
-                        Text("View Showtimes")
+                        Text("Showtimes")
                     }
                     .font(.subheadline)
                     .fontWeight(.semibold)
@@ -511,8 +622,8 @@ private struct CinemaDetailCard: View {
 
                 Button(action: onDirections) {
                     HStack(spacing: 6) {
-                        Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
-                        Text("Directions")
+                        Image(systemName: "point.topleft.down.to.point.bottomright.curvepath.fill")
+                        Text("Route")
                     }
                     .font(.subheadline)
                     .fontWeight(.semibold)
@@ -524,6 +635,87 @@ private struct CinemaDetailCard: View {
                             .fill(Color(.systemGray5))
                     )
                 }
+
+                Button(action: onOpenMaps) {
+                    Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.blue)
+                        .frame(width: 44, height: 44)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color(.systemGray5))
+                        )
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.ultraThickMaterial)
+                .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
+        )
+    }
+}
+
+// MARK: - Route Info Banner
+
+private struct RouteInfoBanner: View {
+    let cinema: CinemaLocation
+    let route: MKRoute
+    let onOpenMaps: () -> Void
+    let onDismiss: () -> Void
+
+    private var drivingDistance: String {
+        let km = route.distance / 1_000
+        return String(format: "%.1f km", km)
+    }
+
+    private var etaText: String {
+        let minutes = Int((route.expectedTravelTime / 60).rounded())
+        if minutes < 60 { return "\(minutes) min drive" }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        return remainder == 0 ? "\(hours) hr drive" : "\(hours)h \(remainder)m drive"
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Directions to \(cinema.name)")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    HStack(spacing: 8) {
+                        Label(drivingDistance, systemImage: "car.fill")
+                        Text("·")
+                        Text(etaText)
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Button(action: onOpenMaps) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                    Text("Open in Apple Maps")
+                }
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.blue)
+                )
             }
         }
         .padding(16)
