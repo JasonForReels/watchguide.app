@@ -57,16 +57,27 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
         )
     )
 
+    let resolver = CinemaLocationResolver()
+
+    var allCinemas: [CinemaLocation] { resolver.resolvedCinemas }
+
     private let manager = CLLocationManager()
     private let geocoder = CLGeocoder()
-
-    let allCinemas = SouthAfricaCinemaDirectory.sterKinekor
 
     override init() {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
         authorizationStatus = manager.authorizationStatus
+    }
+
+    /// Kick off Apple Maps search to refine all cinema pin locations
+    func resolveLocations() async {
+        await resolver.resolveAll()
+        // If we already have user location, recalculate distances with refined coords
+        if let loc = currentLocation {
+            await updateNearbyCinemas(from: loc)
+        }
     }
 
     func requestLocation() {
@@ -106,7 +117,8 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
 
         await reverseGeocode(location)
 
-        let withDistance = allCinemas.map { cinema -> (CinemaLocation, CLLocationDistance) in
+        let cinemas = allCinemas
+        let withDistance = cinemas.map { cinema -> (CinemaLocation, CLLocationDistance) in
             let destination = CLLocation(latitude: cinema.coordinate.latitude, longitude: cinema.coordinate.longitude)
             return (cinema, location.distance(from: destination))
         }
@@ -216,7 +228,7 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
         }
     }
 
-    /// Open Apple Maps with the exact business name search for accurate navigation
+    /// Open Apple Maps with business name search for accurate navigation
     func openInAppleMaps(cinema: CinemaLocation) {
         let destination = MKMapItem(placemark: MKPlacemark(coordinate: cinema.coordinate))
         destination.name = cinema.mapSearchName
@@ -238,7 +250,7 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
             cameraPosition = .region(
                 MKCoordinateRegion(
                     center: cinema.coordinate,
-                    span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+                    span: MKCoordinateSpan(latitudeDelta: 0.008, longitudeDelta: 0.008)
                 )
             )
         }
@@ -267,7 +279,7 @@ struct BoxOfficeCinemaSelectorView: View {
                 // User location
                 UserAnnotation()
 
-                // Cinema pins
+                // Cinema pins — use resolver's live-updated list
                 ForEach(viewModel.allCinemas) { cinema in
                     Annotation(cinema.name, coordinate: cinema.coordinate, anchor: .bottom) {
                         CinemaMapPin(
@@ -354,6 +366,8 @@ struct BoxOfficeCinemaSelectorView: View {
         .navigationTitle("Box Office")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            // First resolve accurate locations from Apple Maps, then request user location
+            await viewModel.resolveLocations()
             viewModel.requestLocation()
         }
         .sheet(isPresented: $showList) {
