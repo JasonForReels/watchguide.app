@@ -2553,6 +2553,22 @@ struct BrowseDiscoverSection: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                HStack(spacing: 14) {
+                    NavigationLink(destination: CinemaTripPlannerView()) {
+                        DiscoverFeatureCard(
+                            title: "Trip Planner",
+                            subtitle: "Know when to leave for the movies",
+                            iconName: "car.circle.fill",
+                            accentColor: .mint,
+                            isLarge: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+                        .frame(maxWidth: .infinity)
+                }
             }
             .padding(.horizontal)
             

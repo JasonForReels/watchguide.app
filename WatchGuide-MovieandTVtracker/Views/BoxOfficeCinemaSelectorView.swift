@@ -266,6 +266,7 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
 struct BoxOfficeCinemaSelectorView: View {
     @StateObject private var viewModel = BoxOfficeLocationViewModel()
     @State private var showList = false
+    @State private var showTripPlanner = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -330,6 +331,7 @@ struct BoxOfficeCinemaSelectorView: View {
                         onShowtimes: { viewModel.openWebsite(for: selected) },
                         onDirections: { viewModel.showRoute(to: selected) },
                         onOpenMaps: { viewModel.openInAppleMaps(cinema: selected) },
+                        onPlanTrip: { showTripPlanner = true },
                         onDismiss: {
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 viewModel.selectedCinema = nil
@@ -365,6 +367,14 @@ struct BoxOfficeCinemaSelectorView: View {
         }
         .navigationTitle("Box Office")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                NavigationLink(destination: CinemaTripPlannerView()) {
+                    Image(systemName: "car.circle.fill")
+                        .font(.title3)
+                }
+            }
+        }
         .task {
             // First resolve accurate locations from Apple Maps, then request user location
             await viewModel.resolveLocations()
@@ -377,6 +387,11 @@ struct BoxOfficeCinemaSelectorView: View {
             if let url = viewModel.safariURL {
                 InAppSafariView(url: url)
                     .ignoresSafeArea()
+            }
+        }
+        .sheet(isPresented: $showTripPlanner) {
+            NavigationStack {
+                CinemaTripPlannerView()
             }
         }
     }
@@ -567,6 +582,7 @@ private struct CinemaDetailCard: View {
     let onShowtimes: () -> Void
     let onDirections: () -> Void
     let onOpenMaps: () -> Void
+    let onPlanTrip: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
@@ -616,7 +632,7 @@ private struct CinemaDetailCard: View {
                 }
             }
 
-            // Action buttons
+            // Action buttons row 1
             HStack(spacing: 10) {
                 Button(action: onShowtimes) {
                     HStack(spacing: 6) {
@@ -661,6 +677,23 @@ private struct CinemaDetailCard: View {
                                 .fill(Color(.systemGray5))
                         )
                 }
+            }
+
+            // Plan Trip button
+            Button(action: onPlanTrip) {
+                HStack(spacing: 6) {
+                    Image(systemName: "car.circle.fill")
+                    Text("Plan Trip")
+                }
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.green)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.green.opacity(0.12))
+                )
             }
         }
         .padding(16)
