@@ -1,6 +1,9 @@
 import SwiftUI
 import CoreLocation
 import MapKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Trip Planner View (Plan a Cinema Trip)
 
@@ -246,6 +249,13 @@ private struct NewCinemaTripSheet: View {
     @State private var prepMinutes = 15
     @State private var showCinemaPicker = false
     @State private var isSaving = false
+    @State private var isScoutCalculating = false
+    @State private var scoutResultText: String?
+    @State private var scoutTravelSeconds: TimeInterval?
+    @State private var scoutDistanceMeters: Double?
+    @State private var scoutLeaveByDate: Date?
+    @State private var scoutErrorText: String?
+    @State private var showLocationPermissionAlert = false
 
     private let prepOptions = [10, 15, 20, 25, 30]
 
@@ -318,6 +328,52 @@ private struct NewCinemaTripSheet: View {
                 } footer: {
                     Text("Extra time for parking, buying popcorn, finding your seat, and settling in before the movie starts.")
                 }
+                
+                Section {
+                    Button {
+                        Task { await runScoutLeaveCalculation() }
+                    } label: {
+                        HStack(spacing: 10) {
+                            if isScoutCalculating {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "sparkles")
+                                    .foregroundColor(.accentColor)
+                            }
+                            Text(isScoutCalculating ? "Scout is calculating..." : "Calculate Leave Time with Scout")
+                        }
+                    }
+                    .disabled(!isFormValid || isScoutCalculating || isSaving)
+                    
+                    if let scoutResultText {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                                .padding(.top, 2)
+                            Text(scoutResultText)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    if let scoutErrorText {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                                .font(.caption)
+                                .padding(.top, 2)
+                            Text(scoutErrorText)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Scout")
+                } footer: {
+                    Text("Scout uses live Maps traffic to estimate drive time and tell you when to leave.")
+                }
             }
             .navigationTitle("Plan Trip")
             .navigationBarTitleDisplayMode(.inline)
@@ -336,14 +392,74 @@ private struct NewCinemaTripSheet: View {
             .sheet(isPresented: $showCinemaPicker) {
                 CinemaPickerSheet(selectedCinema: $selectedCinema)
             }
+            .onChange(of: selectedCinema?.id) { _, _ in clearScoutResult() }
+            .onChange(of: selectedDate) { _, _ in clearScoutResult() }
+            .onChange(of: selectedTime) { _, _ in clearScoutResult() }
+            .onChange(of: prepMinutes) { _, _ in clearScoutResult() }
+            .alert("Location Access Needed", isPresented: $showLocationPermissionAlert) {
+                Button("Not Now", role: .cancel) {}
+                #if canImport(UIKit)
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                #endif
+            } message: {
+                Text("Scout needs your location to calculate when you should leave. Please allow location access for Watch Guide.")
+            }
         }
     }
 
     private func saveTrip() {
         guard let cinema = selectedCinema else { return }
+        guard AIMessageQuota.canCreateTripPlanThisMonth() else {
+            scoutErrorText = "Free plan allows 1 new trip plan per month. Upgrade to Scout Unlimited for unlimited trip planning."
+            return
+        }
         isSaving = true
 
-        // Combine selected date and time
+        let showtimeDate = combinedShowtimeDate
+
+        var trip = CinemaTrip(
+            movieTitle: movieTitle.trimmingCharacters(in: .whitespacesAndNewlines),
+            cinemaId: cinema.id,
+            cinemaName: cinema.name,
+            showtimeDate: showtimeDate,
+            prepMinutes: prepMinutes
+        )
+        
+        if let scoutTravelSeconds, let scoutDistanceMeters, let scoutLeaveByDate {
+            trip.estimatedTravelSeconds = scoutTravelSeconds
+            trip.estimatedDistanceMeters = scoutDistanceMeters
+            trip.leaveByDate = scoutLeaveByDate
+        }
+
+        plannerService.addTrip(trip)
+        AIMessageQuota.consumeTripPlan()
+
+        // If Scout already calculated, just schedule notifications; otherwise calculate in background.
+        if trip.leaveByDate != nil {
+            Task { await plannerService.scheduleLeaveNotification(for: trip) }
+        } else {
+            Task {
+                locationVM.requestLocation()
+                // Wait briefly for location
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if let userLoc = locationVM.currentLocation {
+                    await plannerService.calculateRoute(
+                        for: trip.id,
+                        from: userLoc,
+                        to: cinema.coordinate
+                    )
+                }
+            }
+        }
+
+        dismiss()
+    }
+    
+    private var combinedShowtimeDate: Date {
         let calendar = Calendar.current
         let dateComponents = calendar.dateComponents([.year, .month, .day], from: selectedDate)
         let timeComponents = calendar.dateComponents([.hour, .minute], from: selectedTime)
@@ -353,33 +469,68 @@ private struct NewCinemaTripSheet: View {
         combined.day = dateComponents.day
         combined.hour = timeComponents.hour
         combined.minute = timeComponents.minute
-        let showtimeDate = calendar.date(from: combined) ?? selectedDate
-
-        var trip = CinemaTrip(
-            movieTitle: movieTitle.trimmingCharacters(in: .whitespacesAndNewlines),
-            cinemaId: cinema.id,
-            cinemaName: cinema.name,
-            showtimeDate: showtimeDate,
-            prepMinutes: prepMinutes
-        )
-
-        plannerService.addTrip(trip)
-
-        // Calculate route in background
-        Task {
-            locationVM.requestLocation()
-            // Wait briefly for location
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            if let userLoc = locationVM.currentLocation {
-                await plannerService.calculateRoute(
-                    for: trip.id,
-                    from: userLoc,
-                    to: cinema.coordinate
-                )
+        return calendar.date(from: combined) ?? selectedDate
+    }
+    
+    private func clearScoutResult() {
+        scoutResultText = nil
+        scoutTravelSeconds = nil
+        scoutDistanceMeters = nil
+        scoutLeaveByDate = nil
+        scoutErrorText = nil
+    }
+    
+    private func runScoutLeaveCalculation() async {
+        guard let cinema = selectedCinema else { return }
+        isScoutCalculating = true
+        scoutErrorText = nil
+        scoutResultText = nil
+        
+        defer { isScoutCalculating = false }
+        
+        locationVM.requestLocation()
+        guard let userLocation = await waitForCurrentLocation(timeoutSeconds: 30) else {
+            if locationVM.authorizationStatus == .denied || locationVM.authorizationStatus == .restricted {
+                showLocationPermissionAlert = true
             }
+            scoutErrorText = "Scout couldn't get your location. Enable location access and try again."
+            return
         }
-
-        dismiss()
+        
+        guard let result = await plannerService.scoutCalculateLeaveTime(
+            showtimeDate: combinedShowtimeDate,
+            prepMinutes: prepMinutes,
+            from: userLocation,
+            to: cinema.coordinate
+        ) else {
+            scoutErrorText = "Scout couldn't calculate this route right now. Please try again."
+            return
+        }
+        
+        scoutTravelSeconds = result.travelSeconds
+        scoutDistanceMeters = result.distanceMeters
+        scoutLeaveByDate = result.leaveByDate
+        
+        let minutes = Int((result.travelSeconds / 60).rounded())
+        let km = result.distanceMeters / 1_000
+        scoutResultText = "Scout says leave by \(formattedTime(result.leaveByDate)) (\(minutes) min drive, \(String(format: "%.1f", km)) km + \(prepMinutes) min prep)."
+    }
+    
+    private func waitForCurrentLocation(timeoutSeconds: Int) async -> CLLocationCoordinate2D? {
+        for _ in 0..<(timeoutSeconds * 5) {
+            if let location = locationVM.currentLocation {
+                return location
+            }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return locationVM.currentLocation
+    }
+    
+    private func formattedTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter.string(from: date)
     }
 }
 
@@ -463,9 +614,11 @@ private struct CinemaPickerSheet: View {
 @MainActor
 private final class TripLocationViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var currentLocation: CLLocationCoordinate2D?
+    @Published var authorizationStatus: CLAuthorizationStatus
     private let manager = CLLocationManager()
 
     override init() {
+        self.authorizationStatus = manager.authorizationStatus
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
@@ -473,6 +626,7 @@ private final class TripLocationViewModel: NSObject, ObservableObject, CLLocatio
 
     func requestLocation() {
         let status = manager.authorizationStatus
+        authorizationStatus = status
         if status == .authorizedWhenInUse || status == .authorizedAlways {
             manager.requestLocation()
         } else if status == .notDetermined {
@@ -481,7 +635,8 @@ private final class TripLocationViewModel: NSObject, ObservableObject, CLLocatio
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+        authorizationStatus = manager.authorizationStatus
+        if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
             manager.requestLocation()
         }
     }

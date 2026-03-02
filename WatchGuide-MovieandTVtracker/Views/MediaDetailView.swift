@@ -1134,8 +1134,8 @@ class MediaDetailViewModel: ObservableObject {
             return
         }
 
-        if AIMessageQuota.remainingMessages() <= 0 {
-            postCreditsError = "Daily Scout limit reached. Try again tomorrow."
+        if !AIMessageQuota.canUsePostCreditsThisMonth() {
+            postCreditsError = "Free plan post-credits checks used for this month. Upgrade to Scout Unlimited for unlimited checks."
             return
         }
 
@@ -1157,7 +1157,7 @@ class MediaDetailViewModel: ObservableObject {
             )
             postCreditsSummary = response
             postCreditsError = nil
-            AIMessageQuota.consumeMessage()
+            AIMessageQuota.consumePostCredits()
         } catch {
             postCreditsSummary = nil
             postCreditsError = "Couldn’t check right now. Please try again."

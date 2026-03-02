@@ -13,6 +13,7 @@ struct SettingsView: View {
     @ObservedObject private var storage = StorageService.shared
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var profileService = ProfileService.shared
+    @ObservedObject private var scoutSubscription = ScoutSubscriptionService.shared
     @State private var settings: UserSettings
     @State private var showClearDataAlert = false
     @State private var showAuthSheet = false
@@ -22,8 +23,11 @@ struct SettingsView: View {
     @State private var showPasscodeEntry = false
     @State private var passcodeAction: PasscodeAction = .disableKids
     @State private var showEditProfile = false
+    @State private var scoutIAPStatusMessage: String?
     
     private let communityURLString = "https://discord.watchguide.app"
+    private let scoutTermsURLString = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
+    private let scoutPrivacyPolicyURLString = "https://www.watchguide.app/#/privacy"
     
     enum PasscodeAction {
         case disableKids       // Turn off kids profile
@@ -78,6 +82,85 @@ struct SettingsView: View {
             } footer: {
                 if !authService.isAuthenticated {
                     Text("Sign in to sync your watchlist, watched items, and likes across all your devices")
+                }
+            }
+            
+            Section("Scout Unlimited") {
+                if scoutSubscription.isUnlimitedActive {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundColor(.green)
+                        Text("Unlimited active")
+                            .fontWeight(.semibold)
+                    }
+                } else {
+                    Text("Upgrade Scout for unlimited messages, trip planning, and post-credits checks.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Button {
+                    Task {
+                        let outcome = await scoutSubscription.purchaseScoutUnlimited()
+                        scoutIAPStatusMessage = outcome.message
+                    }
+                } label: {
+                    HStack {
+                        if scoutSubscription.isPurchasing {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text("Upgrade to Unlimited (\(scoutSubscription.product?.displayPrice ?? "$1.99")/month)")
+                    }
+                }
+                .disabled(scoutSubscription.isUnlimitedActive || scoutSubscription.isPurchasing || scoutSubscription.isLoadingProduct)
+                
+                Button("Restore Purchases") {
+                    Task {
+                        await scoutSubscription.restorePurchases()
+                        scoutIAPStatusMessage = scoutSubscription.isUnlimitedActive
+                            ? "Subscription restored."
+                            : "No active Scout Unlimited subscription found."
+                    }
+                }
+                .disabled(scoutSubscription.isPurchasing)
+                
+                if !scoutSubscription.isUnlimitedActive {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Free plan limits:")
+                        Text("• 5 messages/day")
+                        Text("• 1 new trip planner/month")
+                        Text("• 4 post-credits checks/month")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Scout Unlimited")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Text("Auto-renewable monthly subscription")
+                    Text("Price: \(scoutSubscription.product?.displayPrice ?? "$1.99") per month")
+                    Text("Payment is charged to your Apple Account at confirmation. Subscription renews automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel in Apple Account Settings.")
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+                if let privacyURL = URL(string: scoutPrivacyPolicyURLString) {
+                    Link("Privacy Policy", destination: privacyURL)
+                        .font(.caption)
+                }
+
+                if let termsURL = URL(string: scoutTermsURLString) {
+                    Link("Terms of Use (EULA)", destination: termsURL)
+                        .font(.caption)
+                }
+                
+                if let scoutIAPStatusMessage {
+                    Text(scoutIAPStatusMessage)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
             
@@ -568,6 +651,9 @@ struct SettingsView: View {
             if let profile = profileService.activeProfile {
                 ProfileSetupView(mode: .edit(profile))
             }
+        }
+        .task {
+            await scoutSubscription.prepare()
         }
     }
     

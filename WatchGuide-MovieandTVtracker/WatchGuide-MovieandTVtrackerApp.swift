@@ -9,10 +9,14 @@ import SwiftUI
 
 @main
 struct WatchGuide_MovieandTVtrackerApp: App {
+    @StateObject private var scoutSubscription = ScoutSubscriptionService.shared
+    
     var body: some Scene {
         WindowGroup {
             SplashScreenView()
+                .task {
+                    await scoutSubscription.prepare()
+                }
         }
     }
 }
-

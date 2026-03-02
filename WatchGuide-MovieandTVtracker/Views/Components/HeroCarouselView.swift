@@ -25,8 +25,8 @@ struct HeroCarouselView: View {
     let onItemTap: (MediaItem) -> Void
     let aspectRatio: CGFloat
     let isPortrait: Bool
-    // Trailer/video overlay disabled: hero carousel shows artwork only.
-    private let showTrailers: Bool = false
+    @ObservedObject private var storageService = StorageService.shared
+    private var showTrailers: Bool { storageService.settings.autoPlayTrailers }
     
     @State private var currentIndex = 0
     @State private var dragOffset: CGFloat = 0

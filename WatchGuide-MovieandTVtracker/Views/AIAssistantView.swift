@@ -143,7 +143,8 @@ private struct AIAssistantBody: View {
             Divider()
             
             AIQuotaStatusBar(
-                remainingMessages: viewModel.remainingMessages
+                remainingMessages: viewModel.remainingMessages,
+                hasScoutUnlimited: viewModel.hasScoutUnlimited
             )
             
             AIInputBarContainer(
@@ -175,15 +176,22 @@ private struct ClearButton: View {
 // MARK: - AI Quota Status Bar
 private struct AIQuotaStatusBar: View {
     let remainingMessages: Int
+    let hasScoutUnlimited: Bool
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            Text("\(remainingMessages) free messages left today")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            if hasScoutUnlimited {
+                Text("Scout Unlimited active")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("\(remainingMessages) free messages left today")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
             Spacer()
         }
         .padding(.horizontal)
@@ -1398,6 +1406,7 @@ class AIAssistantViewModel: ObservableObject {
     @Published var scrollTrigger = 0
     @Published var currentUserQuery = ""
     @Published var remainingMessages = AIMessageQuota.remainingMessages()
+    @Published var hasScoutUnlimited = AIMessageQuota.isUnlimited()
     
     let inputState = AIInputState()
     
@@ -1407,12 +1416,30 @@ class AIAssistantViewModel: ObservableObject {
     private static let charThreshold = 40 // minimum chars between UI pushes
     private var lastPublishedLength = 0
     private var pendingFlushTask: Task<Void, Never>?
+    private var subscriptionStatusObserver: NSObjectProtocol?
     
     /// Whether Scout should operate in extra-strict kids mode.
     /// Content safety is ALWAYS enforced (via system prompt + output filter).
     /// This flag enables the additional kids-only restrictions on top of baseline safety.
     private var isKidsMode: Bool {
         ScoutAgeGateManager.shared.isKidsRestricted
+    }
+    
+    init() {
+        subscriptionStatusObserver = NotificationCenter.default.addObserver(
+            forName: ScoutSubscriptionService.statusDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshQuotaStatus()
+        }
+        refreshQuotaStatus()
+    }
+    
+    deinit {
+        if let observer = subscriptionStatusObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
     
     func sendMessage() async {
@@ -1632,6 +1659,7 @@ class AIAssistantViewModel: ObservableObject {
 
     private func refreshQuotaStatus() {
         remainingMessages = AIMessageQuota.remainingMessages()
+        hasScoutUnlimited = AIMessageQuota.isUnlimited()
     }
     
     func clearMessages() {

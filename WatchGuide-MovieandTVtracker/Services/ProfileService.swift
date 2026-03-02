@@ -273,9 +273,14 @@ class ProfileService: ObservableObject {
         guard AuthService.shared.isAuthenticated else { return }
         if isSyncingFromCloud { return }
         isSyncingFromCloud = true
+        var syncSucceeded = false
         defer {
             isSyncingFromCloud = false
-            hasCompletedInitialSync = true
+            // Only mark initial sync complete when cloud fetch succeeded or local data already exists.
+            // This avoids showing first-time setup on transient network/API failures.
+            if syncSucceeded || !profiles.isEmpty {
+                hasCompletedInitialSync = true
+            }
         }
         
         // Supabase download
@@ -285,6 +290,7 @@ class ProfileService: ObservableObject {
         do {
             let cloudProfiles = try await fetchProfiles(userId: userId)
             applyCloudProfiles(cloudProfiles)
+            syncSucceeded = true
         } catch {
             print("Profile download failed: \(error)")
         }
@@ -389,9 +395,11 @@ class ProfileService: ObservableObject {
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            return []
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw ProfileSyncError.httpStatus(httpResponse.statusCode)
         }
         
         let decoder = JSONDecoder()
@@ -444,6 +452,17 @@ class ProfileService: ObservableObject {
         hasShownPickerThisSession = false
         hasCompletedInitialSync = false
         saveProfiles()
+    }
+}
+
+private enum ProfileSyncError: LocalizedError {
+    case httpStatus(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .httpStatus(let code):
+            return "Profile sync HTTP error: \(code)"
+        }
     }
 }
 

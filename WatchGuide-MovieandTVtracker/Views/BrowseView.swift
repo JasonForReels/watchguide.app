@@ -1050,6 +1050,7 @@ struct ResizableHeroCarousel: View {
     let onItemTap: (MediaItem) -> Void
     
     @ObservedObject private var profileService = ProfileService.shared
+    @State private var containerWidth: CGFloat = 0
     
     private let minimumRatio: Double = 0.45
     private let maximumRatio: Double = 1.0
@@ -1057,18 +1058,32 @@ struct ResizableHeroCarousel: View {
     var body: some View {
         let layout = resolvedLayout()
         let aspect = layout.aspect
-        let availableWidth = max(UIScreen.main.bounds.width - 24, 1)
+        let measuredWidth = containerWidth > 0 ? containerWidth : UIScreen.main.bounds.width
+        let availableWidth = max(measuredWidth - 24, 1)
         let clampedRatio = max(minimumRatio, min(maximumRatio, layout.widthRatio))
         let width = availableWidth * clampedRatio
         
-        HeroCarouselView(
-            items: items,
-            onItemTap: onItemTap,
-            aspectRatio: aspect.aspectRatio,
-            isPortrait: aspect == .portrait
-        )
-        .frame(width: width)
+        ZStack {
+            HeroCarouselView(
+                items: items,
+                onItemTap: onItemTap,
+                aspectRatio: aspect.aspectRatio,
+                isPortrait: aspect == .portrait
+            )
+            .frame(width: width)
+        }
         .frame(maxWidth: .infinity, alignment: .center)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear {
+                        containerWidth = geo.size.width
+                    }
+                    .onChange(of: geo.size.width) { _, newWidth in
+                        containerWidth = newWidth
+                    }
+            }
+        )
     }
     
     private func resolvedLayout() -> (widthRatio: Double, aspect: HeroCarouselAspect) {

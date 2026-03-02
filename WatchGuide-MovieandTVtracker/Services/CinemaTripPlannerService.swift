@@ -131,35 +131,61 @@ final class CinemaTripPlannerService: ObservableObject {
     }
 
     // MARK: - Route Calculation
-
-    /// Calculates driving ETA from user's current location to the cinema and updates the trip.
-    func calculateRoute(for tripId: String, from userLocation: CLLocationCoordinate2D, to cinemaCoordinate: CLLocationCoordinate2D) async {
+    
+    struct ScoutLeaveCalculation {
+        let travelSeconds: TimeInterval
+        let distanceMeters: Double
+        let leaveByDate: Date
+    }
+    
+    /// Scout-backed leave-time calculation using live Apple Maps routing.
+    func scoutCalculateLeaveTime(
+        showtimeDate: Date,
+        prepMinutes: Int,
+        from userLocation: CLLocationCoordinate2D,
+        to cinemaCoordinate: CLLocationCoordinate2D
+    ) async -> ScoutLeaveCalculation? {
         let request = MKDirections.Request()
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: userLocation))
         request.destination = MKMapItem(placemark: MKPlacemark(coordinate: cinemaCoordinate))
         request.transportType = .automobile
         request.requestsAlternateRoutes = false
-        // Request departure at current time for live traffic
         request.departureDate = Date()
-
+        
         let directions = MKDirections(request: request)
         do {
             let response = try await directions.calculate()
-            guard let route = response.routes.first else { return }
-
-            if var trip = trips.first(where: { $0.id == tripId }) {
-                trip.estimatedTravelSeconds = route.expectedTravelTime
-                trip.estimatedDistanceMeters = route.distance
-                // Leave time = showtime - travel - prep buffer
-                let totalLeadSeconds = route.expectedTravelTime + Double(trip.prepMinutes * 60)
-                trip.leaveByDate = trip.showtimeDate.addingTimeInterval(-totalLeadSeconds)
-                updateTrip(trip)
-                // Schedule notification
-                await scheduleLeaveNotification(for: trip)
-            }
+            guard let route = response.routes.first else { return nil }
+            let travelSeconds = route.expectedTravelTime
+            let totalLeadSeconds = travelSeconds + Double(prepMinutes * 60)
+            let leaveByDate = showtimeDate.addingTimeInterval(-totalLeadSeconds)
+            return ScoutLeaveCalculation(
+                travelSeconds: travelSeconds,
+                distanceMeters: route.distance,
+                leaveByDate: leaveByDate
+            )
         } catch {
-            print("CinemaTripPlanner route error: \(error)")
+            print("Scout leave-time calculation error: \(error)")
+            return nil
         }
+    }
+
+    /// Calculates driving ETA from user's current location to the cinema and updates the trip.
+    func calculateRoute(for tripId: String, from userLocation: CLLocationCoordinate2D, to cinemaCoordinate: CLLocationCoordinate2D) async {
+        guard let existingTrip = trips.first(where: { $0.id == tripId }) else { return }
+        guard let calculation = await scoutCalculateLeaveTime(
+            showtimeDate: existingTrip.showtimeDate,
+            prepMinutes: existingTrip.prepMinutes,
+            from: userLocation,
+            to: cinemaCoordinate
+        ) else { return }
+        
+        var trip = existingTrip
+        trip.estimatedTravelSeconds = calculation.travelSeconds
+        trip.estimatedDistanceMeters = calculation.distanceMeters
+        trip.leaveByDate = calculation.leaveByDate
+        updateTrip(trip)
+        await scheduleLeaveNotification(for: trip)
     }
 
     // MARK: - Notifications
