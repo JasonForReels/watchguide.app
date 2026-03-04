@@ -6,11 +6,11 @@
 //
 
 import SwiftUI
-import AuthenticationServices
 
 struct AuthView: View {
     @ObservedObject var authService = AuthService.shared
     @ObservedObject var profileService = ProfileService.shared
+    @ObservedObject private var storage = StorageService.shared
     @Environment(\.dismiss) private var dismiss
     
     @State private var isSignUp = false
@@ -49,41 +49,6 @@ struct AuthView: View {
                             .padding(.horizontal, 16)
                     }
                     .padding(.top, 20)
-                    
-                    // Sign in with Apple
-                    VStack(spacing: 14) {
-                        VStack(spacing: 6) {
-                            Text("Recommended")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.accentColor)
-                            
-                            Text("Sign in with Apple to sync across devices. No account setup needed.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 20)
-                        }
-                        
-                        AppleSignInButton { result in
-                            handleAppleSignIn(result: result)
-                        }
-                        .frame(height: 50)
-                    }
-                    
-                    // Divider
-                    HStack {
-                        Rectangle()
-                            .fill(Color(.systemGray4))
-                            .frame(height: 1)
-                        Text("or")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 8)
-                        Rectangle()
-                            .fill(Color(.systemGray4))
-                            .frame(height: 1)
-                    }
                     
                     // Email option
                     if showEmailForm {
@@ -298,53 +263,24 @@ struct AuthView: View {
         return emailValid && passwordValid
     }
     
-    // MARK: - Apple Sign In
-    
-    private func handleAppleSignIn(result: Result<ASAuthorization, Error>) {
-        switch result {
-        case .success(let authorization):
-            if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
-                guard let tokenData = appleIDCredential.identityToken,
-                      let idToken = String(data: tokenData, encoding: .utf8) else {
-                    authService.errorMessage = "Unable to read Apple ID token."
-                    return
-                }
-                
-                Task {
-                    let success = await authService.signInWithApple(idToken: idToken, nonce: nil)
-                    if success {
-                        await handleEmailAuthSuccess()
-                    }
-                }
-            }
-        case .failure(let error):
-            authService.errorMessage = error.localizedDescription
-        }
-    }
-    
     // MARK: - Email Auth
     
     private func handleEmailSubmit() async {
         if isSignUp {
             let success = await authService.signUp(email: email, password: password)
             if success {
+                // requiresPostSignInSyncDecision is already set by AuthService
+                // ContentView will show the PostSignInSyncView
                 dismiss()
             }
         } else {
             let success = await authService.signIn(email: email, password: password)
             if success {
-                await handleEmailAuthSuccess()
+                // requiresPostSignInSyncDecision is already set by AuthService
+                // ContentView will show the PostSignInSyncView
+                dismiss()
             }
         }
-    }
-
-    private func handleEmailAuthSuccess() async {
-        await profileService.downloadProfilesFromCloud()
-
-        if profileService.hasProfiles && !profileService.hasActiveProfile {
-            profileService.requestProfileSelection()
-        }
-        dismiss()
     }
 }
 
@@ -353,7 +289,8 @@ struct AuthView: View {
 struct AccountView: View {
     @ObservedObject var authService = AuthService.shared
     @State private var showSignOutConfirmation = false
-    @State private var showMailError = false
+    @State private var showDeleteAccountConfirmation = false
+    @State private var deleteAccountError: String?
     
     var body: some View {
         if let user = authService.currentUser {
@@ -407,9 +344,9 @@ struct AccountView: View {
                     .cornerRadius(12)
                 }
                 
-                // Delete account button — opens Mail
+                // Delete account button
                 Button {
-                    openDeleteAccountEmail()
+                    showDeleteAccountConfirmation = true
                 } label: {
                     HStack {
                         Image(systemName: "trash")
@@ -422,9 +359,6 @@ struct AccountView: View {
                     .background(Color(.systemGray6))
                     .cornerRadius(12)
                 }
-                #if os(tvOS)
-                .disabled(true)
-                #endif
             }
             .confirmationDialog("Sign Out", isPresented: $showSignOutConfirmation, titleVisibility: .visible) {
                 Button("Sign Out", role: .destructive) {
@@ -436,36 +370,28 @@ struct AccountView: View {
             } message: {
                 Text("You will need to sign in again to sync your lists across devices.")
             }
-            .alert("Unable to Open Mail", isPresented: $showMailError) {
+            .confirmationDialog("Delete Account?", isPresented: $showDeleteAccountConfirmation, titleVisibility: .visible) {
+                Button("Delete Account", role: .destructive) {
+                    Task {
+                        let success = await authService.deleteAccount()
+                        if !success {
+                            deleteAccountError = authService.errorMessage ?? "Failed to delete account."
+                        }
+                    }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This permanently deletes your account and cloud data. This cannot be undone.")
+            }
+            .alert("Delete Account Failed", isPresented: Binding(
+                get: { deleteAccountError != nil },
+                set: { if !$0 { deleteAccountError = nil } }
+            )) {
                 Button("OK", role: .cancel) { }
             } message: {
-                Text("Please send an email to support@watchguide.app with the subject \"Account deletion request\" to request your account be deleted.")
+                Text(deleteAccountError ?? "Unknown error.")
             }
         }
-    }
-    
-    private func openDeleteAccountEmail() {
-        #if os(tvOS)
-        showMailError = true
-        return
-        #else
-        let recipient = "support@watchguide.app"
-        let subject = "Account deletion request"
-        let body = "Input your email so we can go ahead and permanently delete your account and all data, optionally, go back into the app and press \"Clear All Data\" under \"Data Management\" if you don't want your account deleted.\n\nEmail: "
-        
-        let subjectEncoded = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject
-        let bodyEncoded = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? body
-        
-        let mailtoString = "mailto:\(recipient)?subject=\(subjectEncoded)&body=\(bodyEncoded)"
-        
-        if let url = URL(string: mailtoString) {
-            if PlatformURLHandler.canOpenURL(url) {
-                PlatformURLHandler.openURL(url)
-            } else {
-                showMailError = true
-            }
-        }
-        #endif
     }
     
     private func userInitials(from email: String?) -> String {
@@ -477,91 +403,6 @@ struct AccountView: View {
         return "?"
     }
 }
-
-// MARK: - Apple Sign In Button (UIKit-backed for reliable presentation anchor)
-
-#if os(iOS)
-struct AppleSignInButton: UIViewRepresentable {
-    var onCompletion: (Result<ASAuthorization, Error>) -> Void
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onCompletion: onCompletion)
-    }
-    
-    func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
-        let button = ASAuthorizationAppleIDButton(type: .signIn, style: .whiteOutline)
-        button.cornerRadius = 12
-        button.addTarget(context.coordinator, action: #selector(Coordinator.handleTap), for: .touchUpInside)
-        return button
-    }
-    
-    func updateUIView(_ uiView: ASAuthorizationAppleIDButton, context: Context) {
-        context.coordinator.onCompletion = onCompletion
-    }
-    
-    class Coordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
-        var onCompletion: (Result<ASAuthorization, Error>) -> Void
-        
-        init(onCompletion: @escaping (Result<ASAuthorization, Error>) -> Void) {
-            self.onCompletion = onCompletion
-        }
-        
-        @objc func handleTap() {
-            let provider = ASAuthorizationAppleIDProvider()
-            let request = provider.createRequest()
-            request.requestedScopes = [.fullName, .email]
-            
-            let controller = ASAuthorizationController(authorizationRequests: [request])
-            controller.delegate = self
-            controller.presentationContextProvider = self
-            controller.performRequests()
-        }
-        
-        // MARK: - ASAuthorizationControllerDelegate
-        
-        func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-            onCompletion(.success(authorization))
-        }
-        
-        func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-            // Don't report cancellation as an error
-            if let authError = error as? ASAuthorizationError, authError.code == .canceled {
-                return
-            }
-            onCompletion(.failure(error))
-        }
-        
-        // MARK: - ASAuthorizationControllerPresentationContextProviding
-        
-        func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-            // Find the key window reliably, even when presented in a sheet
-            guard let scene = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first(where: { $0.activationState == .foregroundActive }),
-                  let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first
-            else {
-                return UIWindow()
-            }
-            return window
-        }
-    }
-}
-#else
-// Fallback for non-iOS (tvOS, etc.)
-struct AppleSignInButton: View {
-    var onCompletion: (Result<ASAuthorization, Error>) -> Void
-    
-    var body: some View {
-        Button("Sign in with Apple") {
-            // tvOS fallback — not fully supported
-        }
-        .frame(maxWidth: .infinity)
-        .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
-    }
-}
-#endif
 
 #Preview {
     AuthView()

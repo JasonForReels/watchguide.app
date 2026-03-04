@@ -32,13 +32,14 @@ class StorageService: ObservableObject {
     @Published var cloudSyncEnabled = false
 
     var lastSyncTime: Date? {
+        if let cloud = UserDefaults.standard.object(forKey: "cloud_last_sync") as? Date {
+            return cloud
+        }
         return UserDefaults.standard.object(forKey: "supabase_last_sync") as? Date
     }
-    
+
     var isCloudConfigured: Bool {
-        let url = ApiKeyManager.shared.get(key: "SUPABASE_URL") ?? ""
-        let key = ApiKeyManager.shared.get(key: "SUPABASE_ANON_KEY") ?? ""
-        return !url.isEmpty && !key.isEmpty
+        isSupabaseConfigured || AuthService.shared.isAppleAuthActive
     }
     
     /// Whether Supabase is configured
@@ -47,6 +48,12 @@ class StorageService: ObservableObject {
         let key = ApiKeyManager.shared.get(key: "SUPABASE_ANON_KEY") ?? ""
         return !url.isEmpty && !key.isEmpty
     }
+
+    var cloudProviderDisplayName: String {
+        isSupabaseConfigured ? "Supabase" : "CloudKit"
+    }
+
+    private var isApplyingCloudSnapshot = false
     
     // MARK: - File URLs
     private let documentsDirectory: URL
@@ -369,7 +376,11 @@ class StorageService: ObservableObject {
         
         isSyncing = true
         lastSyncError = nil
-        await uploadToSupabase()
+        if isSupabaseConfigured {
+            await uploadToSupabase()
+        } else {
+            await uploadToICloud()
+        }
         
         isSyncing = false
     }
@@ -412,7 +423,11 @@ class StorageService: ObservableObject {
         
         isSyncing = true
         lastSyncError = nil
-        await downloadFromSupabase()
+        if isSupabaseConfigured {
+            await downloadFromSupabase()
+        } else {
+            await downloadFromICloud()
+        }
         
         isSyncing = false
     }
@@ -517,10 +532,14 @@ class StorageService: ObservableObject {
         guard shouldAutoSyncHomeConfig else { return }
         
         Task {
-            do {
-                try await SupabaseService.shared.addItem(item, listType: listType)
-            } catch {
-                print("Cloud sync add failed: \(error)")
+            if isSupabaseConfigured {
+                do {
+                    try await SupabaseService.shared.addItem(item, listType: listType)
+                } catch {
+                    print("Cloud sync add failed: \(error)")
+                }
+            } else {
+                await uploadToICloud()
             }
         }
     }
@@ -530,10 +549,14 @@ class StorageService: ObservableObject {
         guard shouldAutoSyncHomeConfig else { return }
         
         Task {
-            do {
-                try await SupabaseService.shared.removeItem(mediaId: mediaId, mediaType: mediaType, listType: listType)
-            } catch {
-                print("Cloud sync remove failed: \(error)")
+            if isSupabaseConfigured {
+                do {
+                    try await SupabaseService.shared.removeItem(mediaId: mediaId, mediaType: mediaType, listType: listType)
+                } catch {
+                    print("Cloud sync remove failed: \(error)")
+                }
+            } else {
+                await uploadToICloud()
             }
         }
     }
@@ -547,6 +570,7 @@ class StorageService: ObservableObject {
         return false
         #else
         guard isCloudConfigured else { return false }
+        guard !isApplyingCloudSnapshot else { return false }
         return AuthService.shared.isAuthenticated
         #endif
     }
@@ -554,78 +578,102 @@ class StorageService: ObservableObject {
     /// Sync browse row config to cloud (background)
     private func syncBrowseConfigToCloud() {
         guard shouldAutoSyncHomeConfig else { return }
-        let rowsCopy = browseRows
-        Task {
-            do {
-                try await HomeScreenSyncService.shared.uploadBrowseConfig(rowsCopy)
-            } catch {
-                print("Cloud sync browse config failed: \(error)")
+        if isSupabaseConfigured {
+            let rowsCopy = browseRows
+            Task {
+                do {
+                    try await HomeScreenSyncService.shared.uploadBrowseConfig(rowsCopy)
+                } catch {
+                    print("Cloud sync browse config failed: \(error)")
+                }
             }
+        } else {
+            syncICloudSnapshotInBackground()
         }
     }
     
     /// Sync network hubs config to cloud (background)
     private func syncNetworkHubsToCloud() {
         guard shouldAutoSyncHomeConfig else { return }
-        let hubsCopy = networkHubs
-        Task {
-            do {
-                try await HomeScreenSyncService.shared.uploadNetworkHubsConfig(hubsCopy)
-            } catch {
-                print("Cloud sync network hubs failed: \(error)")
+        if isSupabaseConfigured {
+            let hubsCopy = networkHubs
+            Task {
+                do {
+                    try await HomeScreenSyncService.shared.uploadNetworkHubsConfig(hubsCopy)
+                } catch {
+                    print("Cloud sync network hubs failed: \(error)")
+                }
             }
+        } else {
+            syncICloudSnapshotInBackground()
         }
     }
     
     /// Sync hidden sections to cloud (background)
     private func syncHiddenSectionsToCloud() {
         guard shouldAutoSyncHomeConfig else { return }
-        let sectionsCopy = hiddenSections
-        Task {
-            do {
-                try await HomeScreenSyncService.shared.uploadHiddenSections(sectionsCopy)
-            } catch {
-                print("Cloud sync hidden sections failed: \(error)")
+        if isSupabaseConfigured {
+            let sectionsCopy = hiddenSections
+            Task {
+                do {
+                    try await HomeScreenSyncService.shared.uploadHiddenSections(sectionsCopy)
+                } catch {
+                    print("Cloud sync hidden sections failed: \(error)")
+                }
             }
+        } else {
+            syncICloudSnapshotInBackground()
         }
     }
     
     /// Sync custom JSON hubs to cloud (background)
     private func syncCustomJSONHubsToCloud() {
         guard shouldAutoSyncHomeConfig else { return }
-        let hubsCopy = customJSONHubs
-        Task {
-            do {
-                try await HomeScreenSyncService.shared.uploadCustomJSONHubs(hubsCopy)
-            } catch {
-                print("Cloud sync custom JSON hubs failed: \(error)")
+        if isSupabaseConfigured {
+            let hubsCopy = customJSONHubs
+            Task {
+                do {
+                    try await HomeScreenSyncService.shared.uploadCustomJSONHubs(hubsCopy)
+                } catch {
+                    print("Cloud sync custom JSON hubs failed: \(error)")
+                }
             }
+        } else {
+            syncICloudSnapshotInBackground()
         }
     }
     
     /// Sync extension lists to cloud (background)
     private func syncExtensionListsToCloud() {
         guard shouldAutoSyncHomeConfig else { return }
-        let listsCopy = importedLists
-        Task {
-            do {
-                try await HomeScreenSyncService.shared.uploadExtensionLists(listsCopy)
-            } catch {
-                print("Cloud sync extension lists failed: \(error)")
+        if isSupabaseConfigured {
+            let listsCopy = importedLists
+            Task {
+                do {
+                    try await HomeScreenSyncService.shared.uploadExtensionLists(listsCopy)
+                } catch {
+                    print("Cloud sync extension lists failed: \(error)")
+                }
             }
+        } else {
+            syncICloudSnapshotInBackground()
         }
     }
     
     /// Sync custom home rows to cloud (background)
     private func syncCustomHomeRowsToCloud() {
         guard shouldAutoSyncHomeConfig else { return }
-        let rowsCopy = customHomeRows
-        Task {
-            do {
-                try await HomeScreenSyncService.shared.uploadCustomHomeRows(rowsCopy)
-            } catch {
-                print("Cloud sync custom home rows failed: \(error)")
+        if isSupabaseConfigured {
+            let rowsCopy = customHomeRows
+            Task {
+                do {
+                    try await HomeScreenSyncService.shared.uploadCustomHomeRows(rowsCopy)
+                } catch {
+                    print("Cloud sync custom home rows failed: \(error)")
+                }
             }
+        } else {
+            syncICloudSnapshotInBackground()
         }
     }
     
@@ -673,13 +721,17 @@ class StorageService: ObservableObject {
     /// Sync custom lists to cloud (background)
     private func syncCustomListsToCloud() {
         guard shouldAutoSyncHomeConfig else { return }
-        let listsCopy = customLists
-        Task {
-            do {
-                try await SupabaseService.shared.uploadCustomLists(listsCopy)
-            } catch {
-                print("Cloud sync custom lists failed: \(error)")
+        if isSupabaseConfigured {
+            let listsCopy = customLists
+            Task {
+                do {
+                    try await SupabaseService.shared.uploadCustomLists(listsCopy)
+                } catch {
+                    print("Cloud sync custom lists failed: \(error)")
+                }
             }
+        } else {
+            syncICloudSnapshotInBackground()
         }
     }
     
@@ -821,13 +873,17 @@ class StorageService: ObservableObject {
     /// Sync settings to cloud (background)
     private func syncSettingsToCloud() {
         guard shouldAutoSyncHomeConfig else { return }
-        let settingsCopy = settings
-        Task {
-            do {
-                try await SupabaseService.shared.uploadSettings(settingsCopy)
-            } catch {
-                print("Cloud sync settings failed: \(error)")
+        if isSupabaseConfigured {
+            let settingsCopy = settings
+            Task {
+                do {
+                    try await SupabaseService.shared.uploadSettings(settingsCopy)
+                } catch {
+                    print("Cloud sync settings failed: \(error)")
+                }
             }
+        } else {
+            syncICloudSnapshotInBackground()
         }
     }
     
@@ -899,13 +955,17 @@ class StorageService: ObservableObject {
     /// Sync browse sections to cloud (background)
     private func syncBrowseSectionsToCloud() {
         guard shouldAutoSyncHomeConfig else { return }
-        let sectionsCopy = browseSections
-        Task {
-            do {
-                try await HomeScreenSyncService.shared.uploadBrowseSections(sectionsCopy)
-            } catch {
-                print("Cloud sync browse sections failed: \(error)")
+        if isSupabaseConfigured {
+            let sectionsCopy = browseSections
+            Task {
+                do {
+                    try await HomeScreenSyncService.shared.uploadBrowseSections(sectionsCopy)
+                } catch {
+                    print("Cloud sync browse sections failed: \(error)")
+                }
             }
+        } else {
+            syncICloudSnapshotInBackground()
         }
     }
     
@@ -949,4 +1009,118 @@ class StorageService: ObservableObject {
         setCloudSyncEnabled(false)
         lastSyncError = nil
     }
+
+    // MARK: - CloudKit Fallback Sync
+
+    private func syncICloudSnapshotInBackground() {
+        Task { @MainActor in
+            await uploadToICloud()
+        }
+    }
+
+    private func uploadToICloud() async {
+        guard let userId = AuthService.shared.userId, !userId.isEmpty else {
+            lastSyncError = "Sign in is required before syncing."
+            return
+        }
+        do {
+            let snapshot = makeCloudSnapshot()
+            let data = try JSONEncoder().encode(snapshot)
+            try await CloudKitSyncService.shared.uploadSnapshot(data: data, userId: userId)
+            UserDefaults.standard.set(Date(), forKey: "cloud_last_sync")
+            objectWillChange.send()
+        } catch {
+            lastSyncError = error.localizedDescription
+        }
+    }
+
+    private func downloadFromICloud() async {
+        guard let userId = AuthService.shared.userId, !userId.isEmpty else {
+            lastSyncError = "Sign in is required before syncing."
+            return
+        }
+        do {
+            guard let data = try await CloudKitSyncService.shared.downloadSnapshot(userId: userId) else { return }
+            let snapshot = try JSONDecoder().decode(CloudSyncSnapshot.self, from: data)
+            applyCloudSnapshot(snapshot)
+            UserDefaults.standard.set(Date(), forKey: "cloud_last_sync")
+            objectWillChange.send()
+        } catch {
+            lastSyncError = error.localizedDescription
+        }
+    }
+
+    private func makeCloudSnapshot() -> CloudSyncSnapshot {
+        let profileService = ProfileService.shared
+        return CloudSyncSnapshot(
+            wantToWatch: wantToWatch,
+            watched: watched,
+            liked: liked,
+            customLists: customLists,
+            networkHubs: networkHubs,
+            importedLists: importedLists,
+            customHomeRows: customHomeRows,
+            customJSONHubs: customJSONHubs,
+            settings: settings,
+            searchHistory: searchHistory,
+            browseRows: browseRows,
+            hiddenSections: hiddenSections,
+            browseSections: browseSections,
+            profiles: profileService.profiles,
+            activeProfileId: profileService.activeProfile?.id,
+            syncedAt: Date()
+        )
+    }
+
+    private func applyCloudSnapshot(_ snapshot: CloudSyncSnapshot) {
+        isApplyingCloudSnapshot = true
+        defer { isApplyingCloudSnapshot = false }
+
+        applyDownloadedMediaItems(snapshot.wantToWatch, snapshot.watched, snapshot.liked)
+
+        customLists = snapshot.customLists
+        save(customLists, to: customListsURL)
+        networkHubs = snapshot.networkHubs
+        save(networkHubs, to: networkHubsURL)
+        importedLists = snapshot.importedLists
+        save(importedLists, to: importedListsURL)
+        customHomeRows = snapshot.customHomeRows
+        save(customHomeRows, to: customHomeRowsURL)
+        customJSONHubs = snapshot.customJSONHubs
+        save(customJSONHubs, to: customJSONHubsURL)
+        settings = snapshot.settings
+        save(settings, to: settingsURL)
+        searchHistory = snapshot.searchHistory
+        save(searchHistory, to: searchHistoryURL)
+        browseRows = snapshot.browseRows
+        save(browseRows, to: browseRowsURL)
+        hiddenSections = snapshot.hiddenSections
+        save(hiddenSections, to: hiddenSectionsURL)
+        browseSections = snapshot.browseSections
+        save(browseSections, to: browseSectionsURL)
+
+        ProfileService.shared.applyCloudProfiles(
+            snapshot.profiles,
+            preferredActiveId: snapshot.activeProfileId
+        )
+    }
+}
+
+private struct CloudSyncSnapshot: Codable {
+    let wantToWatch: [SavedMediaItem]
+    let watched: [SavedMediaItem]
+    let liked: [SavedMediaItem]
+    let customLists: [CustomList]
+    let networkHubs: [NetworkHub]
+    let importedLists: [ImportedListItem]
+    let customHomeRows: [CustomHomeRow]
+    let customJSONHubs: [CustomJSONHub]
+    let settings: UserSettings
+    let searchHistory: [SearchHistoryItem]
+    let browseRows: [BrowseRowConfig]
+    let hiddenSections: HiddenDefaultSections
+    let browseSections: [BrowseSectionItem]
+    let profiles: [UserProfile]
+    let activeProfileId: String?
+    let syncedAt: Date
 }

@@ -101,7 +101,7 @@ struct SettingsView: View {
                 
                 Button {
                     Task {
-                        let outcome = await scoutSubscription.purchaseScoutUnlimited()
+                        let outcome = await scoutSubscription.purchaseScoutUnlimitedLifetime()
                         scoutIAPStatusMessage = outcome.message
                     }
                 } label: {
@@ -110,7 +110,7 @@ struct SettingsView: View {
                             ProgressView()
                                 .controlSize(.small)
                         }
-                        Text("Upgrade to Unlimited (\(scoutSubscription.product?.displayPrice ?? "$1.99")/month)")
+                        Text("Upgrade to Unlimited (\(scoutSubscription.subscriptionProduct?.displayPrice ?? "$1.99")/month)")
                     }
                 }
                 .disabled(scoutSubscription.isUnlimitedActive || scoutSubscription.isPurchasing || scoutSubscription.isLoadingProduct)
@@ -124,7 +124,7 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(scoutSubscription.isPurchasing)
-                
+
                 if !scoutSubscription.isUnlimitedActive {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Free plan limits:")
@@ -141,7 +141,7 @@ struct SettingsView: View {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                     Text("Auto-renewable monthly subscription")
-                    Text("Price: \(scoutSubscription.product?.displayPrice ?? "$1.99") per month")
+                    Text("Price: \(scoutSubscription.subscriptionProduct?.displayPrice ?? "$1.99") per month")
                     Text("Payment is charged to your Apple Account at confirmation. Subscription renews automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel in Apple Account Settings.")
                 }
                 .font(.caption)
@@ -455,7 +455,7 @@ struct SettingsView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "cloud.fill")
                                 .foregroundColor(.green)
-                            Text("Auto-syncing via Supabase")
+                            Text("Auto-syncing via \(storage.cloudProviderDisplayName)")
                                 .font(.subheadline)
                             Spacer()
                             Image(systemName: "checkmark.circle.fill")
@@ -463,12 +463,25 @@ struct SettingsView: View {
                                 .font(.caption)
                         }
                     } else {
-                        NavigationLink(destination: SupabaseSetupGuideView()) {
-                            Label("Setup Guide", systemImage: "cloud.fill")
+                        if storage.isCloudConfigured {
+                            HStack(spacing: 8) {
+                                Image(systemName: "icloud.fill")
+                                    .foregroundColor(.green)
+                                Text("Auto-syncing via \(storage.cloudProviderDisplayName)")
+                                    .font(.subheadline)
+                                Spacer()
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                    .font(.caption)
+                            }
+                        } else {
+                            NavigationLink(destination: SupabaseSetupGuideView()) {
+                                Label("Setup Guide", systemImage: "cloud.fill")
+                            }
+                            Text("Cloud sync not configured. Sign in with Apple for iCloud sync or link Supabase.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
-                        Text("Supabase is not configured. Link a Supabase project to enable sync.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
                     }
                     
                     HStack {

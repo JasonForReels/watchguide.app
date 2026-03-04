@@ -17,6 +17,7 @@ class ProfileService: ObservableObject {
     @Published var needsProfileSelection = false
     @Published private(set) var isSyncingFromCloud = false
     @Published private(set) var hasCompletedInitialSync = false
+    @Published private(set) var didLastCloudProfileDownloadFail = false
     
     /// Whether the profile picker has been shown at least once this app session.
     /// Resets every cold launch so the picker always appears on startup.
@@ -148,6 +149,12 @@ class ProfileService: ObservableObject {
     func resetSessionFlag() {
         hasShownPickerThisSession = false
         hasSyncedThisSession = false
+        hasCompletedInitialSync = false
+    }
+    
+    /// Marks the initial sync as complete so the profile setup gate can open
+    func markInitialSyncComplete() {
+        hasCompletedInitialSync = true
     }
 
     
@@ -226,45 +233,62 @@ class ProfileService: ObservableObject {
             // Small delay to let all singletons finish initializing first
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
             
-            // Require Supabase config for cloud sync
-            guard !self.supabaseURL.isEmpty, !self.supabaseAnonKey.isEmpty else { return }
-            
             // Give auth session refresh a moment to complete (up to 2 seconds)
             for _ in 0..<10 {
                 if AuthService.shared.isAuthenticated { break }
                 try? await Task.sleep(nanoseconds: 200_000_000) // 0.2s
             }
             
-            guard AuthService.shared.isAuthenticated else { return }
+            guard AuthService.shared.isAuthenticated else {
+                // Not authenticated — mark initial sync as complete with whatever local data exists
+                self.hasCompletedInitialSync = true
+                return
+            }
+            guard !AuthService.shared.requiresPostSignInSyncDecision else {
+                // A post-sign-in sync decision is pending — PostSignInSyncView will handle this
+                return
+            }
             guard !self.hasSyncedThisSession else { return }
             self.hasSyncedThisSession = true
-            await self.downloadProfilesFromCloud()
+            if !self.supabaseURL.isEmpty, !self.supabaseAnonKey.isEmpty {
+                await self.downloadProfilesFromCloud()
+            } else {
+                await StorageService.shared.downloadFromCloud()
+                self.hasCompletedInitialSync = true
+            }
         }
     }
     
     /// Public method that can be called from views (e.g. ProfilePickerView)
     /// to ensure profiles are up-to-date from the cloud.
     func refreshFromCloudIfNeeded() {
-        guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
         guard AuthService.shared.isAuthenticated else { return }
+        guard !AuthService.shared.requiresPostSignInSyncDecision else { return }
         
         Task { @MainActor in
-            await downloadProfilesFromCloud()
+            if !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty {
+                await downloadProfilesFromCloud()
+            } else {
+                await StorageService.shared.downloadFromCloud()
+            }
         }
     }
     
     func syncProfilesToCloud() {
         guard AuthService.shared.isAuthenticated else { return }
 
-        // Supabase sync
-        guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
-        guard let userId = AuthService.shared.userId else { return }
-        
-        Task {
-            do {
-                try await uploadProfiles(userId: userId)
-            } catch {
-                print("Profile sync failed: \(error)")
+        if !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty {
+            guard let userId = AuthService.shared.userId else { return }
+            Task {
+                do {
+                    try await uploadProfiles(userId: userId)
+                } catch {
+                    print("Profile sync failed: \(error)")
+                }
+            }
+        } else {
+            Task { @MainActor in
+                await StorageService.shared.uploadToCloud()
             }
         }
     }
@@ -273,6 +297,7 @@ class ProfileService: ObservableObject {
         guard AuthService.shared.isAuthenticated else { return }
         if isSyncingFromCloud { return }
         isSyncingFromCloud = true
+        didLastCloudProfileDownloadFail = false
         var syncSucceeded = false
         defer {
             isSyncingFromCloud = false
@@ -283,8 +308,12 @@ class ProfileService: ObservableObject {
             }
         }
         
-        // Supabase download
-        guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else { return }
+        // iCloud fallback download when Supabase is not configured
+        guard !supabaseURL.isEmpty, !supabaseAnonKey.isEmpty else {
+            await StorageService.shared.downloadFromCloud()
+            syncSucceeded = true
+            return
+        }
         guard let userId = AuthService.shared.userId else { return }
 
         do {
@@ -292,6 +321,7 @@ class ProfileService: ObservableObject {
             applyCloudProfiles(cloudProfiles)
             syncSucceeded = true
         } catch {
+            didLastCloudProfileDownloadFail = true
             print("Profile download failed: \(error)")
         }
     }
@@ -325,18 +355,6 @@ class ProfileService: ObservableObject {
     }
     
     private func uploadProfiles(userId: String) async throws {
-        // Delete existing profiles for this user
-        let deleteURL = URL(string: "\(supabaseURL)/rest/v1/profiles?user_id=eq.\(userId)")!
-        var deleteRequest = URLRequest(url: deleteURL)
-        deleteRequest.httpMethod = "DELETE"
-        deleteRequest.addValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
-        if let token = AuthService.shared.accessToken {
-            deleteRequest.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        deleteRequest.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        _ = try? await URLSession.shared.data(for: deleteRequest)
-        
-        // Upload all profiles
         guard !profiles.isEmpty else { return }
         
         let dateFormatter = ISO8601DateFormatter()
@@ -350,8 +368,6 @@ class ProfileService: ObservableObject {
                 ageGroup: profile.ageGroup.rawValue,
                 isKids: profile.isKids,
                 dateOfBirth: profile.dateOfBirth.map { dateFormatter.string(from: $0) },
-                heroCarouselWidthRatio: profile.heroCarouselWidthRatio,
-                heroCarouselAspect: profile.heroCarouselAspect?.rawValue,
                 createdAt: profile.createdAt,
                 updatedAt: profile.updatedAt
             )
@@ -361,7 +377,14 @@ class ProfileService: ObservableObject {
         encoder.dateEncodingStrategy = .iso8601
         let body = try encoder.encode(syncedProfiles)
         
-        let uploadURL = URL(string: "\(supabaseURL)/rest/v1/profiles")!
+        guard var components = URLComponents(string: "\(supabaseURL)/rest/v1/profiles") else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "on_conflict", value: "user_id,profile_id")]
+        guard let uploadURL = components.url else {
+            throw URLError(.badURL)
+        }
+
         var uploadRequest = URLRequest(url: uploadURL)
         uploadRequest.httpMethod = "POST"
         uploadRequest.addValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
@@ -369,12 +392,17 @@ class ProfileService: ObservableObject {
             uploadRequest.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         uploadRequest.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        uploadRequest.addValue("return=representation", forHTTPHeaderField: "Prefer")
+        uploadRequest.addValue("resolution=merge-duplicates,return=representation", forHTTPHeaderField: "Prefer")
         uploadRequest.httpBody = body
         
-        let (_, response) = try await URLSession.shared.data(for: uploadRequest)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
+        let (data, response) = try await URLSession.shared.data(for: uploadRequest)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            if let message = String(data: data, encoding: .utf8), !message.isEmpty {
+                print("Profile upload failed response: \(message)")
+            }
             throw URLError(.badServerResponse)
         }
     }
@@ -399,6 +427,9 @@ class ProfileService: ObservableObject {
             throw URLError(.badServerResponse)
         }
         guard (200...299).contains(httpResponse.statusCode) else {
+            if let body = String(data: data, encoding: .utf8) {
+                print("Profile fetch failed (\(httpResponse.statusCode)): \(body)")
+            }
             throw ProfileSyncError.httpStatus(httpResponse.statusCode)
         }
         
@@ -408,6 +439,10 @@ class ProfileService: ObservableObject {
         
         let dateFormatter = ISO8601DateFormatter()
         
+        // Build a lookup of existing local profiles so we can preserve local-only
+        // fields (heroCarouselWidthRatio, heroCarouselAspect) that aren't in the DB.
+        let localLookup = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+        
         return syncedProfiles.compactMap { synced -> UserProfile? in
             guard let avatar = ProfileAvatar(rawValue: synced.avatar),
                   let color = ProfileColor(rawValue: synced.color),
@@ -415,27 +450,19 @@ class ProfileService: ObservableObject {
                 return nil
             }
             
-            let profile = UserProfile(
+            // Preserve local-only hero carousel settings if this profile exists locally
+            let existingLocal = localLookup[synced.profileId]
+            
+            return UserProfile(
+                id: synced.profileId,
                 name: synced.name,
                 avatar: avatar,
                 color: color,
                 ageGroup: ageGroup,
                 isKids: synced.isKids,
                 dateOfBirth: synced.dateOfBirth.flatMap { dateFormatter.date(from: $0) },
-                heroCarouselWidthRatio: synced.heroCarouselWidthRatio,
-                heroCarouselAspect: synced.heroCarouselAspect.flatMap { HeroCarouselAspect(rawValue: $0) }
-            )
-            // Preserve the original ID for cross-device sync
-            return UserProfile(
-                id: synced.profileId,
-                name: profile.name,
-                avatar: profile.avatar,
-                color: profile.color,
-                ageGroup: profile.ageGroup,
-                isKids: profile.isKids,
-                dateOfBirth: profile.dateOfBirth,
-                heroCarouselWidthRatio: profile.heroCarouselWidthRatio,
-                heroCarouselAspect: profile.heroCarouselAspect,
+                heroCarouselWidthRatio: existingLocal?.heroCarouselWidthRatio,
+                heroCarouselAspect: existingLocal?.heroCarouselAspect,
                 createdAt: synced.createdAt ?? Date(),
                 updatedAt: synced.updatedAt ?? Date()
             )

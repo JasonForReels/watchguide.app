@@ -48,17 +48,38 @@ struct ContentView: View {
         }
     }
     
+    @State private var showPostSignInSync = false
+    
     var body: some View {
         if requiresOnboarding {
             OnboardingFlowView()
-        } else if authService.isAuthenticated && profileService.hasCompletedInitialSync && !profileService.hasProfiles && !profileService.hasActiveProfile {
-            // Authenticated user with no profiles — show first-time setup
+        } else if requiresFirstProfileSetup {
             FirstProfileSetupView {
-                // Setup complete — profiles are created and active profile is set
+                profileService.markInitialSyncComplete()
             }
-        } else if authService.isAuthenticated && profileService.hasProfiles && profileService.needsProfileSelection {
-            // Netflix-style: show "Who's Watching?" on every app launch
+        } else if requiresProfilePicker {
             ProfilePickerView()
+        } else if authService.isAuthenticated && authService.requiresPostSignInSyncDecision {
+            // Just signed in/up — show sync decision popup over a loading state
+            Color(.systemBackground)
+                .ignoresSafeArea()
+                .overlay {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                        Text("Preparing your account...")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .onAppear {
+                    // Small delay to let the UI settle, then show the popup
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        showPostSignInSync = true
+                    }
+                }
+                .sheet(isPresented: $showPostSignInSync) {
+                    PostSignInSyncView()
+                }
         } else {
             Group {
                 iPhoneLayout
@@ -73,10 +94,6 @@ struct ContentView: View {
                 // If user logs out while on Lists tab, redirect to Browse
                 if !isAuth && selectedTab == .lists {
                     selectedTab = .browse
-                }
-                // When user logs in with existing profiles, show profile picker
-                if isAuth && profileService.hasProfiles && profileService.profiles.count > 1 && !profileService.hasActiveProfile {
-                    profileService.requestProfileSelection()
                 }
                 // Make sure the current tab is marked as visited after auth change
                 // since .id() forces a TabView rebuild
@@ -102,6 +119,20 @@ struct ContentView: View {
     private var requiresOnboarding: Bool {
         if !onboardingComplete { return true }
         return false
+    }
+
+    private var requiresFirstProfileSetup: Bool {
+        authService.isAuthenticated
+            && !authService.requiresPostSignInSyncDecision
+            && profileService.hasCompletedInitialSync
+            && !profileService.hasProfiles
+    }
+
+    private var requiresProfilePicker: Bool {
+        authService.isAuthenticated
+            && !authService.requiresPostSignInSyncDecision
+            && profileService.hasProfiles
+            && !profileService.hasActiveProfile
     }
     
     // Stable list of visible tabs based on auth state and age profile

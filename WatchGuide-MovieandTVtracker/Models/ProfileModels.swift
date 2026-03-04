@@ -180,8 +180,8 @@ struct SyncedProfile: Codable {
     let ageGroup: String
     let isKids: Bool
     let dateOfBirth: String?
-    let heroCarouselWidthRatio: Double?
-    let heroCarouselAspect: String?
+    // NOTE: hero_carousel_width_ratio and hero_carousel_aspect are stored
+    // locally only — they are NOT columns in the Supabase profiles table.
     let createdAt: Date?
     let updatedAt: Date?
     
@@ -194,8 +194,6 @@ struct SyncedProfile: Codable {
         case ageGroup = "age_group"
         case isKids = "is_kids"
         case dateOfBirth = "date_of_birth"
-        case heroCarouselWidthRatio = "hero_carousel_width_ratio"
-        case heroCarouselAspect = "hero_carousel_aspect"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -211,8 +209,6 @@ struct SyncedProfile: Codable {
         try container.encode(ageGroup, forKey: .ageGroup)
         try container.encode(isKids, forKey: .isKids)
         try container.encode(dateOfBirth, forKey: .dateOfBirth)
-        try container.encode(heroCarouselWidthRatio, forKey: .heroCarouselWidthRatio)
-        try container.encode(heroCarouselAspect, forKey: .heroCarouselAspect)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
     }

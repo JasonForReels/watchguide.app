@@ -5,16 +5,23 @@ import StoreKit
 final class ScoutSubscriptionService: ObservableObject {
     static let shared = ScoutSubscriptionService()
 
-    static let scoutUnlimitedProductIDs = [
+    static let scoutUnlimitedSubscriptionProductIDs = [
         "scout_unlimited_monthly",
         "com.JasonSmith.WatchGuideMovieandTVtracker.scout_unlimited_monthly",
         "com.JasonSmith.WatchGuide-MovieandTVtracker.scout.unlimited.monthly"
     ]
+    static let scoutUnlimitedLifetimeProductIDs = [
+        "scout_unlimited_lifetime",
+        "com.JasonSmith.WatchGuideMovieandTVtracker.scout_unlimited_lifetime",
+        "com.JasonSmith.WatchGuide-MovieandTVtracker.scout.unlimited.lifetime"
+    ]
+    static let scoutUnlimitedEntitlementProductIDs = scoutUnlimitedSubscriptionProductIDs + scoutUnlimitedLifetimeProductIDs
     static let entitlementActiveKey = "scout_unlimited_entitlement_active"
     static let statusDidChangeNotification = Notification.Name("ScoutSubscriptionStatusDidChange")
 
     @Published private(set) var isUnlimitedActive: Bool
-    @Published private(set) var product: Product?
+    @Published private(set) var subscriptionProduct: Product?
+    @Published private(set) var lifetimeProduct: Product?
     @Published private(set) var isPurchasing = false
     @Published private(set) var isLoadingProduct = false
 
@@ -64,29 +71,41 @@ final class ScoutSubscriptionService: ObservableObject {
     }
 
     func prepare() async {
-        await loadProduct()
+        await loadProducts()
         await refreshEntitlements()
     }
 
-    func loadProduct() async {
-        if product != nil { return }
+    func loadProducts() async {
+        if subscriptionProduct != nil || lifetimeProduct != nil { return }
         isLoadingProduct = true
         defer { isLoadingProduct = false }
 
         do {
-            let products = try await Product.products(for: Self.scoutUnlimitedProductIDs)
-            product = products.first
+            let products = try await Product.products(for: Self.scoutUnlimitedEntitlementProductIDs)
+            subscriptionProduct = products.first { Self.scoutUnlimitedSubscriptionProductIDs.contains($0.id) }
+            lifetimeProduct = products.first { Self.scoutUnlimitedLifetimeProductIDs.contains($0.id) }
         } catch {
             print("Scout IAP load error: \(error)")
         }
     }
 
     func purchaseScoutUnlimited() async -> PurchaseOutcome {
-        if product == nil {
-            await loadProduct()
+        if subscriptionProduct == nil {
+            await loadProducts()
         }
-        guard let product else { return .productNotFound }
+        guard let subscriptionProduct else { return .productNotFound }
+        return await purchase(product: subscriptionProduct)
+    }
 
+    func purchaseScoutUnlimitedLifetime() async -> PurchaseOutcome {
+        if lifetimeProduct == nil {
+            await loadProducts()
+        }
+        guard let lifetimeProduct else { return .productNotFound }
+        return await purchase(product: lifetimeProduct)
+    }
+
+    private func purchase(product: Product) async -> PurchaseOutcome {
         isPurchasing = true
         defer { isPurchasing = false }
 
@@ -129,7 +148,7 @@ final class ScoutSubscriptionService: ObservableObject {
 
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
-            guard Self.scoutUnlimitedProductIDs.contains(transaction.productID) else { continue }
+            guard Self.scoutUnlimitedEntitlementProductIDs.contains(transaction.productID) else { continue }
             if transaction.revocationDate != nil { continue }
             if let expirationDate = transaction.expirationDate, expirationDate <= Date() { continue }
             hasActiveEntitlement = true
