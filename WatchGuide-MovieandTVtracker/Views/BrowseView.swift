@@ -398,10 +398,19 @@ struct BrowseView: View {
     private var browseToolbarContent: some ToolbarContent {
         #if os(iOS)
         ToolbarItem(placement: .primaryAction) {
-            Button {
-                showCustomizeSheet = true
-            } label: {
-                Image(systemName: "slider.horizontal.3")
+            HStack(spacing: 12) {
+                Button {
+                    showCustomizeSheet = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                }
+                
+                NavigationLink {
+                    SettingsView()
+                        .navigationTitle("Settings")
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                }
             }
         }
         #endif

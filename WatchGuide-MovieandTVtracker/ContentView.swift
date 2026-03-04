@@ -29,7 +29,7 @@ struct ContentView: View {
         case search = 1
         case ai = 2
         case lists = 3
-        case settings = 4
+        case me = 4
         
         var id: Int { rawValue }
         
@@ -39,7 +39,7 @@ struct ContentView: View {
             case .search: return "Search"
             case .ai: return "Scout"
             case .lists: return "Lists"
-            case .settings: return "Me"
+            case .me: return "Me"
             }
         }
         
@@ -49,7 +49,7 @@ struct ContentView: View {
             case .search: return "magnifyingglass"
             case .ai: return "sparkles"
             case .lists: return "list.bullet.below.rectangle"
-            case .settings: return "person.crop.circle.fill"
+            case .me: return "person.crop.circle.fill"
             }
         }
     }
@@ -160,14 +160,34 @@ struct ContentView: View {
         return tabs
     }
     
+    // Previous tab before "Me" was tapped, so we can bounce back
+    @State private var previousTab: Tab = .browse
+    
     // MARK: - iPhone Layout (TabView)
     private var iPhoneLayout: some View {
         ZStack(alignment: .top) {
-            TabView(selection: $selectedTab) {
+            TabView(selection: Binding(
+                get: { selectedTab },
+                set: { newTab in
+                    if newTab == .me {
+                        // Tapping "Me" opens profile switcher instead of navigating
+                        if profileService.hasProfiles, profileService.profiles.count > 1 {
+                            let generator = UIImpactFeedbackGenerator(style: .medium)
+                            generator.impactOccurred()
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                showProfileSwitcherBar = true
+                            }
+                        }
+                        // Don't actually switch to the Me tab — stay on current tab
+                        return
+                    }
+                    selectedTab = newTab
+                }
+            )) {
                 ForEach(visibleTabs) { tab in
                     tabContent(for: tab)
                         .tabItem {
-                            if tab == .settings, let icon = profileTabIcon {
+                            if tab == .me, let icon = profileTabIcon {
                                 Label {
                                     Text(tab.label)
                                 } icon: {
@@ -287,13 +307,10 @@ struct ContentView: View {
             LazyTabContent(tab: .lists, visitedTabs: $visitedTabs) {
                 ListsView()
             }
-        case .settings:
-            LazyTabContent(tab: .settings, visitedTabs: $visitedTabs) {
-                NavigationStack {
-                    SettingsView()
-                        .navigationTitle("Settings")
-                }
-            }
+        case .me:
+            // "Me" tab is intercepted on tap to show profile switcher.
+            // This view is a placeholder that is never actually shown.
+            Color.clear
         }
     }
 }
