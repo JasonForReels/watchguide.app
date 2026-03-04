@@ -108,6 +108,7 @@ struct UserProfile: Identifiable, Codable, Equatable {
     var ageGroup: AgeGroup
     var isKids: Bool        // Locked kids profile (like Netflix Kids)
     var dateOfBirth: Date?  // Used to verify age
+    var avatarImageURL: String?  // Remote avatar image URL from avatars.json
     var heroCarouselWidthRatio: Double?
     var heroCarouselAspect: HeroCarouselAspect?
     let createdAt: Date
@@ -120,6 +121,7 @@ struct UserProfile: Identifiable, Codable, Equatable {
         ageGroup: AgeGroup = .adult,
         isKids: Bool = false,
         dateOfBirth: Date? = nil,
+        avatarImageURL: String? = nil,
         heroCarouselWidthRatio: Double? = nil,
         heroCarouselAspect: HeroCarouselAspect? = nil
     ) {
@@ -130,6 +132,7 @@ struct UserProfile: Identifiable, Codable, Equatable {
         self.ageGroup = ageGroup
         self.isKids = isKids
         self.dateOfBirth = dateOfBirth
+        self.avatarImageURL = avatarImageURL
         self.heroCarouselWidthRatio = heroCarouselWidthRatio
         self.heroCarouselAspect = heroCarouselAspect
         self.createdAt = Date()
@@ -142,6 +145,12 @@ struct UserProfile: Identifiable, Codable, Equatable {
         let calendar = Calendar.current
         let components = calendar.dateComponents([.year], from: dob, to: Date())
         return components.year
+    }
+    
+    /// Whether the profile has a custom avatar image set
+    var hasCustomAvatar: Bool {
+        if let url = avatarImageURL, !url.isEmpty { return true }
+        return false
     }
     
     /// Creates the default "Kids" profile (locked, age 6-12)
@@ -164,6 +173,7 @@ struct UserProfile: Identifiable, Codable, Equatable {
         lhs.ageGroup == rhs.ageGroup &&
         lhs.isKids == rhs.isKids &&
         lhs.dateOfBirth == rhs.dateOfBirth &&
+        lhs.avatarImageURL == rhs.avatarImageURL &&
         lhs.heroCarouselWidthRatio == rhs.heroCarouselWidthRatio &&
         lhs.heroCarouselAspect == rhs.heroCarouselAspect
     }
@@ -180,6 +190,7 @@ struct SyncedProfile: Codable {
     let ageGroup: String
     let isKids: Bool
     let dateOfBirth: String?
+    let avatarImageUrl: String?
     // NOTE: hero_carousel_width_ratio and hero_carousel_aspect are stored
     // locally only — they are NOT columns in the Supabase profiles table.
     let createdAt: Date?
@@ -194,6 +205,7 @@ struct SyncedProfile: Codable {
         case ageGroup = "age_group"
         case isKids = "is_kids"
         case dateOfBirth = "date_of_birth"
+        case avatarImageUrl = "avatar_image_url"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -209,6 +221,7 @@ struct SyncedProfile: Codable {
         try container.encode(ageGroup, forKey: .ageGroup)
         try container.encode(isKids, forKey: .isKids)
         try container.encode(dateOfBirth, forKey: .dateOfBirth)
+        try container.encode(avatarImageUrl, forKey: .avatarImageUrl)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
     }

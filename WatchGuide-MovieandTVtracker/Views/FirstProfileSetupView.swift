@@ -18,6 +18,8 @@ struct FirstProfileSetupView: View {
     @State private var ageGroup: AgeGroup = .adult
     @State private var addKidsProfile = false
     @State private var animateIn = false
+    @State private var avatarImageURL: String?
+    @State private var showAvatarPicker = false
     
     let onComplete: () -> Void
     
@@ -157,18 +159,75 @@ struct FirstProfileSetupView: View {
     private var nameAvatarStep: some View {
         VStack(spacing: 24) {
             // Preview
-            ZStack {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(selectedColor.color.opacity(0.15))
+            ZStack(alignment: .bottomTrailing) {
+                if let urlStr = avatarImageURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        case .failure:
+                            firstProfileDefaultAvatar
+                        case .empty:
+                            ZStack {
+                                selectedColor.color.opacity(0.15)
+                                ProgressView()
+                            }
+                        @unknown default:
+                            firstProfileDefaultAvatar
+                        }
+                    }
                     .frame(width: 110, height: 110)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 24, style: .continuous)
                             .stroke(selectedColor.color.opacity(0.3), lineWidth: 2)
                     )
+                } else {
+                    firstProfileDefaultAvatar
+                }
                 
-                Image(systemName: selectedAvatar.rawValue)
-                    .font(.system(size: 44))
-                    .foregroundColor(selectedColor.color)
+                Button {
+                    showAvatarPicker = true
+                } label: {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(selectedColor.color))
+                        .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+                }
+                .offset(x: 4, y: 4)
+            }
+            .onTapGesture {
+                showAvatarPicker = true
+            }
+            
+            // Pick Avatar Button
+            Button {
+                showAvatarPicker = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.crop.square.fill")
+                    Text(avatarImageURL != nil ? "Change Avatar" : "Pick an Avatar")
+                }
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundColor(selectedColor.color)
+            }
+            
+            if avatarImageURL != nil {
+                Button {
+                    avatarImageURL = nil
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle")
+                        Text("Remove Custom Avatar")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
             }
             
             Text("What should we call you?")
@@ -183,9 +242,9 @@ struct FirstProfileSetupView: View {
                 .font(.headline)
                 .multilineTextAlignment(.center)
             
-            // Avatar
+            // Fallback Icon
             VStack(alignment: .leading, spacing: 10) {
-                Text("Choose an avatar")
+                Text(avatarImageURL != nil ? "Fallback icon" : "Choose an icon")
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .foregroundColor(.secondary)
@@ -240,6 +299,31 @@ struct FirstProfileSetupView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showAvatarPicker) {
+            AvatarPickerView(
+                profileColor: selectedColor,
+                currentAvatarURL: avatarImageURL
+            ) { selectedURL in
+                avatarImageURL = selectedURL
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var firstProfileDefaultAvatar: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(selectedColor.color.opacity(0.15))
+                .frame(width: 110, height: 110)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(selectedColor.color.opacity(0.3), lineWidth: 2)
+                )
+            
+            Image(systemName: selectedAvatar.rawValue)
+                .font(.system(size: 44))
+                .foregroundColor(selectedColor.color)
         }
     }
     
@@ -480,7 +564,8 @@ struct FirstProfileSetupView: View {
             color: selectedColor,
             ageGroup: ageGroup,
             isKids: false,
-            dateOfBirth: dateOfBirth
+            dateOfBirth: dateOfBirth,
+            avatarImageURL: avatarImageURL
         )
         profileService.addProfile(mainProfile)
         

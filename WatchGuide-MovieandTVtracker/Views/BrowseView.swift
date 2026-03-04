@@ -14,7 +14,6 @@ struct BrowseView: View {
     @State private var activeStudioSheet: StudioSheet?
     @State private var showCustomizeSheet = false
     @State private var selectedPerson: Person?
-    @State private var showProfileSwitcher = false
     @State private var selectedJSONHub: CustomJSONHub?
     @State private var dailyPickCache: DailyPickCache?
     @State private var isDailyPickHidden = false
@@ -194,9 +193,7 @@ struct BrowseView: View {
                 HomeCustomizationView()
             }
             #endif
-            .sheet(isPresented: $showProfileSwitcher) {
-                ProfileSwitcherSheet()
-            }
+            
             .onChange(of: StorageService.shared.settings.heroCarouselSource) { _, _ in
                 Task { await viewModel.refresh() }
             }
@@ -399,21 +396,6 @@ struct BrowseView: View {
     
     @ToolbarContentBuilder
     private var browseToolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            if authService.isAuthenticated && profileService.hasProfiles {
-                Button {
-                    showProfileSwitcher = true
-                } label: {
-                    if let profile = profileService.activeProfile {
-                        Image(systemName: profile.avatar.rawValue)
-                            .foregroundColor(profile.color.color)
-                    } else {
-                        Image(systemName: "person.crop.circle")
-                    }
-                }
-            }
-        }
-        
         #if os(iOS)
         ToolbarItem(placement: .primaryAction) {
             Button {

@@ -169,15 +169,7 @@ struct SettingsView: View {
                 Section {
                     if let profile = profileService.activeProfile {
                         HStack(spacing: 14) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(profile.color.color.opacity(0.15))
-                                    .frame(width: 44, height: 44)
-                                
-                                Image(systemName: profile.avatar.rawValue)
-                                    .font(.title3)
-                                    .foregroundColor(profile.color.color)
-                            }
+                            ProfileAvatarImageView(profile: profile, size: 44)
                             
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
@@ -1820,6 +1812,7 @@ struct SupabaseSetupGuideView: View {
             age_group TEXT NOT NULL DEFAULT 'adult',
             is_kids BOOLEAN DEFAULT FALSE,
             date_of_birth TEXT,
+            avatar_image_url TEXT,
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW(),
             UNIQUE(user_id, profile_id)

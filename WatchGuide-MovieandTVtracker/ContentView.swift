@@ -18,6 +18,9 @@ struct ContentView: View {
     // Track which tabs have been visited so we only create their views once
     @State private var visitedTabs: Set<Tab> = [.browse]
     
+    // Cached profile avatar UIImage for tab bar icon
+    @State private var profileTabIcon: UIImage?
+    
     enum Tab: Int, CaseIterable, Identifiable {
         case browse = 0
         case search = 1
@@ -33,7 +36,7 @@ struct ContentView: View {
             case .search: return "Search"
             case .ai: return "Scout"
             case .lists: return "Lists"
-            case .settings: return "Settings"
+            case .settings: return "Me"
             }
         }
         
@@ -43,7 +46,7 @@ struct ContentView: View {
             case .search: return "magnifyingglass"
             case .ai: return "sparkles"
             case .lists: return "list.bullet.below.rectangle"
-            case .settings: return "gearshape.fill"
+            case .settings: return "person.crop.circle.fill"
             }
         }
     }
@@ -160,7 +163,16 @@ struct ContentView: View {
             ForEach(visibleTabs) { tab in
                 tabContent(for: tab)
                     .tabItem {
-                        Label(tab.label, systemImage: tab.iconName)
+                        if tab == .settings, let icon = profileTabIcon {
+                            Label {
+                                Text(tab.label)
+                            } icon: {
+                                Image(uiImage: icon)
+                                    .renderingMode(.original)
+                            }
+                        } else {
+                            Label(tab.label, systemImage: tab.iconName)
+                        }
                     }
                     .tag(tab)
             }
@@ -169,7 +181,49 @@ struct ContentView: View {
         .onChange(of: selectedTab) { _, newTab in
             visitedTabs.insert(newTab)
         }
+        .onChange(of: profileService.activeProfile?.avatarImageURL) { _, _ in
+            loadProfileTabIcon()
+        }
+        .onChange(of: profileService.activeProfile?.id) { _, _ in
+            loadProfileTabIcon()
+        }
+        .task {
+            loadProfileTabIcon()
+        }
         .id("\(authService.isAuthenticated)-\(profileService.activeProfile?.id ?? "none")")
+    }
+    
+    /// Downloads the active profile's avatar image and creates a circular tab bar icon
+    private func loadProfileTabIcon() {
+        guard let profile = profileService.activeProfile,
+              let urlStr = profile.avatarImageURL,
+              !urlStr.isEmpty,
+              let url = URL(string: urlStr) else {
+            profileTabIcon = nil
+            return
+        }
+        
+        Task.detached {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                guard let original = UIImage(data: data) else { return }
+                
+                let size: CGFloat = 26
+                let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+                let circular = renderer.image { _ in
+                    let rect = CGRect(origin: .zero, size: CGSize(width: size, height: size))
+                    UIBezierPath(ovalIn: rect).addClip()
+                    original.draw(in: rect)
+                }
+                
+                let finalIcon = circular.withRenderingMode(.alwaysOriginal)
+                await MainActor.run {
+                    profileTabIcon = finalIcon
+                }
+            } catch {
+                print("Failed to load profile tab icon: \(error)")
+            }
+        }
     }
     
     @ViewBuilder

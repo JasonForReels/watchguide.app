@@ -368,6 +368,7 @@ class ProfileService: ObservableObject {
                 ageGroup: profile.ageGroup.rawValue,
                 isKids: profile.isKids,
                 dateOfBirth: profile.dateOfBirth.map { dateFormatter.string(from: $0) },
+                avatarImageUrl: profile.avatarImageURL,
                 createdAt: profile.createdAt,
                 updatedAt: profile.updatedAt
             )
@@ -461,6 +462,7 @@ class ProfileService: ObservableObject {
                 ageGroup: ageGroup,
                 isKids: synced.isKids,
                 dateOfBirth: synced.dateOfBirth.flatMap { dateFormatter.date(from: $0) },
+                avatarImageURL: synced.avatarImageUrl ?? existingLocal?.avatarImageURL,
                 heroCarouselWidthRatio: existingLocal?.heroCarouselWidthRatio,
                 heroCarouselAspect: existingLocal?.heroCarouselAspect,
                 createdAt: synced.createdAt ?? Date(),
@@ -503,6 +505,7 @@ extension UserProfile {
         ageGroup: AgeGroup,
         isKids: Bool,
         dateOfBirth: Date?,
+        avatarImageURL: String? = nil,
         heroCarouselWidthRatio: Double? = nil,
         heroCarouselAspect: HeroCarouselAspect? = nil,
         createdAt: Date,
@@ -515,6 +518,7 @@ extension UserProfile {
         self.ageGroup = ageGroup
         self.isKids = isKids
         self.dateOfBirth = dateOfBirth
+        self.avatarImageURL = avatarImageURL
         self.heroCarouselWidthRatio = heroCarouselWidthRatio
         self.heroCarouselAspect = heroCarouselAspect
         self.createdAt = createdAt

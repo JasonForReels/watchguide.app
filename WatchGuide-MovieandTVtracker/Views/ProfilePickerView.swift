@@ -123,17 +123,7 @@ struct ProfileAvatarCard: View {
         Button(action: onTap) {
             VStack(spacing: 10) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(profile.color.color.opacity(0.15))
-                        .frame(width: 100, height: 100)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(profile.color.color.opacity(0.3), lineWidth: 2)
-                        )
-                    
-                    Image(systemName: profile.avatar.rawValue)
-                        .font(.system(size: 36))
-                        .foregroundColor(profile.color.color)
+                    ProfileAvatarImageView(profile: profile, size: 100)
                     
                     // Kids badge
                     if profile.isKids {
@@ -234,19 +224,7 @@ struct ProfileSwitcherSheet: View {
                     // Current profile header
                     if let active = profileService.activeProfile {
                         VStack(spacing: 8) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(active.color.color.opacity(0.15))
-                                    .frame(width: 72, height: 72)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                            .stroke(active.color.color.opacity(0.3), lineWidth: 2)
-                                    )
-                                
-                                Image(systemName: active.avatar.rawValue)
-                                    .font(.system(size: 30))
-                                    .foregroundColor(active.color.color)
-                            }
+                            ProfileAvatarImageView(profile: active, size: 72)
                             
                             HStack(spacing: 6) {
                                 Text(active.name)
@@ -285,15 +263,7 @@ struct ProfileSwitcherSheet: View {
                                 dismiss()
                             } label: {
                                 HStack(spacing: 14) {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .fill(profile.color.color.opacity(0.15))
-                                            .frame(width: 44, height: 44)
-                                        
-                                        Image(systemName: profile.avatar.rawValue)
-                                            .font(.title3)
-                                            .foregroundColor(profile.color.color)
-                                    }
+                                    ProfileAvatarImageView(profile: profile, size: 44)
                                     
                                     VStack(alignment: .leading, spacing: 2) {
                                         HStack(spacing: 6) {
@@ -459,6 +429,8 @@ struct ProfileSetupView: View {
     @State private var dateOfBirth = Calendar.current.date(byAdding: .year, value: -20, to: Date()) ?? Date()
     @State private var ageGroup: AgeGroup = .adult
     @State private var showDeleteConfirmation = false
+    @State private var avatarImageURL: String?
+    @State private var showAvatarPicker = false
     
     enum SetupStep {
         case info      // Name, avatar, color, isKids toggle
@@ -521,6 +493,15 @@ struct ProfileSetupView: View {
                     isKidsProfile = profile.isKids
                     dateOfBirth = profile.dateOfBirth ?? Calendar.current.date(byAdding: .year, value: -20, to: Date()) ?? Date()
                     ageGroup = profile.ageGroup
+                    avatarImageURL = profile.avatarImageURL
+                }
+            }
+            .sheet(isPresented: $showAvatarPicker) {
+                AvatarPickerView(
+                    profileColor: selectedColor,
+                    currentAvatarURL: avatarImageURL
+                ) { selectedURL in
+                    avatarImageURL = selectedURL
                 }
             }
         }
@@ -530,18 +511,77 @@ struct ProfileSetupView: View {
     private var infoStep: some View {
         VStack(spacing: 28) {
             // Avatar Preview
-            ZStack {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(selectedColor.color.opacity(0.15))
+            ZStack(alignment: .bottomTrailing) {
+                if let urlStr = avatarImageURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        case .failure:
+                            defaultAvatarPreview
+                        case .empty:
+                            ZStack {
+                                selectedColor.color.opacity(0.15)
+                                ProgressView()
+                            }
+                        @unknown default:
+                            defaultAvatarPreview
+                        }
+                    }
                     .frame(width: 120, height: 120)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 24, style: .continuous)
                             .stroke(selectedColor.color.opacity(0.3), lineWidth: 2)
                     )
+                } else {
+                    defaultAvatarPreview
+                }
                 
-                Image(systemName: selectedAvatar.rawValue)
-                    .font(.system(size: 48))
-                    .foregroundColor(selectedColor.color)
+                // Camera badge to indicate tappability
+                Button {
+                    showAvatarPicker = true
+                } label: {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 30, height: 30)
+                        .background(Circle().fill(selectedColor.color))
+                        .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+                }
+                .offset(x: 4, y: 4)
+            }
+            .onTapGesture {
+                showAvatarPicker = true
+            }
+            
+            // Pick Avatar Button
+            Button {
+                showAvatarPicker = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.crop.square.fill")
+                    Text(avatarImageURL != nil ? "Change Avatar" : "Pick an Avatar")
+                }
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundColor(selectedColor.color)
+            }
+            
+            // Remove custom avatar (if set)
+            if avatarImageURL != nil {
+                Button {
+                    avatarImageURL = nil
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle")
+                        Text("Remove Custom Avatar")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
             }
             
             // Name
@@ -556,11 +596,17 @@ struct ProfileSetupView: View {
                     .cornerRadius(12)
             }
             
-            // Avatar Selection
+            // Fallback Icon Selection (shown when no custom avatar is set)
             VStack(alignment: .leading, spacing: 10) {
-                Text("Avatar")
+                Text("Fallback Icon")
                     .font(.subheadline)
                     .fontWeight(.medium)
+                
+                if avatarImageURL != nil {
+                    Text("A custom avatar is set. The icon below is used as a fallback.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
                 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 6), spacing: 12) {
                     ForEach(ProfileAvatar.allCases) { avatar in
@@ -765,6 +811,25 @@ struct ProfileSetupView: View {
         }
     }
     
+    // MARK: - Default Avatar Preview (SF Symbol fallback)
+    
+    @ViewBuilder
+    private var defaultAvatarPreview: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(selectedColor.color.opacity(0.15))
+                .frame(width: 120, height: 120)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(selectedColor.color.opacity(0.3), lineWidth: 2)
+                )
+            
+            Image(systemName: selectedAvatar.rawValue)
+                .font(.system(size: 48))
+                .foregroundColor(selectedColor.color)
+        }
+    }
+    
     // MARK: - Save
     
     private func saveProfile() {
@@ -782,6 +847,7 @@ struct ProfileSetupView: View {
             updated.isKids = isKidsProfile
             updated.ageGroup = finalAgeGroup
             updated.dateOfBirth = finalDOB
+            updated.avatarImageURL = avatarImageURL
             updated.updatedAt = Date()
             profileService.updateProfile(updated)
         } else {
@@ -791,7 +857,8 @@ struct ProfileSetupView: View {
                 color: selectedColor,
                 ageGroup: finalAgeGroup,
                 isKids: isKidsProfile,
-                dateOfBirth: finalDOB
+                dateOfBirth: finalDOB,
+                avatarImageURL: avatarImageURL
             )
             profileService.addProfile(newProfile)
             
