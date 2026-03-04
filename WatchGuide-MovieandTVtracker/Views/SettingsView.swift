@@ -203,16 +203,6 @@ struct SettingsView: View {
                                 Text("Edit Profile")
                             }
                         }
-                        
-                        Button {
-                            profileService.requestProfileSelection()
-                        } label: {
-                            HStack {
-                                Image(systemName: "person.2.fill")
-                                    .foregroundColor(.accentColor)
-                                Text("Switch Profile")
-                            }
-                        }
                     }
                 } header: {
                     Text("Active Profile")

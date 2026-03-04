@@ -21,6 +21,9 @@ struct ContentView: View {
     // Cached profile avatar UIImage for tab bar icon
     @State private var profileTabIcon: UIImage?
     
+    // Profile switcher bar state
+    @State private var showProfileSwitcherBar = false
+    
     enum Tab: Int, CaseIterable, Identifiable {
         case browse = 0
         case search = 1
@@ -159,38 +162,76 @@ struct ContentView: View {
     
     // MARK: - iPhone Layout (TabView)
     private var iPhoneLayout: some View {
-        TabView(selection: $selectedTab) {
-            ForEach(visibleTabs) { tab in
-                tabContent(for: tab)
-                    .tabItem {
-                        if tab == .settings, let icon = profileTabIcon {
-                            Label {
-                                Text(tab.label)
-                            } icon: {
-                                Image(uiImage: icon)
-                                    .renderingMode(.original)
+        ZStack(alignment: .top) {
+            TabView(selection: $selectedTab) {
+                ForEach(visibleTabs) { tab in
+                    tabContent(for: tab)
+                        .tabItem {
+                            if tab == .settings, let icon = profileTabIcon {
+                                Label {
+                                    Text(tab.label)
+                                } icon: {
+                                    Image(uiImage: icon)
+                                        .renderingMode(.original)
+                                }
+                            } else {
+                                Label(tab.label, systemImage: tab.iconName)
                             }
-                        } else {
-                            Label(tab.label, systemImage: tab.iconName)
+                        }
+                        .tag(tab)
+                }
+            }
+            .tint(.accentColor)
+            .onChange(of: selectedTab) { _, newTab in
+                visitedTabs.insert(newTab)
+                // Dismiss profile switcher when switching tabs
+                if showProfileSwitcherBar {
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        showProfileSwitcherBar = false
+                    }
+                }
+            }
+            .onChange(of: profileService.activeProfile?.avatarImageURL) { _, _ in
+                loadProfileTabIcon()
+            }
+            .onChange(of: profileService.activeProfile?.id) { _, _ in
+                loadProfileTabIcon()
+            }
+            .task {
+                loadProfileTabIcon()
+            }
+            .id("\(authService.isAuthenticated)-\(profileService.activeProfile?.id ?? "none")")
+            // Attach long-press to the Me tab via a UIKit-level gesture
+            .onLongPressOfMeTab {
+                guard profileService.hasProfiles, profileService.profiles.count > 1 else { return }
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    showProfileSwitcherBar = true
+                }
+            }
+            
+            // Profile Switcher Bar overlay
+            if showProfileSwitcherBar {
+                ProfileSwitcherBar(
+                    profiles: profileService.profiles,
+                    activeProfileId: profileService.activeProfile?.id,
+                    onSelectProfile: { profile in
+                        profileService.switchToProfile(profile)
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            showProfileSwitcherBar = false
+                        }
+                    },
+                    onDismiss: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            showProfileSwitcherBar = false
                         }
                     }
-                    .tag(tab)
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(100)
             }
         }
-        .tint(.accentColor)
-        .onChange(of: selectedTab) { _, newTab in
-            visitedTabs.insert(newTab)
-        }
-        .onChange(of: profileService.activeProfile?.avatarImageURL) { _, _ in
-            loadProfileTabIcon()
-        }
-        .onChange(of: profileService.activeProfile?.id) { _, _ in
-            loadProfileTabIcon()
-        }
-        .task {
-            loadProfileTabIcon()
-        }
-        .id("\(authService.isAuthenticated)-\(profileService.activeProfile?.id ?? "none")")
     }
     
     /// Downloads the active profile's avatar image and creates a circular tab bar icon
@@ -251,6 +292,199 @@ struct ContentView: View {
                 NavigationStack {
                     SettingsView()
                         .navigationTitle("Settings")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Profile Switcher Bar (replaces nav bar area on long-press)
+struct ProfileSwitcherBar: View {
+    let profiles: [UserProfile]
+    let activeProfileId: String?
+    let onSelectProfile: (UserProfile) -> Void
+    let onDismiss: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // The bar itself
+            VStack(spacing: 12) {
+                // Header row with title and close button
+                HStack {
+                    Text("Switch Profile")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                    
+                    Spacer()
+                    
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                
+                // Profile avatars row
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(profiles) { profile in
+                            let isActive = profile.id == activeProfileId
+                            
+                            Button {
+                                onSelectProfile(profile)
+                            } label: {
+                                VStack(spacing: 6) {
+                                    ZStack {
+                                        ProfileAvatarImageView(
+                                            profile: profile,
+                                            size: 52,
+                                            showBorder: false
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 52 * 0.16, style: .continuous)
+                                                .stroke(
+                                                    isActive ? profile.color.color : Color.clear,
+                                                    lineWidth: 2.5
+                                                )
+                                        )
+                                        .scaleEffect(isActive ? 1.08 : 1.0)
+                                        
+                                        if isActive {
+                                            VStack {
+                                                Spacer()
+                                                HStack {
+                                                    Spacer()
+                                                    Image(systemName: "checkmark.circle.fill")
+                                                        .font(.system(size: 14))
+                                                        .foregroundColor(profile.color.color)
+                                                        .background(
+                                                            Circle()
+                                                                .fill(Color(.systemBackground))
+                                                                .frame(width: 16, height: 16)
+                                                        )
+                                                }
+                                            }
+                                            .frame(width: 52, height: 52)
+                                            .offset(x: 2, y: 2)
+                                        }
+                                    }
+                                    
+                                    Text(profile.name)
+                                        .font(.caption2)
+                                        .fontWeight(isActive ? .semibold : .regular)
+                                        .foregroundColor(isActive ? profile.color.color : .secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .padding(.bottom, 12)
+            }
+            .background(
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+            )
+        }
+    }
+}
+
+// MARK: - Long-press gesture on Me tab via ViewModifier
+extension View {
+    func onLongPressOfMeTab(perform action: @escaping () -> Void) -> some View {
+        self.modifier(MeTabLongPressModifier(action: action))
+    }
+}
+
+struct MeTabLongPressModifier: ViewModifier {
+    let action: () -> Void
+    
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                // This is an invisible overlay on the tab bar area that captures long-press
+                // on the "Me" tab button position (rightmost tab)
+                MeTabLongPressOverlay(action: action)
+            )
+    }
+}
+
+/// UIViewRepresentable that installs a long-press gesture recognizer on the tab bar
+struct MeTabLongPressOverlay: UIViewRepresentable {
+    let action: () -> Void
+    
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        
+        // Delay slightly to find the tab bar after it's been laid out
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            installGesture(in: view, context: context)
+        }
+        
+        return view
+    }
+    
+    func updateUIView(_ uiView: UIView, context: Context) {}
+    
+    private func installGesture(in view: UIView, context: Context) {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first,
+              let tabBar = findTabBar(in: window) else { return }
+        
+        // Remove any previously installed long-press gesture (avoid duplicates)
+        tabBar.gestureRecognizers?.forEach { gesture in
+            if gesture is UILongPressGestureRecognizer, gesture.name == "meTabLongPress" {
+                tabBar.removeGestureRecognizer(gesture)
+            }
+        }
+        
+        let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.4
+        longPress.name = "meTabLongPress"
+        tabBar.addGestureRecognizer(longPress)
+    }
+    
+    private func findTabBar(in view: UIView) -> UITabBar? {
+        if let tabBar = view as? UITabBar { return tabBar }
+        for subview in view.subviews {
+            if let found = findTabBar(in: subview) { return found }
+        }
+        return nil
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
+    }
+    
+    class Coordinator: NSObject {
+        let action: () -> Void
+        
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+        
+        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+            guard gesture.state == .began else { return }
+            guard let tabBar = gesture.view as? UITabBar else { return }
+            
+            let location = gesture.location(in: tabBar)
+            let tabCount = tabBar.items?.count ?? 1
+            let tabWidth = tabBar.bounds.width / CGFloat(tabCount)
+            let tappedIndex = Int(location.x / tabWidth)
+            
+            // "Me" is always the last tab
+            if tappedIndex == tabCount - 1 {
+                DispatchQueue.main.async {
+                    self.action()
                 }
             }
         }
