@@ -15,6 +15,7 @@ struct SearchView: View {
     @State private var isSyncingDownload = false
     @State private var syncAlert: (title: String, message: String)?
     @State private var selectedPerson: Person?
+    @State private var trendingPopupService: StreamingServiceOption?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -132,6 +133,9 @@ struct SearchView: View {
                         Task {
                             await viewModel.toggleStreamingService(service)
                         }
+                    },
+                    onTrendingTap: { service in
+                        trendingPopupService = service
                     }
                 )
                 .padding(.bottom, 8)
@@ -300,6 +304,9 @@ struct SearchView: View {
                 profilePath: person.profilePath
             )
         }
+        .sheet(item: $trendingPopupService) { service in
+            NetworkTrendingPopup(service: service, selectedItem: $selectedItem)
+        }
         .onChange(of: viewModel.selectedType) { _, _ in
             // Re-search when filter type changes (if there's an active query)
             if viewModel.isStreamingMode && viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -381,12 +388,24 @@ struct StreamingServiceOption: Identifiable, Hashable {
     let logoURL: String
     let brandColorHex: String
     let listURL: String
+    /// Optional MDBList trending list URL — when set, tapping the card shows a trending popup
+    let trendingListURL: String?
+    
+    init(id: String, name: String, logoURL: String, brandColorHex: String, listURL: String, trendingListURL: String? = nil) {
+        self.id = id
+        self.name = name
+        self.logoURL = logoURL
+        self.brandColorHex = brandColorHex
+        self.listURL = listURL
+        self.trendingListURL = trendingListURL
+    }
 }
 
 struct StreamingServiceFilterSection: View {
     let services: [StreamingServiceOption]
     let selectedServiceIds: Set<String>
     let onToggle: (StreamingServiceOption) -> Void
+    var onTrendingTap: ((StreamingServiceOption) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -398,7 +417,11 @@ struct StreamingServiceFilterSection: View {
                 HStack(spacing: 12) {
                     ForEach(services) { service in
                         Button {
-                            onToggle(service)
+                            if service.trendingListURL != nil, let onTrendingTap {
+                                onTrendingTap(service)
+                            } else {
+                                onToggle(service)
+                            }
                         } label: {
                             StreamingServiceCard(
                                 service: service,
@@ -947,14 +970,16 @@ class SearchViewModel: ObservableObject {
             name: "Netflix",
             logoURL: "https://cdn.brandfetch.io/ideQwN5lBE/w/800/h/216/theme/light/logo.png?c=1bxid64Mup7aczewSAYMX&t=1741362568562",
             brandColorHex: "#000000",
-            listURL: "https://mdblist.com/lists/dualipafan01/netflix"
+            listURL: "https://mdblist.com/lists/dualipafan01/netflix",
+            trendingListURL: "https://mdblist.com/lists/dualipafan01/netflix-trending"
         ),
         StreamingServiceOption(
             id: "disney-plus",
             name: "Disney+",
             logoURL: "https://cdn.brandfetch.io/idhQlYRiX2/w/800/h/434/theme/light/logo.png?c=1bxid64Mup7aczewSAYMX&t=1769147818509",
             brandColorHex: "#084F60",
-            listURL: "https://mdblist.com/lists/dualipafan01/disney"
+            listURL: "https://mdblist.com/lists/dualipafan01/disney",
+            trendingListURL: "https://mdblist.com/lists/dualipafan01/disney-trending"
         ),
         StreamingServiceOption(
             id: "cartoon-network",
@@ -1233,6 +1258,276 @@ struct PersonSearchCard: View {
         .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
             isPressed = pressing
         }, perform: {})
+    }
+}
+
+// MARK: - Network Trending Popup
+struct NetworkTrendingPopup: View {
+    let service: StreamingServiceOption
+    @Binding var selectedItem: MediaItem?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var trendingMovies: [MediaItem] = []
+    @State private var trendingShows: [MediaItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var detailItem: MediaItem?
+    
+    private var brandColor: Color {
+        Color(hex: service.brandColorHex)
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    VStack(spacing: 16) {
+                        Spacer()
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("Loading trending...")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                } else if let error {
+                    VStack(spacing: 16) {
+                        Spacer()
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 36))
+                            .foregroundColor(.orange)
+                        Text("Couldn't load trending")
+                            .font(.headline)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                        Spacer()
+                    }
+                    .padding()
+                } else {
+                    trendingContent
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+            .sheet(item: $detailItem) { item in
+                MediaDetailView(item: item)
+            }
+        }
+        .presentationDetents([.large])
+        .task {
+            await loadTrending()
+        }
+    }
+    
+    private var trendingContent: some View {
+        VStack(spacing: 0) {
+            // Service header
+            serviceHeader
+                .padding(.top, 4)
+                .padding(.bottom, 12)
+            
+            // Two columns: Movies and TV Shows
+            if trendingMovies.isEmpty && trendingShows.isEmpty {
+                Spacer()
+                Text("No trending content found")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Spacer()
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    // Movies column
+                    trendingColumn(
+                        title: "Movies",
+                        icon: "film.fill",
+                        items: trendingMovies
+                    )
+                    
+                    // Divider
+                    Rectangle()
+                        .fill(Color(.systemGray4).opacity(0.4))
+                        .frame(width: 1)
+                        .padding(.vertical, 4)
+                    
+                    // TV Shows column
+                    trendingColumn(
+                        title: "TV Shows",
+                        icon: "tv.fill",
+                        items: trendingShows
+                    )
+                }
+                .padding(.horizontal)
+                
+                Spacer(minLength: 16)
+            }
+        }
+    }
+    
+    private var serviceHeader: some View {
+        VStack(spacing: 8) {
+            // Logo
+            AsyncImage(url: URL(string: service.logoURL)) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(height: 24)
+                default:
+                    Text(service.name)
+                        .font(.title3)
+                        .fontWeight(.bold)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(brandColor)
+            )
+            
+            Text("Trending Now")
+                .font(.headline)
+                .foregroundColor(.primary)
+        }
+    }
+    
+    private func trendingColumn(title: String, icon: String, items: [MediaItem]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Column header
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+            }
+            .padding(.bottom, 2)
+            
+            if items.isEmpty {
+                Text("None found")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 8)
+            } else {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    Button {
+                        detailItem = item
+                    } label: {
+                        TrendingItemRow(item: item, rank: index + 1, brandColor: brandColor)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    if index < items.count - 1 {
+                        Divider()
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    
+    private func loadTrending() async {
+        guard let listURL = service.trendingListURL else {
+            error = "No trending list configured."
+            isLoading = false
+            return
+        }
+        
+        isLoading = true
+        error = nil
+        
+        do {
+            let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(
+                listId: listURL,
+                limit: 20
+            )
+            
+            let movies = items
+                .filter { $0.mediaType == .movie }
+                .prefix(5)
+                .map { $0.toMediaItem() }
+            
+            let shows = items
+                .filter { $0.mediaType == .tv }
+                .prefix(5)
+                .map { $0.toMediaItem() }
+            
+            trendingMovies = Array(movies)
+            trendingShows = Array(shows)
+        } catch {
+            self.error = "Failed to load trending content."
+            print("Network trending popup error: \(error)")
+        }
+        
+        isLoading = false
+    }
+}
+
+// MARK: - Trending Item Row
+private struct TrendingItemRow: View {
+    let item: MediaItem
+    let rank: Int
+    let brandColor: Color
+    @Environment(\.colorScheme) private var colorScheme
+    
+    var body: some View {
+        HStack(spacing: 10) {
+            // Rank number
+            Text("\(rank)")
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .foregroundColor(rank <= 3 ? brandColor : .secondary)
+                .frame(width: 22, alignment: .center)
+            
+            // Poster thumbnail
+            let posterURL = TMDBService.shared.imageURL(path: item.posterPath, size: .small)
+            AsyncImage(url: posterURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                case .empty:
+                    Rectangle()
+                        .fill(Color(.systemGray5))
+                        .overlay { ProgressView().scaleEffect(0.6) }
+                default:
+                    Rectangle()
+                        .fill(Color(.systemGray5))
+                        .overlay {
+                            Image(systemName: "film")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                }
+            }
+            .frame(width: 36, height: 54)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
+            
+            // Title and year
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.displayTitle)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+                
+                if let year = item.year {
+                    Text(year)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 3)
+        .contentShape(Rectangle())
     }
 }
 
