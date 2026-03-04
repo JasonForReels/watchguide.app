@@ -263,24 +263,11 @@ struct BrowseView: View {
     private func browseSectionView(for section: BrowseSectionItem) -> some View {
         switch section.sectionType {
         case .networks:
-            if !isKidsProfile, !viewModel.networkHubs.isEmpty {
-                NetworkHubsRow(hubs: viewModel.networkHubs) { hub in
-                    selectedNetworkHub = hub
-                }
-            }
+            EmptyView()
         case .rows:
             browseRowsSection
         case .studios:
-            if !isKidsProfile {
-                StudiosHubRow(
-                    onTwentiethCenturyTap: { activeStudioSheet = .twentiethCentury },
-                    onWarnerBrosTap: { activeStudioSheet = .warnerBros },
-                    onDreamWorksTap: { activeStudioSheet = .dreamWorks },
-                    onDCStudiosTap: { activeStudioSheet = .dcStudios },
-                    onUniversalPicturesTap: { activeStudioSheet = .universalPictures },
-                    onSonyPicturesTap: { activeStudioSheet = .sonyPictures }
-                )
-            }
+            EmptyView()
         case .customHubs:
             customHubsSection
         case .forYou:
