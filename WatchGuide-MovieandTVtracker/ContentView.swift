@@ -18,9 +18,6 @@ struct ContentView: View {
     // Track which tabs have been visited so we only create their views once
     @State private var visitedTabs: Set<Tab> = [.browse]
     
-    // Cached profile avatar UIImage for tab bar icon
-    @State private var profileTabIcon: UIImage?
-    
     // Profile switcher bar state
     @State private var showProfileSwitcherBar = false
     
@@ -29,7 +26,6 @@ struct ContentView: View {
         case search = 1
         case ai = 2
         case lists = 3
-        case me = 4
         
         var id: Int { rawValue }
         
@@ -39,7 +35,6 @@ struct ContentView: View {
             case .search: return "Search"
             case .ai: return "Scout"
             case .lists: return "Lists"
-            case .me: return "Me"
             }
         }
         
@@ -49,7 +44,6 @@ struct ContentView: View {
             case .search: return "magnifyingglass"
             case .ai: return "sparkles"
             case .lists: return "list.bullet.below.rectangle"
-            case .me: return "person.crop.circle.fill"
             }
         }
     }
@@ -78,7 +72,6 @@ struct ContentView: View {
                     }
                 }
                 .onAppear {
-                    // Small delay to let the UI settle, then show the popup
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         showPostSignInSync = true
                     }
@@ -97,23 +90,18 @@ struct ContentView: View {
                 HeroCarouselMuteManager.shared.isExternallyMuted = (newValue != nil)
             }
             .onChange(of: authService.isAuthenticated) { _, isAuth in
-                // If user logs out while on Lists tab, redirect to Browse
                 if !isAuth && selectedTab == .lists {
                     selectedTab = .browse
                 }
-                // Make sure the current tab is marked as visited after auth change
-                // since .id() forces a TabView rebuild
                 visitedTabs.insert(selectedTab)
             }
             .onChange(of: StorageService.shared.settings.isKidsProfile) { _, isKids in
-                // If non-adult profile is activated while on Scout tab, redirect to Browse
                 if isKids && selectedTab == .ai {
                     selectedTab = .browse
                 }
                 visitedTabs.insert(selectedTab)
             }
             .onChange(of: profileService.activeProfile?.ageGroup) { _, newAgeGroup in
-                // If a non-adult profile is selected while on Scout tab, redirect to Browse
                 if newAgeGroup != .adult && selectedTab == .ai {
                     selectedTab = .browse
                 }
@@ -141,16 +129,14 @@ struct ContentView: View {
             && !profileService.hasActiveProfile
     }
     
-    // Stable list of visible tabs based on auth state and age profile
+    // Visible tabs (no "Me" — that's the separate button)
     private var visibleTabs: [Tab] {
         var tabs = Tab.allCases
         
-        // Hide Lists tab for non-authenticated users
         if !authService.isAuthenticated {
             tabs = tabs.filter { $0 != .lists }
         }
         
-        // Hide Scout AI tab for non-adult profiles (only 18+ can access Scout)
         let isAdult = profileService.activeProfile?.ageGroup == .adult && profileService.activeProfile?.isKids != true
         let isKids = profileService.activeProfile?.isKids == true || StorageService.shared.settings.isKidsProfile
         if isKids || (profileService.hasActiveProfile && !isAdult) {
@@ -160,131 +146,151 @@ struct ContentView: View {
         return tabs
     }
     
-    // Previous tab before "Me" was tapped, so we can bounce back
-    @State private var previousTab: Tab = .browse
-    
-    // MARK: - iPhone Layout (TabView)
+    // MARK: - iPhone Layout
     private var iPhoneLayout: some View {
-        ZStack(alignment: .top) {
-            TabView(selection: Binding(
-                get: { selectedTab },
-                set: { newTab in
-                    if newTab == .me {
-                        // Tapping "Me" opens profile switcher instead of navigating
-                        if profileService.hasProfiles, profileService.profiles.count > 1 {
-                            let generator = UIImpactFeedbackGenerator(style: .medium)
-                            generator.impactOccurred()
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                showProfileSwitcherBar = true
-                            }
-                        }
-                        // Don't actually switch to the Me tab — stay on current tab
-                        return
-                    }
-                    selectedTab = newTab
-                }
-            )) {
+        ZStack(alignment: .bottom) {
+            // Content area — tabs rendered directly (no native TabView tab bar)
+            ZStack {
                 ForEach(visibleTabs) { tab in
                     tabContent(for: tab)
-                        .tabItem {
-                            if tab == .me, let icon = profileTabIcon {
-                                Label {
-                                    Text(tab.label)
-                                } icon: {
-                                    Image(uiImage: icon)
-                                        .renderingMode(.original)
-                                }
-                            } else {
-                                Label(tab.label, systemImage: tab.iconName)
-                            }
-                        }
-                        .tag(tab)
+                        .opacity(selectedTab == tab ? 1 : 0)
+                        .zIndex(selectedTab == tab ? 1 : 0)
+                        .allowsHitTesting(selectedTab == tab)
                 }
             }
-            .tint(.accentColor)
-            .onChange(of: selectedTab) { _, newTab in
-                visitedTabs.insert(newTab)
-                // Dismiss profile switcher when switching tabs
-                if showProfileSwitcherBar {
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        showProfileSwitcherBar = false
-                    }
-                }
-            }
-            .onChange(of: profileService.activeProfile?.avatarImageURL) { _, _ in
-                loadProfileTabIcon()
-            }
-            .onChange(of: profileService.activeProfile?.id) { _, _ in
-                loadProfileTabIcon()
-            }
-            .task {
-                loadProfileTabIcon()
-            }
-            .id("\(authService.isAuthenticated)-\(profileService.activeProfile?.id ?? "none")")
-            // Attach long-press to the Me tab via a UIKit-level gesture
-            .onLongPressOfMeTab {
-                guard profileService.hasProfiles, profileService.profiles.count > 1 else { return }
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    showProfileSwitcherBar = true
-                }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Leave space for the custom tab bar
+            .safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: 56)
             }
             
-            // Profile Switcher Bar overlay
-            if showProfileSwitcherBar {
-                ProfileSwitcherBar(
-                    profiles: profileService.profiles,
-                    activeProfileId: profileService.activeProfile?.id,
-                    onSelectProfile: { profile in
-                        profileService.switchToProfile(profile)
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            showProfileSwitcherBar = false
+            // Custom Tab Bar + Me button
+            VStack(spacing: 0) {
+                // Profile Switcher Bar overlay (above the tab bar)
+                if showProfileSwitcherBar {
+                    ProfileSwitcherBar(
+                        profiles: profileService.profiles,
+                        activeProfileId: profileService.activeProfile?.id,
+                        onSelectProfile: { profile in
+                            profileService.switchToProfile(profile)
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showProfileSwitcherBar = false
+                            }
+                        },
+                        onDismiss: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showProfileSwitcherBar = false
+                            }
                         }
-                    },
-                    onDismiss: {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            showProfileSwitcherBar = false
-                        }
-                    }
-                )
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .zIndex(100)
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                
+                customTabBar
             }
         }
+        .ignoresSafeArea(.keyboard)
+        .onChange(of: selectedTab) { _, newTab in
+            visitedTabs.insert(newTab)
+            if showProfileSwitcherBar {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    showProfileSwitcherBar = false
+                }
+            }
+        }
+        .id("\(authService.isAuthenticated)-\(profileService.activeProfile?.id ?? "none")")
     }
     
-    /// Downloads the active profile's avatar image and creates a circular tab bar icon
-    private func loadProfileTabIcon() {
-        guard let profile = profileService.activeProfile,
-              let urlStr = profile.avatarImageURL,
-              !urlStr.isEmpty,
-              let url = URL(string: urlStr) else {
-            profileTabIcon = nil
-            return
-        }
-        
-        Task.detached {
-            do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                guard let original = UIImage(data: data) else { return }
-                
-                let size: CGFloat = 26
-                let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
-                let circular = renderer.image { _ in
-                    let rect = CGRect(origin: .zero, size: CGSize(width: size, height: size))
-                    UIBezierPath(ovalIn: rect).addClip()
-                    original.draw(in: rect)
+    // MARK: - Custom Tab Bar
+    private var customTabBar: some View {
+        HStack(spacing: 12) {
+            // Main tab bar pill
+            HStack(spacing: 0) {
+                ForEach(visibleTabs) { tab in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedTab = tab
+                        }
+                    } label: {
+                        VStack(spacing: 3) {
+                            Image(systemName: tab.iconName)
+                                .font(.system(size: 18, weight: .medium))
+                            Text(tab.label)
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(selectedTab == tab ? .accentColor : .secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                
-                let finalIcon = circular.withRenderingMode(.alwaysOriginal)
-                await MainActor.run {
-                    profileTabIcon = finalIcon
-                }
-            } catch {
-                print("Failed to load profile tab icon: \(error)")
             }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .shadow(color: .black.opacity(0.12), radius: 10, y: 2)
+            )
+            
+            // Separate "Me" profile button
+            meProfileButton
         }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 6)
+        .padding(.top, 4)
+        .background(
+            Rectangle()
+                .fill(.clear)
+                .background(.ultraThinMaterial.opacity(0.5))
+                .mask(
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 10)
+                        Rectangle()
+                    }
+                )
+        )
+    }
+    
+    // MARK: - Me Profile Button (separate circle)
+    private var meProfileButton: some View {
+        Button {
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            if profileService.hasProfiles, profileService.profiles.count > 1 {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    showProfileSwitcherBar.toggle()
+                }
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(.ultraThinMaterial)
+                    .shadow(color: .black.opacity(0.12), radius: 10, y: 2)
+                
+                if let profile = profileService.activeProfile {
+                    ProfileAvatarImageView(
+                        profile: profile,
+                        size: 34,
+                        showBorder: false
+                    )
+                } else {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                
+                // Active indicator ring
+                if showProfileSwitcherBar, let profile = profileService.activeProfile {
+                    Circle()
+                        .stroke(profile.color.color, lineWidth: 2)
+                }
+            }
+            .frame(width: 52, height: 52)
+        }
+        .buttonStyle(.plain)
     }
     
     @ViewBuilder
@@ -307,15 +313,11 @@ struct ContentView: View {
             LazyTabContent(tab: .lists, visitedTabs: $visitedTabs) {
                 ListsView()
             }
-        case .me:
-            // "Me" tab is intercepted on tap to show profile switcher.
-            // This view is a placeholder that is never actually shown.
-            Color.clear
         }
     }
 }
 
-// MARK: - Profile Switcher Bar (replaces nav bar area on long-press)
+// MARK: - Profile Switcher Bar
 struct ProfileSwitcherBar: View {
     let profiles: [UserProfile]
     let activeProfileId: String?
@@ -323,188 +325,93 @@ struct ProfileSwitcherBar: View {
     let onDismiss: () -> Void
     
     var body: some View {
-        VStack(spacing: 0) {
-            // The bar itself
-            VStack(spacing: 12) {
-                // Header row with title and close button
-                HStack {
-                    Text("Switch Profile")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.primary)
-                    
-                    Spacer()
-                    
-                    Button {
-                        onDismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
+        VStack(spacing: 12) {
+            // Header row with title and close button
+            HStack {
+                Text("Switch Profile")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                
+                Spacer()
+                
+                Button {
+                    onDismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            
+            // Profile avatars row
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(profiles) { profile in
+                        let isActive = profile.id == activeProfileId
+                        
+                        Button {
+                            onSelectProfile(profile)
+                        } label: {
+                            VStack(spacing: 6) {
+                                ZStack {
+                                    ProfileAvatarImageView(
+                                        profile: profile,
+                                        size: 52,
+                                        showBorder: false
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 52 * 0.16, style: .continuous)
+                                            .stroke(
+                                                isActive ? profile.color.color : Color.clear,
+                                                lineWidth: 2.5
+                                            )
+                                    )
+                                    .scaleEffect(isActive ? 1.08 : 1.0)
+                                    
+                                    if isActive {
+                                        VStack {
+                                            Spacer()
+                                            HStack {
+                                                Spacer()
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .font(.system(size: 14))
+                                                    .foregroundColor(profile.color.color)
+                                                    .background(
+                                                        Circle()
+                                                            .fill(Color(.systemBackground))
+                                                            .frame(width: 16, height: 16)
+                                                    )
+                                            }
+                                        }
+                                        .frame(width: 52, height: 52)
+                                        .offset(x: 2, y: 2)
+                                    }
+                                }
+                                
+                                Text(profile.name)
+                                    .font(.caption2)
+                                    .fontWeight(isActive ? .semibold : .regular)
+                                    .foregroundColor(isActive ? profile.color.color : .secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 8)
-                
-                // Profile avatars row
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
-                        ForEach(profiles) { profile in
-                            let isActive = profile.id == activeProfileId
-                            
-                            Button {
-                                onSelectProfile(profile)
-                            } label: {
-                                VStack(spacing: 6) {
-                                    ZStack {
-                                        ProfileAvatarImageView(
-                                            profile: profile,
-                                            size: 52,
-                                            showBorder: false
-                                        )
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 52 * 0.16, style: .continuous)
-                                                .stroke(
-                                                    isActive ? profile.color.color : Color.clear,
-                                                    lineWidth: 2.5
-                                                )
-                                        )
-                                        .scaleEffect(isActive ? 1.08 : 1.0)
-                                        
-                                        if isActive {
-                                            VStack {
-                                                Spacer()
-                                                HStack {
-                                                    Spacer()
-                                                    Image(systemName: "checkmark.circle.fill")
-                                                        .font(.system(size: 14))
-                                                        .foregroundColor(profile.color.color)
-                                                        .background(
-                                                            Circle()
-                                                                .fill(Color(.systemBackground))
-                                                                .frame(width: 16, height: 16)
-                                                        )
-                                                }
-                                            }
-                                            .frame(width: 52, height: 52)
-                                            .offset(x: 2, y: 2)
-                                        }
-                                    }
-                                    
-                                    Text(profile.name)
-                                        .font(.caption2)
-                                        .fontWeight(isActive ? .semibold : .regular)
-                                        .foregroundColor(isActive ? profile.color.color : .secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                }
-                .padding(.bottom, 12)
             }
-            .background(
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
-            )
+            .padding(.bottom, 12)
         }
-    }
-}
-
-// MARK: - Long-press gesture on Me tab via ViewModifier
-extension View {
-    func onLongPressOfMeTab(perform action: @escaping () -> Void) -> some View {
-        self.modifier(MeTabLongPressModifier(action: action))
-    }
-}
-
-struct MeTabLongPressModifier: ViewModifier {
-    let action: () -> Void
-    
-    func body(content: Content) -> some View {
-        content
-            .overlay(
-                // This is an invisible overlay on the tab bar area that captures long-press
-                // on the "Me" tab button position (rightmost tab)
-                MeTabLongPressOverlay(action: action)
-            )
-    }
-}
-
-/// UIViewRepresentable that installs a long-press gesture recognizer on the tab bar
-struct MeTabLongPressOverlay: UIViewRepresentable {
-    let action: () -> Void
-    
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.isUserInteractionEnabled = false
-        
-        // Delay slightly to find the tab bar after it's been laid out
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            installGesture(in: view, context: context)
-        }
-        
-        return view
-    }
-    
-    func updateUIView(_ uiView: UIView, context: Context) {}
-    
-    private func installGesture(in view: UIView, context: Context) {
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first,
-              let tabBar = findTabBar(in: window) else { return }
-        
-        // Remove any previously installed long-press gesture (avoid duplicates)
-        tabBar.gestureRecognizers?.forEach { gesture in
-            if gesture is UILongPressGestureRecognizer, gesture.name == "meTabLongPress" {
-                tabBar.removeGestureRecognizer(gesture)
-            }
-        }
-        
-        let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleLongPress(_:)))
-        longPress.minimumPressDuration = 0.4
-        longPress.name = "meTabLongPress"
-        tabBar.addGestureRecognizer(longPress)
-    }
-    
-    private func findTabBar(in view: UIView) -> UITabBar? {
-        if let tabBar = view as? UITabBar { return tabBar }
-        for subview in view.subviews {
-            if let found = findTabBar(in: subview) { return found }
-        }
-        return nil
-    }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(action: action)
-    }
-    
-    class Coordinator: NSObject {
-        let action: () -> Void
-        
-        init(action: @escaping () -> Void) {
-            self.action = action
-        }
-        
-        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-            guard gesture.state == .began else { return }
-            guard let tabBar = gesture.view as? UITabBar else { return }
-            
-            let location = gesture.location(in: tabBar)
-            let tabCount = tabBar.items?.count ?? 1
-            let tabWidth = tabBar.bounds.width / CGFloat(tabCount)
-            let tappedIndex = Int(location.x / tabWidth)
-            
-            // "Me" is always the last tab
-            if tappedIndex == tabCount - 1 {
-                DispatchQueue.main.async {
-                    self.action()
-                }
-            }
-        }
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.1), radius: 16, y: -4)
+        )
+        .padding(.horizontal, 12)
+        .padding(.bottom, 4)
     }
 }
 
