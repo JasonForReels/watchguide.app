@@ -201,24 +201,25 @@ struct ContentView: View {
         .id("\(authService.isAuthenticated)-\(profileService.activeProfile?.id ?? "none")")
     }
     
-    // MARK: - Custom Tab Bar
+    // MARK: - Custom Tab Bar (Liquid Glass)
     private var customTabBar: some View {
         HStack(spacing: 12) {
-            // Main tab bar pill
+            // Main tab bar pill — Liquid Glass style
             HStack(spacing: 0) {
                 ForEach(visibleTabs) { tab in
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
                             selectedTab = tab
                         }
                     } label: {
                         VStack(spacing: 3) {
                             Image(systemName: tab.iconName)
-                                .font(.system(size: 18, weight: .medium))
+                                .font(.system(size: 18, weight: .semibold))
+                                .symbolEffect(.bounce.down, value: selectedTab == tab)
                             Text(tab.label)
                                 .font(.system(size: 10, weight: .medium))
                         }
-                        .foregroundColor(selectedTab == tab ? .accentColor : .secondary)
+                        .foregroundStyle(selectedTab == tab ? .primary : .secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .contentShape(Rectangle())
@@ -228,11 +229,9 @@ struct ContentView: View {
             }
             .padding(.horizontal, 4)
             .padding(.vertical, 4)
-            .background(
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .shadow(color: .black.opacity(0.12), radius: 10, y: 2)
-            )
+            .background {
+                LiquidGlassCapsuleBackground()
+            }
             
             // Separate "Me" profile button
             meProfileButton
@@ -240,21 +239,9 @@ struct ContentView: View {
         .padding(.horizontal, 16)
         .padding(.bottom, 6)
         .padding(.top, 4)
-        .background(
-            Rectangle()
-                .fill(.clear)
-                .background(.ultraThinMaterial.opacity(0.5))
-                .mask(
-                    VStack(spacing: 0) {
-                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 10)
-                        Rectangle()
-                    }
-                )
-        )
     }
     
-    // MARK: - Me Profile Button (separate circle)
+    // MARK: - Me Profile Button (Liquid Glass circle)
     private var meProfileButton: some View {
         Button {
             let generator = UIImpactFeedbackGenerator(style: .medium)
@@ -266,9 +253,7 @@ struct ContentView: View {
             }
         } label: {
             ZStack {
-                Circle()
-                    .fill(.ultraThinMaterial)
-                    .shadow(color: .black.opacity(0.12), radius: 10, y: 2)
+                LiquidGlassCircleBackground(size: 52)
                 
                 if let profile = profileService.activeProfile {
                     ProfileAvatarImageView(
@@ -279,13 +264,14 @@ struct ContentView: View {
                 } else {
                     Image(systemName: "person.crop.circle.fill")
                         .font(.system(size: 22, weight: .medium))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 
                 // Active indicator ring
                 if showProfileSwitcherBar, let profile = profileService.activeProfile {
                     Circle()
-                        .stroke(profile.color.color, lineWidth: 2)
+                        .stroke(profile.color.color.opacity(0.8), lineWidth: 2)
+                        .frame(width: 52, height: 52)
                 }
             }
             .frame(width: 52, height: 52)
@@ -317,12 +303,13 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Profile Switcher Bar
+// MARK: - Profile Switcher Bar (Liquid Glass)
 struct ProfileSwitcherBar: View {
     let profiles: [UserProfile]
     let activeProfileId: String?
     let onSelectProfile: (UserProfile) -> Void
     let onDismiss: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         VStack(spacing: 12) {
@@ -331,7 +318,7 @@ struct ProfileSwitcherBar: View {
                 Text("Switch Profile")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.primary)
+                    .foregroundStyle(.primary)
                 
                 Spacer()
                 
@@ -340,11 +327,12 @@ struct ProfileSwitcherBar: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title3)
+                        .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 12)
+            .padding(.top, 14)
             
             // Profile avatars row
             ScrollView(.horizontal, showsIndicators: false) {
@@ -357,19 +345,33 @@ struct ProfileSwitcherBar: View {
                         } label: {
                             VStack(spacing: 6) {
                                 ZStack {
+                                    // Liquid glass backing circle
+                                    if isActive {
+                                        Circle()
+                                            .fill(profile.color.color.opacity(0.12))
+                                            .frame(width: 58, height: 58)
+                                    }
+                                    
                                     ProfileAvatarImageView(
                                         profile: profile,
                                         size: 52,
                                         showBorder: false
                                     )
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 52 * 0.16, style: .continuous)
+                                        Circle()
                                             .stroke(
-                                                isActive ? profile.color.color : Color.clear,
-                                                lineWidth: 2.5
+                                                isActive
+                                                    ? profile.color.color.opacity(0.8)
+                                                    : Color.white.opacity(colorScheme == .dark ? 0.08 : 0.0),
+                                                lineWidth: isActive ? 2.5 : 1
                                             )
                                     )
                                     .scaleEffect(isActive ? 1.08 : 1.0)
+                                    .shadow(
+                                        color: isActive ? profile.color.color.opacity(0.3) : .clear,
+                                        radius: 6,
+                                        y: 2
+                                    )
                                     
                                     if isActive {
                                         VStack {
@@ -378,10 +380,10 @@ struct ProfileSwitcherBar: View {
                                                 Spacer()
                                                 Image(systemName: "checkmark.circle.fill")
                                                     .font(.system(size: 14))
-                                                    .foregroundColor(profile.color.color)
+                                                    .foregroundStyle(profile.color.color)
                                                     .background(
                                                         Circle()
-                                                            .fill(Color(.systemBackground))
+                                                            .fill(.ultraThinMaterial)
                                                             .frame(width: 16, height: 16)
                                                     )
                                             }
@@ -394,7 +396,7 @@ struct ProfileSwitcherBar: View {
                                 Text(profile.name)
                                     .font(.caption2)
                                     .fontWeight(isActive ? .semibold : .regular)
-                                    .foregroundColor(isActive ? profile.color.color : .secondary)
+                                    .foregroundStyle(isActive ? profile.color.color : .secondary)
                                     .lineLimit(1)
                             }
                         }
@@ -403,13 +405,11 @@ struct ProfileSwitcherBar: View {
                 }
                 .padding(.horizontal, 20)
             }
-            .padding(.bottom, 12)
+            .padding(.bottom, 14)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .shadow(color: .black.opacity(0.1), radius: 16, y: -4)
-        )
+        .background {
+            LiquidGlassRoundedBackground(cornerRadius: 22)
+        }
         .padding(.horizontal, 12)
         .padding(.bottom, 4)
     }
@@ -427,6 +427,230 @@ struct LazyTabContent<Content: View>: View {
         } else {
             Color.clear
         }
+    }
+}
+
+// MARK: - Liquid Glass Background Components
+
+/// A capsule-shaped Liquid Glass background with specular highlight, depth shadow, and border refraction.
+struct LiquidGlassCapsuleBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+    
+    private var isDark: Bool { colorScheme == .dark }
+    
+    var body: some View {
+        ZStack {
+            // Depth shadow layer
+            Capsule()
+                .fill(Color.black.opacity(isDark ? 0.35 : 0.08))
+                .blur(radius: 3)
+                .offset(y: 2)
+            
+            // Main frosted glass
+            Capsule()
+                .fill(.ultraThinMaterial)
+            
+            // Inner subtle gradient for 3D curvature
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(isDark ? 0.08 : 0.18),
+                            .clear,
+                            .black.opacity(isDark ? 0.06 : 0.02)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            
+            // Top specular highlight strip
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(isDark ? 0.12 : 0.22),
+                            .white.opacity(0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .center
+                    )
+                )
+                .mask {
+                    VStack {
+                        Rectangle()
+                            .frame(height: 18)
+                        Spacer()
+                    }
+                }
+            
+            // Border ring with refraction gradient
+            Capsule()
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(isDark ? 0.22 : 0.35),
+                            .white.opacity(isDark ? 0.06 : 0.12),
+                            .white.opacity(0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.7
+                )
+        }
+        .shadow(color: .black.opacity(isDark ? 0.4 : 0.12), radius: 12, y: 4)
+    }
+}
+
+/// A circle-shaped Liquid Glass background.
+struct LiquidGlassCircleBackground: View {
+    let size: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+    
+    private var isDark: Bool { colorScheme == .dark }
+    
+    var body: some View {
+        ZStack {
+            // Depth shadow
+            Circle()
+                .fill(Color.black.opacity(isDark ? 0.3 : 0.06))
+                .frame(width: size, height: size)
+                .blur(radius: 3)
+                .offset(y: 2)
+            
+            // Main frosted glass
+            Circle()
+                .fill(.ultraThinMaterial)
+                .frame(width: size, height: size)
+            
+            // Inner curvature gradient
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(isDark ? 0.10 : 0.20),
+                            .clear,
+                            .black.opacity(isDark ? 0.08 : 0.02)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: size, height: size)
+            
+            // Top specular highlight
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(isDark ? 0.14 : 0.25),
+                            .white.opacity(0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .center
+                    )
+                )
+                .frame(width: size, height: size)
+                .mask {
+                    VStack {
+                        Ellipse()
+                            .frame(width: size * 0.65, height: size * 0.3)
+                            .offset(y: size * 0.06)
+                        Spacer()
+                    }
+                    .frame(width: size, height: size)
+                }
+            
+            // Border refraction ring
+            Circle()
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(isDark ? 0.22 : 0.35),
+                            .white.opacity(isDark ? 0.05 : 0.1),
+                            .white.opacity(0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.7
+                )
+                .frame(width: size, height: size)
+        }
+        .shadow(color: .black.opacity(isDark ? 0.35 : 0.1), radius: 10, y: 3)
+    }
+}
+
+/// A rounded-rectangle Liquid Glass background.
+struct LiquidGlassRoundedBackground: View {
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+    
+    private var isDark: Bool { colorScheme == .dark }
+    
+    var body: some View {
+        ZStack {
+            // Depth shadow
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.black.opacity(isDark ? 0.3 : 0.06))
+                .blur(radius: 4)
+                .offset(y: 3)
+            
+            // Main frosted glass
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(.ultraThinMaterial)
+            
+            // Inner curvature gradient
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(isDark ? 0.08 : 0.16),
+                            .clear,
+                            .black.opacity(isDark ? 0.06 : 0.02)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            
+            // Top specular highlight
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(isDark ? 0.12 : 0.22),
+                            .white.opacity(0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .center
+                    )
+                )
+                .mask {
+                    VStack {
+                        Rectangle()
+                            .frame(height: 22)
+                        Spacer()
+                    }
+                }
+            
+            // Border refraction
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(isDark ? 0.20 : 0.30),
+                            .white.opacity(isDark ? 0.05 : 0.10),
+                            .white.opacity(0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.7
+                )
+        }
+        .shadow(color: .black.opacity(isDark ? 0.35 : 0.1), radius: 14, y: 4)
     }
 }
 
