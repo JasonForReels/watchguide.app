@@ -204,22 +204,112 @@ struct NetworkHub: Identifiable, Codable {
 
 // MARK: - Company Hub (Legacy - keeping for compatibility)
 struct CompanyHub: Identifiable, Codable {
+    enum ButtonShape: String, Codable, CaseIterable {
+        case roundedRectangle = "rounded_rectangle"
+        case capsule = "capsule"
+        case circle = "circle"
+
+        var displayName: String {
+            switch self {
+            case .roundedRectangle: return "Rounded"
+            case .capsule: return "Capsule"
+            case .circle: return "Circle"
+            }
+        }
+    }
+
+    enum BackgroundStyle: String, Codable, CaseIterable {
+        case solid = "solid"
+        case glass = "glass"
+        case outline = "outline"
+        case gradient = "gradient"
+        case dark = "dark"
+
+        var displayName: String {
+            switch self {
+            case .solid: return "Solid"
+            case .glass: return "Glass"
+            case .outline: return "Outline"
+            case .gradient: return "Gradient"
+            case .dark: return "Dark"
+            }
+        }
+    }
+
     let id: String
     let name: String
     let logoPath: String?
     let companyIds: [Int]
     let networkIds: [Int]
     var isEnabled: Bool
+    var buttonShape: ButtonShape?
+    var backgroundStyle: BackgroundStyle?
     let createdAt: Date
     
-    init(name: String, logoPath: String? = nil, companyIds: [Int] = [], networkIds: [Int] = []) {
+    init(
+        name: String,
+        logoPath: String? = nil,
+        companyIds: [Int] = [],
+        networkIds: [Int] = [],
+        buttonShape: ButtonShape? = nil,
+        backgroundStyle: BackgroundStyle? = nil
+    ) {
         self.id = UUID().uuidString
         self.name = name
         self.logoPath = logoPath
         self.companyIds = companyIds
         self.networkIds = networkIds
         self.isEnabled = true
+        self.buttonShape = buttonShape
+        self.backgroundStyle = backgroundStyle
         self.createdAt = Date()
+    }
+
+    init(
+        id: String,
+        name: String,
+        logoPath: String?,
+        companyIds: [Int],
+        networkIds: [Int],
+        isEnabled: Bool,
+        buttonShape: ButtonShape?,
+        backgroundStyle: BackgroundStyle?,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.name = name
+        self.logoPath = logoPath
+        self.companyIds = companyIds
+        self.networkIds = networkIds
+        self.isEnabled = isEnabled
+        self.buttonShape = buttonShape
+        self.backgroundStyle = backgroundStyle
+        self.createdAt = createdAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case logoPath
+        case companyIds
+        case networkIds
+        case isEnabled
+        case buttonShape
+        case backgroundStyle
+        case createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        logoPath = try container.decodeIfPresent(String.self, forKey: .logoPath)
+        companyIds = try container.decodeIfPresent([Int].self, forKey: .companyIds) ?? []
+        networkIds = try container.decodeIfPresent([Int].self, forKey: .networkIds) ?? []
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        buttonShape = try container.decodeIfPresent(ButtonShape.self, forKey: .buttonShape)
+        backgroundStyle = try container.decodeIfPresent(BackgroundStyle.self, forKey: .backgroundStyle)
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
     }
 }
 
@@ -359,6 +449,7 @@ enum HeroCarouselSource: String, Codable, CaseIterable {
 struct UserSettings: Codable, Equatable {
     var region: String
     var includeAdult: Bool
+    var useAppleIntelligenceSearch: Bool
     var preferredLanguage: String
     var autoPlayTrailers: Bool
     var autoPlayTrailersMuted: Bool
@@ -375,6 +466,7 @@ struct UserSettings: Codable, Equatable {
     init() {
         self.region = Locale.current.region?.identifier ?? "US"
         self.includeAdult = false
+        self.useAppleIntelligenceSearch = false
         self.preferredLanguage = Locale.current.language.languageCode?.identifier ?? "en"
         self.autoPlayTrailers = false
         self.autoPlayTrailersMuted = true
@@ -392,6 +484,7 @@ struct UserSettings: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case region
         case includeAdult
+        case useAppleIntelligenceSearch
         case preferredLanguage
         case autoPlayTrailers
         case autoPlayTrailersMuted
@@ -411,6 +504,7 @@ struct UserSettings: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         region = try container.decodeIfPresent(String.self, forKey: .region) ?? region
         includeAdult = try container.decodeIfPresent(Bool.self, forKey: .includeAdult) ?? includeAdult
+        useAppleIntelligenceSearch = try container.decodeIfPresent(Bool.self, forKey: .useAppleIntelligenceSearch) ?? useAppleIntelligenceSearch
         preferredLanguage = try container.decodeIfPresent(String.self, forKey: .preferredLanguage) ?? preferredLanguage
         autoPlayTrailers = try container.decodeIfPresent(Bool.self, forKey: .autoPlayTrailers) ?? autoPlayTrailers
         autoPlayTrailersMuted = try container.decodeIfPresent(Bool.self, forKey: .autoPlayTrailersMuted) ?? autoPlayTrailersMuted
@@ -432,6 +526,7 @@ struct UserSettings: Codable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(region, forKey: .region)
         try container.encode(includeAdult, forKey: .includeAdult)
+        try container.encode(useAppleIntelligenceSearch, forKey: .useAppleIntelligenceSearch)
         try container.encode(preferredLanguage, forKey: .preferredLanguage)
         try container.encode(autoPlayTrailers, forKey: .autoPlayTrailers)
         try container.encode(autoPlayTrailersMuted, forKey: .autoPlayTrailersMuted)

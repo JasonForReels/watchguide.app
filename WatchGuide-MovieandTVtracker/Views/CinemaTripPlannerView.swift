@@ -69,9 +69,13 @@ struct CinemaTripPlannerView: View {
                 }
             }
         }
+        #if os(macOS)
+        .listStyle(.inset)
+        #else
         .listStyle(.insetGrouped)
-        .navigationTitle("Trip Planner")
         .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .navigationTitle("Trip Planner")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -103,7 +107,7 @@ private struct CinemaTripCard: View {
             HStack(alignment: .top, spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(isPast ? Color(.systemGray5) : Color.accentColor.opacity(0.12))
+                        .fill(isPast ? Color.gray.opacity(0.18) : Color.accentColor.opacity(0.12))
                         .frame(width: 44, height: 44)
                     Image(systemName: isPast ? "checkmark.circle.fill" : "film.fill")
                         .font(.title3)
@@ -194,7 +198,7 @@ private struct CinemaTripCard: View {
                     .padding(10)
                     .background(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color(.systemGray6))
+                            .fill(Color.gray.opacity(0.12))
                     )
                 }
 
@@ -212,12 +216,12 @@ private struct CinemaTripCard: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.systemBackground))
+                .fill(Color.gray.opacity(0.08))
                 .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(.systemGray5), lineWidth: 0.5)
+                .stroke(Color.gray.opacity(0.18), lineWidth: 0.5)
         )
         .opacity(isPast ? 0.7 : 1.0)
     }
@@ -376,7 +380,9 @@ private struct NewCinemaTripSheet: View {
                 }
             }
             .navigationTitle("Plan Trip")
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -599,7 +605,9 @@ private struct CinemaPickerSheet: View {
             }
             .searchable(text: $searchText, prompt: "Search cinemas")
             .navigationTitle("Select Cinema")
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -627,7 +635,7 @@ private final class TripLocationViewModel: NSObject, ObservableObject, CLLocatio
     func requestLocation() {
         let status = manager.authorizationStatus
         authorizationStatus = status
-        if status == .authorizedWhenInUse || status == .authorizedAlways {
+        if isAuthorized(status) {
             manager.requestLocation()
         } else if status == .notDetermined {
             manager.requestWhenInUseAuthorization()
@@ -636,9 +644,17 @@ private final class TripLocationViewModel: NSObject, ObservableObject, CLLocatio
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
-        if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
+        if isAuthorized(authorizationStatus) {
             manager.requestLocation()
         }
+    }
+
+    private func isAuthorized(_ status: CLAuthorizationStatus) -> Bool {
+        #if os(macOS)
+        return status == .authorized || status == .authorizedAlways
+        #else
+        return status == .authorizedWhenInUse || status == .authorizedAlways
+        #endif
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {

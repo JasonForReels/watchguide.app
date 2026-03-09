@@ -276,7 +276,7 @@ struct AIPromptButton: View {
                     .foregroundColor(.secondary)
             }
             .padding()
-            .background(Color(.systemGray6))
+            .background(Color.gray.opacity(0.12))
             .cornerRadius(16)
             .scaleEffect(isPressed ? 0.97 : 1.0)
             .animation(.spring(response: 0.2), value: isPressed)
@@ -311,7 +311,7 @@ struct StatCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .background(Color(.systemGray6))
+        .background(Color.gray.opacity(0.12))
         .cornerRadius(12)
     }
 }
@@ -376,7 +376,7 @@ struct AIProviderSheet: View {
                         .foregroundColor(.secondary)
                 }
                 .padding()
-                .background(Color(.systemGray6))
+                .background(Color.gray.opacity(0.12))
                 .cornerRadius(12)
                 .padding(.horizontal)
                 #endif
@@ -384,7 +384,9 @@ struct AIProviderSheet: View {
                 Spacer()
             }
             .navigationTitle("Open AI Assistant")
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -545,7 +547,7 @@ struct AIProviderButton: View {
                     .foregroundColor(.secondary)
             }
             .padding()
-            .background(Color(.systemGray6))
+            .background(Color.gray.opacity(0.12))
             .cornerRadius(12)
         }
         .buttonStyle(.plain)

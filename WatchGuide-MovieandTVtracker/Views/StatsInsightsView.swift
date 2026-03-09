@@ -17,6 +17,18 @@ struct StatsInsightsView: View {
     @State private var recentlyAdded: [SavedMediaItem] = []
     @State private var isLoading = true
     @State private var allGenres: [Genre] = []
+
+    private var movieCount: Int {
+        allItems.filter { $0.mediaType == .movie }.count
+    }
+
+    private var tvCount: Int {
+        allItems.filter { $0.mediaType == .tv }.count
+    }
+
+    private var mediaTotal: Int {
+        max(movieCount + tvCount, 1)
+    }
     
     var body: some View {
         ScrollView {
@@ -136,11 +148,6 @@ struct StatsInsightsView: View {
                 .fontWeight(.bold)
                 .padding(.horizontal)
             
-            // Movie vs TV ratio
-            let movieCount = allItems.filter { $0.mediaType == .movie }.count
-            let tvCount = allItems.filter { $0.mediaType == .tv }.count
-            let total = max(movieCount + tvCount, 1)
-            
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("Movies vs TV Shows")
@@ -153,7 +160,7 @@ struct StatsInsightsView: View {
                 }
                 
                 GeometryReader { geo in
-                    let movieWidth = geo.size.width * CGFloat(movieCount) / CGFloat(total)
+                    let movieWidth = geo.size.width * CGFloat(movieCount) / CGFloat(mediaTotal)
                     
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 6)
@@ -170,21 +177,21 @@ struct StatsInsightsView: View {
                 HStack {
                     HStack(spacing: 4) {
                         Circle().fill(Color.accentColor).frame(width: 8, height: 8)
-                        Text("Movies (\(Int(Double(movieCount) / Double(total) * 100))%)")
+                        Text("Movies (\(Int(Double(movieCount) / Double(mediaTotal) * 100))%)")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
                     Spacer()
                     HStack(spacing: 4) {
                         Circle().fill(Color.mint.opacity(0.3)).frame(width: 8, height: 8)
-                        Text("TV Shows (\(Int(Double(tvCount) / Double(total) * 100))%)")
+                        Text("TV Shows (\(Int(Double(tvCount) / Double(mediaTotal) * 100))%)")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
                 }
             }
             .padding()
-            .background(Color(.systemGray6))
+            .background(Color.gray.opacity(0.12))
             .cornerRadius(14)
             .padding(.horizontal)
         }
@@ -226,7 +233,7 @@ struct StatsInsightsView: View {
                 }
             }
             .padding()
-            .background(Color(.systemGray6))
+            .background(Color.gray.opacity(0.12))
             .cornerRadius(14)
             .padding(.horizontal)
         }
@@ -301,7 +308,7 @@ struct StatsInsightsView: View {
                 }
             }
             .padding()
-            .background(Color(.systemGray6))
+            .background(Color.gray.opacity(0.12))
             .cornerRadius(14)
             .padding(.horizontal)
         }
@@ -431,7 +438,7 @@ struct StatsInsightsView: View {
     private func ratingColor(for range: String) -> Color {
         switch range {
         case "9-10": return .green
-        case "8-9": return Color(.systemGreen).opacity(0.8)
+        case "8-9": return .green.opacity(0.8)
         case "7-8": return .teal
         case "6-7": return .yellow
         case "5-6": return .orange
@@ -532,7 +539,7 @@ struct OverviewCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(Color(.systemGray6))
+        .background(Color.gray.opacity(0.12))
         .cornerRadius(14)
     }
 }

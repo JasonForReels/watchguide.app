@@ -237,6 +237,7 @@ class CarouselTimerManager: ObservableObject {
     private var timer: Timer?
     private var isPaused = false
     private var displayLink: CADisplayLink?
+    private var progressTimer: Timer?
     private var startTime: CFTimeInterval = 0
     private var duration: TimeInterval = 15
     
@@ -330,16 +331,26 @@ class CarouselTimerManager: ObservableObject {
     private func startDisplayLink() {
         stopDisplayLink()
         startTime = CACurrentMediaTime()
+        #if os(macOS)
+        // CADisplayLink target/selector initializer is unavailable on macOS.
+        displayLink = nil
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            self?.updateProgress()
+        }
+        #else
         let link = CADisplayLink(target: DisplayLinkTarget { [weak self] in
             self?.updateProgress()
         }, selector: #selector(DisplayLinkTarget.tick))
         link.add(to: .main, forMode: .common)
         displayLink = link
+        #endif
     }
     
     private func stopDisplayLink() {
         displayLink?.invalidate()
         displayLink = nil
+        progressTimer?.invalidate()
+        progressTimer = nil
     }
     
     private func updateProgress() {
@@ -355,6 +366,7 @@ class CarouselTimerManager: ObservableObject {
     deinit {
         timer?.invalidate()
         displayLink?.invalidate()
+        progressTimer?.invalidate()
     }
 }
 
@@ -639,7 +651,7 @@ struct HeroCarouselSlide: View {
                     Spacer()
                 }
                 .transition(.opacity)
-                
+
                 // Bottom-left: logo + TRAILER badge
                 VStack(alignment: .leading, spacing: 6) {
                     Spacer()
@@ -669,7 +681,11 @@ struct HeroCarouselSlide: View {
                             .foregroundColor(.white.opacity(0.8))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 3)
-                            .background(Capsule().fill(.ultraThinMaterial))
+                            .background {
+                                Capsule()
+                                    .fill(.clear)
+                                    .glassEffect(.regular, in: .capsule)
+                            }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -776,7 +792,7 @@ struct HeroCarouselSlide: View {
             switch phase {
             case .empty:
                 Rectangle()
-                    .fill(Color(.systemGray5))
+                    .fill(Color.gray.opacity(0.2))
                     .overlay { ProgressView() }
             case .success(let image):
                 image
@@ -807,7 +823,7 @@ struct HeroCarouselSlide: View {
                     placeholderView
                 }
             @unknown default:
-                Rectangle().fill(Color(.systemGray5))
+                Rectangle().fill(Color.gray.opacity(0.2))
             }
         }
         .frame(width: slideWidth, height: slideHeight)
@@ -816,7 +832,7 @@ struct HeroCarouselSlide: View {
     
     private var placeholderView: some View {
         Rectangle()
-            .fill(Color(.systemGray5))
+            .fill(Color.gray.opacity(0.2))
             .overlay {
                 Image(systemName: "film")
                     .font(.largeTitle)
@@ -864,6 +880,7 @@ class HeroPlayerViewModel: ObservableObject {
                 showControls: false,
                 showFullscreenButton: false,
                 keyboardControlsDisabled: true,
+                // Equivalent to rel=0 behavior in modern YouTube embeds.
                 restrictRelatedVideosToSameChannel: true
             ),
             configuration: .init(

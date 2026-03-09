@@ -645,7 +645,9 @@ struct MoodFilterSheet: View {
                 }
             }
             .navigationTitle("Filters")
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

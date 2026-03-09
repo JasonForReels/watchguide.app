@@ -2,131 +2,88 @@
 //  InAppYouTubePlayer.swift
 //  WatchGuide-MovieandTVtracker
 //
-//  Embedded YouTube player using YouTubePlayerKit (SPM).
-//  Uses the official YouTube IFrame Player API bridge — handles
-//  Referer headers, embed restrictions, and Error 153 automatically.
+//  Embedded trailer player powered by AVPlayer.
+//  Note: AVPlayer can only play direct media URLs (mp4/mov/m3u8), not YouTube page IDs.
 //
 
 import SwiftUI
+import AVKit
+#if canImport(WebKit)
+import WebKit
+#endif
 
-#if !os(tvOS)
-import YouTubePlayerKit
+private extension Color {
+    static var trailerFallbackGray: Color {
+        #if canImport(UIKit)
+        return Color(UIColor.systemGray5)
+        #elseif canImport(AppKit)
+        return Color(nsColor: .controlBackgroundColor)
+        #else
+        return Color.gray.opacity(0.2)
+        #endif
+    }
+}
 
-// MARK: - Embedded Trailer Player View (plays inline with controls overlay)
+// MARK: - Embedded Trailer Player View
 struct EmbeddedTrailerPlayer: View {
     let videoKey: String
     let title: String
     var compact: Bool = false
     var autoPlay: Bool = true
 
-    @StateObject private var player: YouTubePlayer
-
+    @State private var player: AVPlayer?
     @State private var isMuted: Bool
     @State private var showControls = true
     @State private var controlsTimer: Timer?
-    @State private var isReady = false
-    @State private var hasError = false
+    @State private var hasPlayableSource = false
+    @State private var embeddedYouTubeID: String?
 
     init(videoKey: String, title: String, compact: Bool = false, autoPlay: Bool = true) {
         self.videoKey = videoKey
         self.title = title
         self.compact = compact
         self.autoPlay = autoPlay
-        
-        let startMuted = StorageService.shared.settings.autoPlayTrailersMuted
-        _isMuted = State(initialValue: startMuted)
-        
-        _player = StateObject(wrappedValue: YouTubePlayer(
-            source: .video(id: videoKey),
-            parameters: .init(
-                autoPlay: autoPlay,
-                loopEnabled: true,
-                showControls: false,
-                showFullscreenButton: false,
-                keyboardControlsDisabled: true,
-                restrictRelatedVideosToSameChannel: true
-            ),
-            configuration: .init(
-                allowsInlineMediaPlayback: true,
-                openURLAction: .init { _, _ in
-                    // Block all navigation to prevent Safari from opening
-                }
-            )
-        ))
+        _isMuted = State(initialValue: StorageService.shared.settings.autoPlayTrailersMuted)
     }
 
     var body: some View {
         ZStack {
             Color.black
 
-            // YouTube Player (from YouTubePlayerKit)
-            YouTubePlayerKit.YouTubePlayerView(player)
-                .opacity(isReady ? 1 : 0)
-                .animation(.easeIn(duration: 0.3), value: isReady)
-
-            // Loading state
-            if !isReady && !hasError {
-                loadingOverlay
-            }
-
-            // Error fallback
-            if hasError {
+            if let player, hasPlayableSource {
+                VideoPlayer(player: player)
+                    .onAppear {
+                        player.isMuted = isMuted
+                        if autoPlay {
+                            player.play()
+                        }
+                    }
+                    .onDisappear {
+                        player.pause()
+                    }
+            } else if let youtubeID = embeddedYouTubeID {
+                #if os(iOS) || targetEnvironment(macCatalyst)
+                YouTubeNoChromeWebPlayer(videoID: youtubeID, autoplay: autoPlay, muted: isMuted)
+                    .allowsHitTesting(false)
+                #else
+                TrailerErrorFallback(videoKey: youtubeID, title: title, compact: compact)
+                #endif
+            } else {
                 TrailerErrorFallback(videoKey: videoKey, title: title, compact: compact)
             }
 
-            // Custom controls overlay (only when ready)
-            if isReady && !hasError {
+            if hasPlayableSource || embeddedYouTubeID != nil {
                 controlsOverlay
             }
         }
-        .aspectRatio(16.0/9.0, contentMode: .fit)
+        .aspectRatio(16.0 / 9.0, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 14))
-        .onReceive(player.statePublisher) { state in
-            switch state {
-            case .ready:
-                isReady = true
-                hasError = false
-                // Apply mute preference then explicitly start playback.
-                // On real devices WebKit blocks autoplay unless we mute first
-                // and then call play() explicitly after the player is ready.
-                let shouldMute = StorageService.shared.settings.autoPlayTrailersMuted
-                Task {
-                    // Always mute first to satisfy iOS autoplay policy
-                    try? await player.mute()
-                    // Explicitly start playback (autoPlay param alone is unreliable on real devices)
-                    try? await player.play()
-                    // Then apply the user's actual mute preference
-                    if !shouldMute {
-                        try? await player.unmute()
-                    }
-                }
-            case .error:
-                hasError = true
-            default:
-                break
-            }
-        }
         .onAppear {
+            configurePlayerIfPossible()
             scheduleControlsHide()
         }
         .onDisappear {
             controlsTimer?.invalidate()
-        }
-    }
-
-    private var loadingOverlay: some View {
-        ZStack {
-            AsyncImage(url: URL(string: "https://img.youtube.com/vi/\(videoKey)/maxresdefault.jpg")) { phase in
-                if case .success(let image) = phase {
-                    image
-                        .resizable()
-                        .aspectRatio(16.0/9.0, contentMode: .fill)
-                }
-            }
-            Color.black.opacity(0.4)
-            ProgressView()
-                .tint(.white)
-                .scaleEffect(1.2)
         }
     }
 
@@ -147,16 +104,10 @@ struct EmbeddedTrailerPlayer: View {
                 VStack {
                     Spacer()
 
-                    HStack(spacing: 12) {
+                    HStack {
                         Button {
                             isMuted.toggle()
-                            Task {
-                                if isMuted {
-                                    try? await player.mute()
-                                } else {
-                                    try? await player.unmute()
-                                }
-                            }
+                            player?.isMuted = isMuted
                             scheduleControlsHide()
                         } label: {
                             Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
@@ -166,30 +117,14 @@ struct EmbeddedTrailerPlayer: View {
                                 .background(Circle().fill(.black.opacity(0.55)))
                         }
 
-                        if !compact {
-                            Text(title)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundColor(.white)
-                                .lineLimit(1)
-                                .shadow(color: .black.opacity(0.5), radius: 2)
-                        }
-
                         Spacer()
-
-                        Text("TRAILER")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.white.opacity(0.8))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Capsule().fill(.ultraThinMaterial))
                     }
                     .padding(.horizontal, compact ? 8 : 12)
                     .padding(.bottom, compact ? 8 : 10)
                     .padding(.top, 20)
                     .background(
                         LinearGradient(
-                            colors: [.clear, .black.opacity(0.6)],
+                            colors: [.clear, .black.opacity(0.55)],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -204,15 +139,140 @@ struct EmbeddedTrailerPlayer: View {
         controlsTimer?.invalidate()
         controlsTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
             DispatchQueue.main.async {
-                withAnimation(.easeOut(duration: 0.3)) {
+                withAnimation(.easeOut(duration: 0.25)) {
                     showControls = false
                 }
             }
         }
     }
+
+    private func configurePlayerIfPossible() {
+        guard player == nil else { return }
+        embeddedYouTubeID = nil
+        guard let url = Self.resolveDirectMediaURL(from: videoKey) else {
+            hasPlayableSource = false
+            embeddedYouTubeID = Self.resolveYouTubeID(from: videoKey)
+            return
+        }
+
+        let avPlayer = AVPlayer(url: url)
+        avPlayer.isMuted = isMuted
+        player = avPlayer
+        hasPlayableSource = true
+    }
+
+    private static func resolveDirectMediaURL(from value: String) -> URL? {
+        // Accept direct network media links.
+        if let url = URL(string: value), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) {
+            let ext = url.pathExtension.lowercased()
+            if ["mp4", "mov", "m4v", "m3u8"].contains(ext) {
+                return url
+            }
+        }
+
+        // Accept bundled media by filename key.
+        let candidates = ["mp4", "mov", "m4v", "m3u8"]
+        for ext in candidates {
+            if let bundled = Bundle.main.url(forResource: value, withExtension: ext) {
+                return bundled
+            }
+        }
+
+        return nil
+    }
+
+    private static func resolveYouTubeID(from value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Raw YouTube ID
+        if trimmed.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil {
+            return trimmed
+        }
+        // Full URL
+        guard let url = URL(string: trimmed) else { return nil }
+        if url.host?.contains("youtu.be") == true {
+            let id = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            return id.isEmpty ? nil : id
+        }
+        if url.host?.contains("youtube.com") == true {
+            if let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+               let v = queryItems.first(where: { $0.name == "v" })?.value,
+               !v.isEmpty {
+                return v
+            }
+            let comps = url.pathComponents
+            if let idx = comps.firstIndex(of: "embed"), comps.indices.contains(idx + 1) {
+                let id = comps[idx + 1]
+                return id.isEmpty ? nil : id
+            }
+        }
+        return nil
+    }
 }
 
-// MARK: - Error Fallback (thumbnail with play button, opens YouTube externally)
+#if canImport(WebKit) && (os(iOS) || targetEnvironment(macCatalyst))
+private struct YouTubeNoChromeWebPlayer: UIViewRepresentable {
+    let videoID: String
+    let autoplay: Bool
+    let muted: Bool
+
+    class Coordinator {
+        var lastSource: String?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.isOpaque = false
+        webView.backgroundColor = .black
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.bounces = false
+        webView.isUserInteractionEnabled = false
+        load(into: webView, coordinator: context.coordinator)
+        return webView
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        load(into: uiView, coordinator: context.coordinator)
+    }
+
+    private func load(into webView: WKWebView, coordinator: Coordinator) {
+        let autoplayValue = autoplay ? "1" : "0"
+        let mutedValue = muted ? "1" : "0"
+        let src = "https://www.youtube-nocookie.com/embed/\(videoID)?autoplay=\(autoplayValue)&mute=\(mutedValue)&playsinline=1&controls=0&modestbranding=1&rel=0&iv_load_policy=3&fs=0&disablekb=1&loop=1&playlist=\(videoID)"
+        guard coordinator.lastSource != src else { return }
+        coordinator.lastSource = src
+        let html = """
+        <!doctype html>
+        <html>
+          <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <style>
+              html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+              iframe { position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; pointer-events: none; }
+            </style>
+          </head>
+          <body>
+            <iframe
+              src="\(src)"
+              title="Trailer"
+              allow="autoplay; encrypted-media; picture-in-picture"
+              allowfullscreen>
+            </iframe>
+          </body>
+        </html>
+        """
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube-nocookie.com"))
+    }
+}
+#endif
+
+// MARK: - Error Fallback
 struct TrailerErrorFallback: View {
     let videoKey: String
     let title: String
@@ -223,17 +283,17 @@ struct TrailerErrorFallback: View {
             AsyncImage(url: URL(string: "https://img.youtube.com/vi/\(videoKey)/maxresdefault.jpg")) { phase in
                 switch phase {
                 case .success(let image):
-                    image.resizable().aspectRatio(16.0/9.0, contentMode: .fill)
+                    image.resizable().aspectRatio(16.0 / 9.0, contentMode: .fill)
                 default:
-                    Color(.systemGray5)
+                    Color.trailerFallbackGray
                 }
             }
 
             Color.black.opacity(0.35)
 
             Button {
-                if let url = URL(string: "https://www.youtube.com/watch?v=\(videoKey)") {
-                    PlatformURLHandler.openURL(url)
+                if let externalURL = resolvedExternalURL {
+                    PlatformURLHandler.openURL(externalURL)
                 }
             } label: {
                 ZStack {
@@ -249,9 +309,16 @@ struct TrailerErrorFallback: View {
             }
         }
     }
+
+    private var resolvedExternalURL: URL? {
+        if let directURL = URL(string: videoKey), directURL.scheme != nil {
+            return directURL
+        }
+        return URL(string: "https://www.youtube.com/watch?v=\(videoKey)")
+    }
 }
 
-// MARK: - Full Screen YouTube Player Sheet
+// MARK: - Full Screen Trailer Sheet
 struct YouTubePlayerSheet: View {
     let videoKey: String
     let title: String
@@ -264,15 +331,14 @@ struct YouTubePlayerSheet: View {
 
                 VStack {
                     Spacer()
-                    EmbeddedTrailerPlayer(
-                        videoKey: videoKey,
-                        title: title
-                    )
-                    .padding(.horizontal)
+                    EmbeddedTrailerPlayer(videoKey: videoKey, title: title)
+                        .padding(.horizontal)
                     Spacer()
                 }
             }
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
@@ -285,101 +351,19 @@ struct YouTubePlayerSheet: View {
                     }
                 }
             }
+            #if !os(macOS)
             .toolbarBackground(.hidden, for: .navigationBar)
+            #endif
         }
     }
 }
 
-// MARK: - Legacy InAppYouTubePlayer (kept for API compat)
+// MARK: - Legacy API compatibility
 struct InAppYouTubePlayer: View {
     let videoKey: String
     var autoplay: Bool = true
 
     var body: some View {
-        EmbeddedTrailerPlayer(videoKey: videoKey, title: "Trailer")
+        EmbeddedTrailerPlayer(videoKey: videoKey, title: "Trailer", compact: false, autoPlay: autoplay)
     }
 }
-
-#else
-// tvOS fallback: no in-app player support.
-struct EmbeddedTrailerPlayer: View {
-    let videoKey: String
-    let title: String
-    var compact: Bool = false
-    var autoPlay: Bool = true
-
-    var body: some View {
-        TrailerErrorFallback(videoKey: videoKey, title: title, compact: compact)
-    }
-}
-
-struct TrailerErrorFallback: View {
-    let videoKey: String
-    let title: String
-    var compact: Bool = false
-
-    var body: some View {
-        ZStack {
-            AsyncImage(url: URL(string: "https://img.youtube.com/vi/\(videoKey)/maxresdefault.jpg")) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(16.0 / 9.0, contentMode: .fill)
-                default:
-                    Color(.systemGray5)
-                }
-            }
-
-            Color.black.opacity(0.35)
-
-            ZStack {
-                Circle()
-                    .fill(.black.opacity(0.5))
-                    .frame(width: compact ? 40 : 56, height: compact ? 40 : 56)
-
-                Image(systemName: "play.fill")
-                    .font(compact ? .body : .title3)
-                    .foregroundColor(.white)
-                    .offset(x: 2)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 14))
-    }
-}
-
-struct YouTubePlayerSheet: View {
-    let videoKey: String
-    let title: String
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                TrailerErrorFallback(videoKey: videoKey, title: title)
-                    .padding(.horizontal)
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, Color.white.opacity(0.25))
-                    }
-                }
-            }
-            .toolbarBackground(.hidden, for: .navigationBar)
-        }
-    }
-}
-
-struct InAppYouTubePlayer: View {
-    let videoKey: String
-    var autoplay: Bool = true
-
-    var body: some View {
-        EmbeddedTrailerPlayer(videoKey: videoKey, title: "Trailer", compact: false, autoPlay: false)
-    }
-}
-#endif

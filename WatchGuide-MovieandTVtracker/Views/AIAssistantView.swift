@@ -120,7 +120,9 @@ struct AIAssistantView: View {
         NavigationStack {
             AIAssistantBody(viewModel: viewModel)
                 .navigationTitle("Scout")
+                #if !os(macOS)
                 .navigationBarTitleDisplayMode(.inline)
+                #endif
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         ClearButton(viewModel: viewModel)
@@ -196,7 +198,7 @@ private struct AIQuotaStatusBar: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 6)
-        .background(Color(.systemGray6))
+        .background(Color.gray.opacity(0.12))
     }
 }
 
@@ -272,7 +274,9 @@ struct ScoutPrivacySheet: View {
                 }
                 .padding(.horizontal, 24)
             }
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -596,7 +600,7 @@ struct ScoutPrivacyBanner: View {
                     .fontWeight(.bold)
                     .foregroundColor(.secondary)
                     .padding(6)
-                    .background(Color(.systemGray5))
+                    .background(Color.gray.opacity(0.18))
                     .clipShape(Circle())
             }
         }
@@ -604,7 +608,7 @@ struct ScoutPrivacyBanner: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(.systemGray6))
+                .fill(Color.gray.opacity(0.12))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -633,7 +637,7 @@ struct AIInputBar: View {
                 onSend: onSend
             )
         }
-        .background(Color(.systemGray6))
+        .background(Color.gray.opacity(0.12))
     }
 }
 
@@ -672,7 +676,7 @@ private struct ModelSelectorRow: View, Equatable {
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
-                .background(Color(.systemGray5))
+                .background(Color.gray.opacity(0.18))
                 .cornerRadius(6)
             }
             .foregroundColor(.secondary)
@@ -705,14 +709,14 @@ private struct AIInputTextField: View {
                 .scrollContentBackground(.hidden)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Color(.systemGray5))
+                .background(Color.gray.opacity(0.18))
                 .cornerRadius(18)
                 .overlay {
                     if inputText.isEmpty {
                         HStack {
                             Text("Ask Scout anything...")
                                 .font(.body)
-                                .foregroundColor(Color(.placeholderText))
+                                .foregroundColor(Color.secondary)
                                 .padding(.leading, 12)
                                 .allowsHitTesting(false)
                             Spacer()
@@ -746,7 +750,7 @@ struct SuggestionChip: View {
                 .font(.subheadline)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(Color(.systemGray6))
+                .background(Color.gray.opacity(0.12))
                 .cornerRadius(16)
         }
         .foregroundColor(.primary)
@@ -868,7 +872,7 @@ struct ThinkingBubble: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(Color(.systemGray5).opacity(0.7))
+            .background(Color.gray.opacity(0.18).opacity(0.7))
             .cornerRadius(16)
             .frame(maxWidth: 300, alignment: .leading)
             
@@ -1096,7 +1100,7 @@ private struct SourceLinkChip: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(Color(.systemGray6))
+            .background(Color.gray.opacity(0.12))
             .foregroundColor(.accentColor)
             .cornerRadius(10)
         }
@@ -1179,7 +1183,7 @@ struct MessageBubble: View {
     private var isUser: Bool { message.role == "user" }
     
     private var assistantBubbleColor: Color {
-        colorScheme == .dark ? Color(.systemGray5) : Color(.systemGray6)
+        colorScheme == .dark ? Color.gray.opacity(0.18) : Color.gray.opacity(0.12)
     }
     
     var body: some View {
@@ -1298,11 +1302,11 @@ struct MessageBubble: View {
                         .padding(11)
                         .background(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color(.systemGray6))
+                                .fill(Color.gray.opacity(0.12))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Color(.systemGray4).opacity(0.3), lineWidth: 0.5)
+                                .stroke(Color.gray.opacity(0.35).opacity(0.3), lineWidth: 0.5)
                         )
                     }
                     .foregroundColor(.primary)
@@ -1354,7 +1358,9 @@ struct TrailerPlayerSheet: View {
                     Spacer()
                 }
             }
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
@@ -1367,7 +1373,9 @@ struct TrailerPlayerSheet: View {
                     }
                 }
             }
+            #if !os(macOS)
             .toolbarBackground(.hidden, for: .navigationBar)
+            #endif
         }
     }
 }

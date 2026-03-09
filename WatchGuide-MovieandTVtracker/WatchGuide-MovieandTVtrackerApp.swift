@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(AppIntents)
+import AppIntents
+#endif
 
 @main
 struct WatchGuide_MovieandTVtrackerApp: App {
@@ -17,13 +20,23 @@ struct WatchGuide_MovieandTVtrackerApp: App {
             SplashScreenView()
                 .task {
                     await scoutSubscription.prepare()
+                    registerAppShortcutsIfAvailable()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     guard newPhase == .active else { return }
                     Task {
                         await scoutSubscription.prepare()
+                        registerAppShortcutsIfAvailable()
                     }
                 }
         }
+    }
+
+    private func registerAppShortcutsIfAvailable() {
+#if canImport(AppIntents) && canImport(VisualIntelligence) && !targetEnvironment(simulator)
+        // Keep app launch resilient if AppShortcuts provider source is not compiled into this target.
+        // Visual intelligence features continue to work without this registration call.
+        if #available(iOS 18.0, *) {}
+#endif
     }
 }

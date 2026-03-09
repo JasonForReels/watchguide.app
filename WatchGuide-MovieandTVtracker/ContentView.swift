@@ -12,20 +12,23 @@ struct ContentView: View {
     @State private var selectedTab: Tab = .browse
     @State private var selectedMediaItem: MediaItem?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var profileService = ProfileService.shared
+    @ObservedObject private var aiGuideManager = AppleIntelligenceGuideManager.shared
     
     // Track which tabs have been visited so we only create their views once
     @State private var visitedTabs: Set<Tab> = [.browse]
     
-    // Profile switcher bar state
-    @State private var showProfileSwitcherBar = false
+    @State private var showProfileSwitcherPage = false
+    @State private var lastContentTab: Tab = .browse
     
     enum Tab: Int, CaseIterable, Identifiable {
         case browse = 0
         case search = 1
         case ai = 2
         case lists = 3
+        case me = 4
         
         var id: Int { rawValue }
         
@@ -35,6 +38,7 @@ struct ContentView: View {
             case .search: return "Search"
             case .ai: return "Scout"
             case .lists: return "Lists"
+            case .me: return "Me"
             }
         }
         
@@ -44,11 +48,18 @@ struct ContentView: View {
             case .search: return "magnifyingglass"
             case .ai: return "sparkles"
             case .lists: return "list.bullet.below.rectangle"
+            case .me: return "person.crop.circle"
             }
         }
     }
     
     @State private var showPostSignInSync = false
+    
+    #if os(macOS) || targetEnvironment(macCatalyst)
+    private var isMacLike: Bool { true }
+    #else
+    private var isMacLike: Bool { false }
+    #endif
     
     var body: some View {
         if requiresOnboarding {
@@ -61,7 +72,7 @@ struct ContentView: View {
             ProfilePickerView()
         } else if authService.isAuthenticated && authService.requiresPostSignInSyncDecision {
             // Just signed in/up — show sync decision popup over a loading state
-            Color(.systemBackground)
+            platformBackgroundColor
                 .ignoresSafeArea()
                 .overlay {
                     VStack(spacing: 16) {
@@ -81,10 +92,21 @@ struct ContentView: View {
                 }
         } else {
             Group {
+                #if os(macOS) || targetEnvironment(macCatalyst)
+                if isMacLike {
+                    macLayout
+                } else {
+                    iPhoneLayout
+                }
+                #else
                 iPhoneLayout
+                #endif
             }
             .sheet(item: $selectedMediaItem) { item in
                 MediaDetailView(item: item)
+            }
+            .sheet(isPresented: $aiGuideManager.isGuidePresented) {
+                AppleIntelligenceGuideView()
             }
             .onChange(of: selectedMediaItem) { _, newValue in
                 HeroCarouselMuteManager.shared.isExternallyMuted = (newValue != nil)
@@ -106,6 +128,31 @@ struct ContentView: View {
                     selectedTab = .browse
                 }
                 visitedTabs.insert(selectedTab)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .appleIntelligenceGuideOpenDestination)) { notification in
+                guard let destination = notification.object as? AppleIntelligenceGuideDestination else { return }
+                switch destination {
+                case .search:
+                    selectedTab = .search
+                    visitedTabs.insert(.search)
+                case .scout:
+                    let target: Tab = visibleTabs.contains(.ai) ? .ai : .browse
+                    selectedTab = target
+                    visitedTabs.insert(target)
+                case .browse:
+                    selectedTab = .browse
+                    visitedTabs.insert(.browse)
+                }
+            }
+            .task {
+                await handlePendingVisualRouteIfNeeded()
+                aiGuideManager.presentIfNeededAfterUpdate()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                guard newPhase == .active else { return }
+                Task {
+                    await handlePendingVisualRouteIfNeeded()
+                }
             }
         }
     }
@@ -145,138 +192,116 @@ struct ContentView: View {
         
         return tabs
     }
-    
+
+    private var firstAvailableContentTab: Tab {
+        visibleTabs.first(where: { $0 != .me }) ?? .browse
+    }
+
     // MARK: - iPhone Layout
     private var iPhoneLayout: some View {
-        ZStack(alignment: .bottom) {
-            // Content area — tabs rendered directly (no native TabView tab bar)
-            ZStack {
-                ForEach(visibleTabs) { tab in
-                    tabContent(for: tab)
-                        .opacity(selectedTab == tab ? 1 : 0)
-                        .zIndex(selectedTab == tab ? 1 : 0)
-                        .allowsHitTesting(selectedTab == tab)
+        TabView(selection: $selectedTab) {
+            ForEach(visibleTabs) { tab in
+                tabContent(for: tab)
+                    .tabItem {
+                        Image(systemName: tab.iconName)
+                        Text(tab.label)
+                    }
+                    .tag(tab)
+            }
+        }
+        .onChange(of: selectedTab) { _, newTab in
+            if newTab == .me {
+                showProfileSwitcherPage = true
+                let fallbackTab = visibleTabs.contains(lastContentTab) ? lastContentTab : firstAvailableContentTab
+                if selectedTab != fallbackTab {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        selectedTab = fallbackTab
+                    }
+                }
+            } else {
+                lastContentTab = newTab
+                visitedTabs.insert(newTab)
+            }
+        }
+        .onAppear {
+            if selectedTab == .me {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    selectedTab = firstAvailableContentTab
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Leave space for the custom tab bar
-            .safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: 56)
-            }
-            
-            // Custom Tab Bar + Me button
-            VStack(spacing: 0) {
-                // Profile Switcher Bar overlay (above the tab bar)
-                if showProfileSwitcherBar {
-                    ProfileSwitcherBar(
-                        profiles: profileService.profiles,
-                        activeProfileId: profileService.activeProfile?.id,
-                        onSelectProfile: { profile in
-                            profileService.switchToProfile(profile)
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                showProfileSwitcherBar = false
-                            }
-                        },
-                        onDismiss: {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                showProfileSwitcherBar = false
-                            }
-                        }
-                    )
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                
-                customTabBar
-            }
+        }
+        .sheet(isPresented: $showProfileSwitcherPage) {
+            ProfilePickerView()
         }
         .ignoresSafeArea(.keyboard)
-        .onChange(of: selectedTab) { _, newTab in
-            visitedTabs.insert(newTab)
-            if showProfileSwitcherBar {
-                withAnimation(.easeOut(duration: 0.25)) {
-                    showProfileSwitcherBar = false
-                }
-            }
-        }
         .id("\(authService.isAuthenticated)-\(profileService.activeProfile?.id ?? "none")")
     }
     
-    // MARK: - Custom Tab Bar (Liquid Glass)
-    private var customTabBar: some View {
-        HStack(spacing: 12) {
-            // Main tab bar pill — Liquid Glass style
-            HStack(spacing: 0) {
-                ForEach(visibleTabs) { tab in
-                    Button {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                            selectedTab = tab
-                        }
-                    } label: {
-                        VStack(spacing: 3) {
-                            Image(systemName: tab.iconName)
-                                .font(.system(size: 18, weight: .semibold))
-                                .symbolEffect(.bounce.down, value: selectedTab == tab)
-                            Text(tab.label)
-                                .font(.system(size: 10, weight: .medium))
-                        }
-                        .foregroundStyle(selectedTab == tab ? .primary : .secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+    // MARK: - Mac Layout
+    #if os(macOS) || targetEnvironment(macCatalyst)
+    private var macLayout: some View {
+        NavigationSplitView {
+            List(selection: $selectedTab) {
+                ForEach(visibleTabs.filter { $0 != .me }) { tab in
+                    Label(tab.label, systemImage: tab.iconName)
+                        .tag(tab)
                 }
             }
-            .padding(.horizontal, 4)
-            .padding(.vertical, 4)
-            .background {
-                LiquidGlassCapsuleBackground()
+            .navigationTitle("WatchGuide")
+            .listStyle(.sidebar)
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    Spacer()
+                    Button {
+                        showProfileSwitcherPage = true
+                    } label: {
+                        Label("Profiles", systemImage: "person.crop.circle")
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
-            
-            // Separate "Me" profile button
-            meProfileButton
+        } detail: {
+            tabContent(for: activeMacTab)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 6)
-        .padding(.top, 4)
+        .sheet(isPresented: $showProfileSwitcherPage) {
+            ProfilePickerView()
+        }
+        .onAppear {
+            if !visibleTabs.contains(selectedTab) || selectedTab == .me {
+                selectedTab = firstAvailableContentTab
+            }
+            visitedTabs.insert(selectedTab)
+        }
+        .onChange(of: selectedTab) { _, newTab in
+            if !visibleTabs.contains(newTab) || newTab == .me {
+                selectedTab = firstAvailableContentTab
+            }
+            visitedTabs.insert(selectedTab)
+        }
+        .frame(minWidth: 1100, minHeight: 740)
     }
     
-    // MARK: - Me Profile Button (Liquid Glass circle)
-    private var meProfileButton: some View {
-        Button {
-            let generator = UIImpactFeedbackGenerator(style: .medium)
-            generator.impactOccurred()
-            if profileService.hasProfiles, profileService.profiles.count > 1 {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    showProfileSwitcherBar.toggle()
-                }
-            }
-        } label: {
-            ZStack {
-                LiquidGlassCircleBackground(size: 52)
-                
-                if let profile = profileService.activeProfile {
-                    ProfileAvatarImageView(
-                        profile: profile,
-                        size: 34,
-                        showBorder: false
-                    )
-                } else {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                
-                // Active indicator ring
-                if showProfileSwitcherBar, let profile = profileService.activeProfile {
-                    Circle()
-                        .stroke(profile.color.color.opacity(0.8), lineWidth: 2)
-                        .frame(width: 52, height: 52)
-                }
-            }
-            .frame(width: 52, height: 52)
-        }
-        .buttonStyle(.plain)
+    private var activeMacTab: Tab {
+        let candidate = selectedTab == .me ? firstAvailableContentTab : selectedTab
+        return visibleTabs.contains(candidate) ? candidate : firstAvailableContentTab
+    }
+    #endif
+
+    private var platformBackgroundColor: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #elseif canImport(UIKit)
+        Color(uiColor: .systemBackground)
+        #else
+        Color.black
+        #endif
     }
     
     @ViewBuilder
@@ -299,6 +324,74 @@ struct ContentView: View {
             LazyTabContent(tab: .lists, visitedTabs: $visitedTabs) {
                 ListsView()
             }
+        case .me:
+            Color.clear
+        }
+    }
+
+    @MainActor
+    private func handlePendingVisualRouteIfNeeded() async {
+        guard let route = await VisualIntentRouteCenter.shared.consume() else { return }
+        guard let mediaItem = await fetchMediaItem(for: route) else { return }
+
+        if route.action == .addToWatchlist {
+            StorageService.shared.addToWantToWatch(SavedMediaItem(from: mediaItem))
+        }
+
+        selectedTab = .browse
+        selectedMediaItem = mediaItem
+    }
+
+    private func fetchMediaItem(for route: VisualIntentRoute) async -> MediaItem? {
+        do {
+            switch route.mediaType {
+            case .movie:
+                let details = try await TMDBService.shared.getMovieDetails(id: route.mediaId)
+                return MediaItem(
+                    id: details.id,
+                    title: details.title,
+                    name: nil,
+                    originalTitle: details.originalTitle,
+                    originalName: nil,
+                    overview: details.overview,
+                    posterPath: details.posterPath,
+                    backdropPath: details.backdropPath,
+                    releaseDate: details.releaseDate,
+                    firstAirDate: nil,
+                    voteAverage: details.voteAverage,
+                    voteCount: details.voteCount,
+                    popularity: nil,
+                    genreIds: details.genres?.map { $0.id },
+                    mediaType: MediaType.movie.rawValue,
+                    adult: details.adult,
+                    originalLanguage: nil
+                )
+            case .tv:
+                let details = try await TMDBService.shared.getTVShowDetails(id: route.mediaId)
+                return MediaItem(
+                    id: details.id,
+                    title: nil,
+                    name: details.name,
+                    originalTitle: nil,
+                    originalName: details.originalName,
+                    overview: details.overview,
+                    posterPath: details.posterPath,
+                    backdropPath: details.backdropPath,
+                    releaseDate: nil,
+                    firstAirDate: details.firstAirDate,
+                    voteAverage: details.voteAverage,
+                    voteCount: details.voteCount,
+                    popularity: nil,
+                    genreIds: details.genres?.map { $0.id },
+                    mediaType: MediaType.tv.rawValue,
+                    adult: nil,
+                    originalLanguage: nil
+                )
+            case .person:
+                return nil
+            }
+        } catch {
+            return nil
         }
     }
 }
@@ -383,7 +476,8 @@ struct ProfileSwitcherBar: View {
                                                     .foregroundStyle(profile.color.color)
                                                     .background(
                                                         Circle()
-                                                            .fill(.ultraThinMaterial)
+                                                            .fill(.clear)
+                                                            .glassEffect(.regular, in: .circle)
                                                             .frame(width: 16, height: 16)
                                                     )
                                             }
@@ -407,9 +501,7 @@ struct ProfileSwitcherBar: View {
             }
             .padding(.bottom, 14)
         }
-        .background {
-            LiquidGlassRoundedBackground(cornerRadius: 22)
-        }
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22))
         .padding(.horizontal, 12)
         .padding(.bottom, 4)
     }
@@ -430,227 +522,38 @@ struct LazyTabContent<Content: View>: View {
     }
 }
 
-// MARK: - Liquid Glass Background Components
+// MARK: - Liquid Glass Background Components (iOS 26 SDK)
 
-/// A capsule-shaped Liquid Glass background with specular highlight, depth shadow, and border refraction.
+/// A capsule-shaped Liquid Glass background using the native .glassEffect() modifier.
+/// Kept as a ViewModifier wrapper for backward compatibility with existing call sites.
 struct LiquidGlassCapsuleBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var isDark: Bool { colorScheme == .dark }
-    
     var body: some View {
-        ZStack {
-            // Depth shadow layer
-            Capsule()
-                .fill(Color.black.opacity(isDark ? 0.35 : 0.08))
-                .blur(radius: 3)
-                .offset(y: 2)
-            
-            // Main frosted glass
-            Capsule()
-                .fill(.ultraThinMaterial)
-            
-            // Inner subtle gradient for 3D curvature
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(isDark ? 0.08 : 0.18),
-                            .clear,
-                            .black.opacity(isDark ? 0.06 : 0.02)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-            
-            // Top specular highlight strip
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(isDark ? 0.12 : 0.22),
-                            .white.opacity(0)
-                        ],
-                        startPoint: .top,
-                        endPoint: .center
-                    )
-                )
-                .mask {
-                    VStack {
-                        Rectangle()
-                            .frame(height: 18)
-                        Spacer()
-                    }
-                }
-            
-            // Border ring with refraction gradient
-            Capsule()
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(isDark ? 0.22 : 0.35),
-                            .white.opacity(isDark ? 0.06 : 0.12),
-                            .white.opacity(0)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 0.7
-                )
-        }
-        .shadow(color: .black.opacity(isDark ? 0.4 : 0.12), radius: 12, y: 4)
+        Capsule()
+            .fill(.clear)
+            .glassEffect(.regular, in: .capsule)
     }
 }
 
-/// A circle-shaped Liquid Glass background.
+/// A circle-shaped Liquid Glass background using the native .glassEffect() modifier.
 struct LiquidGlassCircleBackground: View {
     let size: CGFloat
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var isDark: Bool { colorScheme == .dark }
     
     var body: some View {
-        ZStack {
-            // Depth shadow
-            Circle()
-                .fill(Color.black.opacity(isDark ? 0.3 : 0.06))
-                .frame(width: size, height: size)
-                .blur(radius: 3)
-                .offset(y: 2)
-            
-            // Main frosted glass
-            Circle()
-                .fill(.ultraThinMaterial)
-                .frame(width: size, height: size)
-            
-            // Inner curvature gradient
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(isDark ? 0.10 : 0.20),
-                            .clear,
-                            .black.opacity(isDark ? 0.08 : 0.02)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(width: size, height: size)
-            
-            // Top specular highlight
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(isDark ? 0.14 : 0.25),
-                            .white.opacity(0)
-                        ],
-                        startPoint: .top,
-                        endPoint: .center
-                    )
-                )
-                .frame(width: size, height: size)
-                .mask {
-                    VStack {
-                        Ellipse()
-                            .frame(width: size * 0.65, height: size * 0.3)
-                            .offset(y: size * 0.06)
-                        Spacer()
-                    }
-                    .frame(width: size, height: size)
-                }
-            
-            // Border refraction ring
-            Circle()
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(isDark ? 0.22 : 0.35),
-                            .white.opacity(isDark ? 0.05 : 0.1),
-                            .white.opacity(0)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 0.7
-                )
-                .frame(width: size, height: size)
-        }
-        .shadow(color: .black.opacity(isDark ? 0.35 : 0.1), radius: 10, y: 3)
+        Circle()
+            .fill(.clear)
+            .frame(width: size, height: size)
+            .glassEffect(.regular, in: .circle)
     }
 }
 
-/// A rounded-rectangle Liquid Glass background.
+/// A rounded-rectangle Liquid Glass background using the native .glassEffect() modifier.
 struct LiquidGlassRoundedBackground: View {
     let cornerRadius: CGFloat
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var isDark: Bool { colorScheme == .dark }
     
     var body: some View {
-        ZStack {
-            // Depth shadow
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.black.opacity(isDark ? 0.3 : 0.06))
-                .blur(radius: 4)
-                .offset(y: 3)
-            
-            // Main frosted glass
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
-            
-            // Inner curvature gradient
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(isDark ? 0.08 : 0.16),
-                            .clear,
-                            .black.opacity(isDark ? 0.06 : 0.02)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-            
-            // Top specular highlight
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(isDark ? 0.12 : 0.22),
-                            .white.opacity(0)
-                        ],
-                        startPoint: .top,
-                        endPoint: .center
-                    )
-                )
-                .mask {
-                    VStack {
-                        Rectangle()
-                            .frame(height: 22)
-                        Spacer()
-                    }
-                }
-            
-            // Border refraction
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(isDark ? 0.20 : 0.30),
-                            .white.opacity(isDark ? 0.05 : 0.10),
-                            .white.opacity(0)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 0.7
-                )
-        }
-        .shadow(color: .black.opacity(isDark ? 0.35 : 0.1), radius: 14, y: 4)
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.clear)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius))
     }
 }
 

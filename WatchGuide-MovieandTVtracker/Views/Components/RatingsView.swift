@@ -73,7 +73,7 @@ struct LogoRatingBadge: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color(.systemGray6))
+        .background(Color.gray.opacity(0.12))
         .cornerRadius(10)
     }
 }
@@ -118,7 +118,7 @@ struct RTDropdownBadge: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(Color(.systemGray6))
+                .background(Color.gray.opacity(0.12))
                 .cornerRadius(10)
             }
             .buttonStyle(.plain)
@@ -180,7 +180,7 @@ struct RTDropdownBadge: View {
                         .padding(.vertical, 8)
                     }
                 }
-                .background(Color(.systemGray6))
+                .background(Color.gray.opacity(0.12))
                 .cornerRadius(10)
                 .padding(.top, 4)
                 .transition(.opacity.combined(with: .move(edge: .top)).combined(with: .scale(scale: 0.95, anchor: .top)))
@@ -218,7 +218,7 @@ struct MetacriticBadge: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color(.systemGray6))
+        .background(Color.gray.opacity(0.12))
         .cornerRadius(10)
     }
 }

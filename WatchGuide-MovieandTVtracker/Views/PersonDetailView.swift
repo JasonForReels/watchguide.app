@@ -99,7 +99,9 @@ struct PersonDetailView: View {
                 .padding(.vertical)
             }
             .navigationTitle(personName)
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
@@ -116,7 +118,7 @@ struct PersonDetailView: View {
                     ProgressView()
                         .scaleEffect(1.2)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color(.systemBackground).opacity(0.5))
+                        .background(Color.gray.opacity(0.1))
                 }
             }
         }

@@ -62,6 +62,7 @@ struct AsyncImageView: View {
 // MARK: - Poster Image with FanArt.tv Primary, TMDB Fallback
 struct PosterImageView: View {
     let posterPath: String?
+    let backdropPath: String?
     let size: TMDBService.ImageSize
     var mediaId: Int?
     var mediaType: MediaType?
@@ -73,10 +74,17 @@ struct PosterImageView: View {
     /// Whether FanArt.tv image failed to render
     @State private var fanartImageFailed = false
     /// Whether TMDB image failed to render
-    @State private var tmdbImageFailed = false
+    @State private var useBackdropFallback = false
     
-    init(posterPath: String?, size: TMDBService.ImageSize = .medium, mediaId: Int? = nil, mediaType: MediaType? = nil) {
+    init(
+        posterPath: String?,
+        backdropPath: String? = nil,
+        size: TMDBService.ImageSize = .medium,
+        mediaId: Int? = nil,
+        mediaType: MediaType? = nil
+    ) {
         self.posterPath = posterPath
+        self.backdropPath = backdropPath
         self.size = size
         self.mediaId = mediaId
         self.mediaType = mediaType
@@ -120,8 +128,9 @@ struct PosterImageView: View {
     
     /// TMDB poster (fallback)
     private var tmdbPosterView: some View {
-        Group {
-            if let url = tmdbImageURL, !tmdbImageFailed {
+        let currentURL = useBackdropFallback ? backdropImageURL : posterImageURL
+        return Group {
+            if let url = currentURL {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
@@ -136,8 +145,12 @@ struct PosterImageView: View {
                             .aspectRatio(contentMode: .fill)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                     case .failure:
-                        placeholderView
-                            .onAppear { tmdbImageFailed = true }
+                        if !useBackdropFallback, backdropImageURL != nil {
+                            placeholderView
+                                .onAppear { useBackdropFallback = true }
+                        } else {
+                            placeholderView
+                        }
                     @unknown default:
                         placeholderView
                     }
@@ -148,8 +161,25 @@ struct PosterImageView: View {
         }
     }
     
-    private var tmdbImageURL: URL? {
-        TMDBService.shared.imageURL(path: posterPath, size: size)
+    private var posterImageURL: URL? {
+        resolvedImageURL(from: posterPath, size: size)
+    }
+
+    private var backdropImageURL: URL? {
+        resolvedImageURL(from: backdropPath, size: .backdrop)
+    }
+
+    private func resolvedImageURL(from path: String?, size: TMDBService.ImageSize) -> URL? {
+        guard let rawPath = path?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.isEmpty else {
+            return nil
+        }
+
+        if rawPath.hasPrefix("http://") || rawPath.hasPrefix("https://") {
+            return URL(string: rawPath)
+        }
+
+        return TMDBService.shared.imageURL(path: rawPath, size: size)
     }
     
     private var placeholderView: some View {

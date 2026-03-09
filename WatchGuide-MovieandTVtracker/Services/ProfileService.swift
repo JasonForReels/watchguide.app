@@ -342,15 +342,21 @@ class ProfileService: ObservableObject {
             UserDefaults.standard.set(onlyProfile.id, forKey: activeProfileKey)
             applyProfileSettings(onlyProfile)
             hasShownPickerThisSession = true
+        } else if activeProfile != nil, let activeId = activeProfile?.id,
+                  let refreshed = cloudProfiles.first(where: { $0.id == activeId }) {
+            // A profile is already active — just refresh its data from the cloud copy
+            activeProfile = refreshed
+            applyProfileSettings(refreshed)
+        } else if let activeId = UserDefaults.standard.string(forKey: activeProfileKey),
+                  let profile = cloudProfiles.first(where: { $0.id == activeId }),
+                  hasShownPickerThisSession {
+            // Picker already shown this session, restore from UserDefaults
+            activeProfile = profile
+            applyProfileSettings(profile)
         } else if !hasShownPickerThisSession {
             // Multiple profiles and picker not shown yet — show it
             activeProfile = nil
             needsProfileSelection = true
-        } else if let activeId = UserDefaults.standard.string(forKey: activeProfileKey),
-                  let profile = cloudProfiles.first(where: { $0.id == activeId }) {
-            // Picker already shown this session, just refresh the active profile data
-            activeProfile = profile
-            applyProfileSettings(profile)
         }
     }
     

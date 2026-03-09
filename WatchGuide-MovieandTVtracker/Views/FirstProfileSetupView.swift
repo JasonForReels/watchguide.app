@@ -32,7 +32,7 @@ struct FirstProfileSetupView: View {
     
     var body: some View {
         ZStack {
-            Color(.systemBackground)
+            Color.gray.opacity(0.02)
                 .ignoresSafeArea()
             
             VStack(spacing: 0) {
@@ -84,7 +84,7 @@ struct FirstProfileSetupView: View {
         return HStack(spacing: 6) {
             ForEach(1...totalSteps, id: \.self) { i in
                 Capsule()
-                    .fill(i <= currentStep ? Color.accentColor : Color(.systemGray4))
+                    .fill(i <= currentStep ? Color.accentColor : Color.gray.opacity(0.35))
                     .frame(height: 3)
             }
         }
@@ -130,7 +130,7 @@ struct FirstProfileSetupView: View {
             .padding(20)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(.systemGray6))
+                    .fill(Color.gray.opacity(0.12))
             )
             .opacity(animateIn ? 1 : 0)
             .offset(y: animateIn ? 0 : 20)
@@ -210,7 +210,14 @@ struct FirstProfileSetupView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "person.crop.square.fill")
-                    Text(avatarImageURL != nil ? "Change Avatar" : "Pick an Avatar")
+                    Text(avatarImageURL != nil ? "Change Avatar" : "Choose Avatar")
+                    Text("BETA")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.orange.opacity(0.18)))
+                        .foregroundColor(.orange)
                 }
                 .font(.subheadline)
                 .fontWeight(.medium)
@@ -237,41 +244,14 @@ struct FirstProfileSetupView: View {
             // Name
             TextField("Your name", text: $name)
                 .padding()
-                .background(Color(.systemGray6))
+                .background(Color.gray.opacity(0.12))
                 .cornerRadius(12)
                 .font(.headline)
                 .multilineTextAlignment(.center)
             
-            // Fallback Icon
-            VStack(alignment: .leading, spacing: 10) {
-                Text(avatarImageURL != nil ? "Fallback icon" : "Choose an icon")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(.secondary)
-                
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 6), spacing: 12) {
-                    ForEach(ProfileAvatar.allCases) { avatar in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedAvatar = avatar
-                            }
-                        } label: {
-                            Image(systemName: avatar.rawValue)
-                                .font(.title3)
-                                .foregroundColor(selectedAvatar == avatar ? selectedColor.color : .secondary)
-                                .frame(width: 44, height: 44)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(selectedAvatar == avatar ? selectedColor.color.opacity(0.15) : Color(.systemGray6))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(selectedAvatar == avatar ? selectedColor.color : Color.clear, lineWidth: 2)
-                                )
-                        }
-                    }
-                }
-            }
+            Text("Avatars are currently in beta.")
+                .font(.caption)
+                .foregroundColor(.secondary)
             
             // Color
             VStack(alignment: .leading, spacing: 10) {
@@ -362,7 +342,11 @@ struct FirstProfileSetupView: View {
                     in: ...Date(),
                     displayedComponents: .date
                 )
+                #if os(macOS)
+                .datePickerStyle(.graphical)
+                #else
                 .datePickerStyle(.wheel)
+                #endif
                 .labelsHidden()
                 .onChange(of: dateOfBirth) { _, newValue in
                     withAnimation {
@@ -371,7 +355,7 @@ struct FirstProfileSetupView: View {
                 }
             }
             .padding()
-            .background(Color(.systemGray6))
+                .background(Color.gray.opacity(0.12))
             .cornerRadius(12)
             
             // Result card
@@ -468,7 +452,7 @@ struct FirstProfileSetupView: View {
             .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(.systemGray6))
+                    .fill(Color.gray.opacity(0.12))
             )
             
             // Toggle
@@ -483,7 +467,7 @@ struct FirstProfileSetupView: View {
             .padding()
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(addKidsProfile ? Color.green.opacity(0.08) : Color(.systemGray6))
+                    .fill(addKidsProfile ? Color.green.opacity(0.08) : Color.gray.opacity(0.12))
             )
             
             Text("You can always add or remove profiles later from Settings.")

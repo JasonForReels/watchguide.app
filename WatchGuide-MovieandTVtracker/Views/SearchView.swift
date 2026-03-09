@@ -10,12 +10,15 @@ struct SearchView: View {
     @ObservedObject private var storage = StorageService.shared
     @Binding var selectedItem: MediaItem?
     @FocusState private var isSearchFocused: Bool
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     @State private var isSyncingUpload = false
     @State private var isSyncingDownload = false
     @State private var syncAlert: (title: String, message: String)?
     @State private var selectedPerson: Person?
     @State private var trendingPopupService: StreamingServiceOption?
+    @State private var useNaturalLanguageForNextSearch = false
+    private let appleIntelligenceReport = AppleIntelligenceCapabilityService.currentReport()
     
     var body: some View {
         VStack(spacing: 0) {
@@ -29,13 +32,28 @@ struct SearchView: View {
                     .focused($isSearchFocused)
                     .onSubmit {
                         Task {
-                            await viewModel.search()
+                            await performSearch()
                         }
                     }
+
+                if storage.settings.useAppleIntelligenceSearch && appleIntelligenceReport.isAppleIntelligenceAvailableNow {
+                    Button {
+                        useNaturalLanguageForNextSearch.toggle()
+                    } label: {
+                        Image(systemName: "apple.intelligence")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(useNaturalLanguageForNextSearch ? .accentColor : .secondary)
+                        .padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Siri natural language search")
+                    .help("Use Siri natural language search for next query")
+                }
                 
                 if !viewModel.query.isEmpty {
                     Button {
                         viewModel.clearSearch()
+                        useNaturalLanguageForNextSearch = false
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
@@ -43,7 +61,7 @@ struct SearchView: View {
                 }
             }
             .padding()
-            .background(Color(.systemGray6))
+            .background(Color.gray.opacity(0.12))
             .cornerRadius(12)
             .padding()
             
@@ -169,7 +187,7 @@ struct SearchView: View {
                     onSelect: { query in
                         viewModel.query = query
                         Task {
-                            await viewModel.search()
+                            await performSearch()
                         }
                     }
                 )
@@ -222,7 +240,13 @@ struct SearchView: View {
                         }
 
                         LazyVGrid(columns: [
-                            GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
+                            GridItem(
+                                .adaptive(
+                                    minimum: ResponsiveSizing.gridPosterWidth(horizontalSizeClass: horizontalSizeClass),
+                                    maximum: ResponsiveSizing.gridPosterWidth(horizontalSizeClass: horizontalSizeClass) + 30
+                                ),
+                                spacing: 16
+                            )
                         ], spacing: 20) {
                             ForEach(viewModel.results) { item in
                                 MediaPosterCard(item: item)
@@ -313,7 +337,7 @@ struct SearchView: View {
                 viewModel.applyStreamingFilters()
             } else if viewModel.hasSearched && !viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Task {
-                    await viewModel.search()
+                    await viewModel.search(useNaturalLanguage: viewModel.usedNaturalLanguageInLastSearch)
                 }
             }
         }
@@ -350,9 +374,15 @@ struct SearchView: View {
         }
         await MainActor.run { isSyncingDownload = false }
     }
+
+    private func performSearch() async {
+        let shouldUseNaturalLanguage = storage.settings.useAppleIntelligenceSearch && useNaturalLanguageForNextSearch
+        await viewModel.search(useNaturalLanguage: shouldUseNaturalLanguage)
+        useNaturalLanguageForNextSearch = false
+    }
 }
 
-// MARK: - Filter Chip
+// MARK: - Filter Chip (Liquid Glass — iOS 26 SDK)
 struct FilterChip: View {
     let title: String
     let isSelected: Bool
@@ -372,9 +402,14 @@ struct FilterChip: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(isSelected ? Color.accentColor : Color(.systemGray5))
-        .foregroundColor(isSelected ? .white : .primary)
-        .cornerRadius(20)
+        .foregroundColor(isSelected ? .primary : .secondary)
+        .background {
+            if isSelected {
+                Capsule()
+                    .fill(Color.primary.opacity(0.12))
+            }
+        }
+        .glassEffect(.regular, in: .capsule)
         .onTapGesture {
             action?()
         }
@@ -496,12 +531,12 @@ struct StreamingServiceCard: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(.systemBackground))
+                .fill(Color.primary.opacity(0.02))
                 .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(isSelected ? Color.accentColor.opacity(0.8) : Color(.systemGray4), lineWidth: isSelected ? 2 : 1)
+                .stroke(isSelected ? Color.accentColor.opacity(0.8) : Color.gray.opacity(0.35), lineWidth: isSelected ? 2 : 1)
         )
         .animation(.easeInOut(duration: 0.2), value: isSelected)
     }
@@ -616,7 +651,7 @@ struct SearchSuggestionsView: View {
                                     }
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 6)
-                                    .background(Color(.systemGray5))
+                                    .background(Color.gray.opacity(0.18))
                                     .cornerRadius(16)
                                 }
                                 .foregroundColor(.primary)
@@ -644,7 +679,7 @@ struct SearchSuggestionsView: View {
                                 }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(Color(.systemGray5))
+                                .background(Color.gray.opacity(0.18))
                                 .cornerRadius(16)
                             }
                             .foregroundColor(.primary)
@@ -672,12 +707,12 @@ struct TMDBCollectionTile: View {
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 case .empty:
-                    Color(.systemGray5)
+                    Color.gray.opacity(0.18)
                         .overlay(ProgressView())
                 case .failure:
-                    Color(.systemGray5)
+                    Color.gray.opacity(0.18)
                 @unknown default:
-                    Color(.systemGray5)
+                    Color.gray.opacity(0.18)
                 }
             }
             .frame(height: 100)
@@ -714,6 +749,7 @@ struct TMDBCollectionSheet: View {
     let collection: PopularTMDBCollection
     
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var title: String = "Collection"
     @State private var overview: String?
     @State private var backdropPath: String?
@@ -725,9 +761,17 @@ struct TMDBCollectionSheet: View {
     @State private var hasMorePages = false
     @State private var isLoadingMore = false
     
-    private let columns = [
-        GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
-    ]
+    private var columns: [GridItem] {
+        [
+            GridItem(
+                .adaptive(
+                    minimum: ResponsiveSizing.gridPosterWidth(horizontalSizeClass: horizontalSizeClass),
+                    maximum: ResponsiveSizing.gridPosterWidth(horizontalSizeClass: horizontalSizeClass) + 30
+                ),
+                spacing: 16
+            )
+        ]
+    }
     
     var body: some View {
         NavigationStack {
@@ -812,7 +856,7 @@ struct TMDBCollectionSheet: View {
                 }
             }
             .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitleIfSupported()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Close") {
@@ -963,6 +1007,7 @@ class SearchViewModel: ObservableObject {
     @Published var currentPage = 1
     @Published var totalPages = 1
     @Published var selectedStreamingServiceIds: Set<String> = []
+    @Published private(set) var usedNaturalLanguageInLastSearch = false
 
     let streamingServices: [StreamingServiceOption] = [
         StreamingServiceOption(
@@ -991,6 +1036,29 @@ class SearchViewModel: ObservableObject {
     ]
 
     private var streamingBaseResults: [MediaItem] = []
+    private var activeSearchQuery = ""
+
+    private struct NaturalLanguageIntent {
+        enum ExplicitContentType {
+            case movie
+            case tv
+        }
+        
+        enum PersonCreditMode {
+            case cast
+            case crew
+            case any
+        }
+
+        var explicitContentType: ExplicitContentType?
+        var genreId: Int?
+        var personName: String?
+        var personCreditMode: PersonCreditMode = .cast
+        var companyNames: [String] = []
+        var providerNames: [String] = []
+        var releasedOnly: Bool = false
+        var year: Int?
+    }
     
     var hasMorePages: Bool {
         currentPage < totalPages
@@ -1034,12 +1102,14 @@ class SearchViewModel: ObservableObject {
         }
     }
     
-    func search() async {
+    func search(useNaturalLanguage: Bool = false) async {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else {
             results = []
             personResults = []
             hasSearched = false
+            activeSearchQuery = ""
+            usedNaturalLanguageInLastSearch = false
             return
         }
 
@@ -1050,22 +1120,54 @@ class SearchViewModel: ObservableObject {
         hasSearched = true
         currentPage = 1
         personResults = []
+        activeSearchQuery = trimmedQuery
         
         do {
             if selectedType == .person {
+                usedNaturalLanguageInLastSearch = false
                 // Dedicated person search
-                let response = try await TMDBService.shared.searchPerson(query: trimmedQuery)
+                let response = try await TMDBService.shared.searchPerson(query: activeSearchQuery)
                 totalPages = response.totalPages ?? 1
                 personResults = response.results
                 results = []
             } else if selectedGenre != nil || selectedYear != nil {
+                usedNaturalLanguageInLastSearch = false
                 // Use discover endpoint for filters
                 await searchWithFilters()
             } else {
-                // Regular multi-search
-                let response = try await TMDBService.shared.searchMulti(query: trimmedQuery)
-                totalPages = response.totalPages ?? 1
-                results = filterResults(response.results)
+                let shouldUseNaturalLanguage = useNaturalLanguage && StorageService.shared.settings.useAppleIntelligenceSearch
+                usedNaturalLanguageInLastSearch = shouldUseNaturalLanguage
+
+                if shouldUseNaturalLanguage, try await performStructuredNaturalLanguageSearch(for: trimmedQuery) {
+                    isLoading = false
+                    return
+                }
+
+                let queriesToTry: [String]
+                if shouldUseNaturalLanguage {
+                    queriesToTry = await AppleIntelligenceSearchService.shared.candidateQueries(for: trimmedQuery)
+                } else {
+                    queriesToTry = [trimmedQuery]
+                }
+
+                var processedAtLeastOneQuery = false
+                for queryCandidate in queriesToTry {
+                    let response = try await TMDBService.shared.searchMulti(query: queryCandidate)
+                    let filteredResults = filterResults(response.results)
+                    activeSearchQuery = queryCandidate
+                    totalPages = response.totalPages ?? 1
+                    processedAtLeastOneQuery = true
+
+                    if !filteredResults.isEmpty || queryCandidate == queriesToTry.last {
+                        results = filteredResults
+                        break
+                    }
+                }
+
+                if !processedAtLeastOneQuery {
+                    results = []
+                    totalPages = 1
+                }
             }
         } catch {
             print("Search error: \(error)")
@@ -1078,7 +1180,7 @@ class SearchViewModel: ObservableObject {
     
     func loadMore() async {
         if isStreamingMode { return }
-        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
+        if activeSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
         guard hasMorePages && !isLoadingMore else { return }
         
         isLoadingMore = true
@@ -1086,10 +1188,10 @@ class SearchViewModel: ObservableObject {
         
         do {
             if selectedType == .person {
-                let response = try await TMDBService.shared.searchPerson(query: query, page: currentPage)
+                let response = try await TMDBService.shared.searchPerson(query: activeSearchQuery, page: currentPage)
                 personResults.append(contentsOf: response.results)
             } else {
-                let response = try await TMDBService.shared.searchMulti(query: query, page: currentPage)
+                let response = try await TMDBService.shared.searchMulti(query: activeSearchQuery, page: currentPage)
                 results.append(contentsOf: filterResults(response.results))
             }
         } catch {
@@ -1119,11 +1221,610 @@ class SearchViewModel: ObservableObject {
             print("Filter search error: \(error)")
         }
     }
+
+    private func performStructuredNaturalLanguageSearch(for query: String) async throws -> Bool {
+        let intent = parseNaturalLanguageIntent(from: query)
+        let explicitMovieIntent = intent.explicitContentType == .movie
+        let explicitTVIntent = intent.explicitContentType == .tv
+        let requestedMovies = explicitMovieIntent || (intent.explicitContentType == nil && selectedType != .tv)
+        let requestedTV = explicitTVIntent || (intent.explicitContentType == nil && selectedType != .movie)
+        let applySelectedTypeFilter = intent.explicitContentType == nil
+
+        if let personName = intent.personName, (requestedMovies || requestedTV) {
+            let personResponse = try await TMDBService.shared.searchPerson(query: personName)
+            if let person = personResponse.results.first {
+                var personMedia: [MediaItem] = []
+                
+                if requestedMovies {
+                    let movieCredits = try await TMDBService.shared.getPersonMovieCredits(id: person.id)
+                    switch intent.personCreditMode {
+                    case .cast:
+                        personMedia.append(contentsOf: movieCredits.cast ?? [])
+                    case .crew:
+                        personMedia.append(contentsOf: movieCredits.crew ?? [])
+                    case .any:
+                        personMedia.append(contentsOf: movieCredits.cast ?? [])
+                        personMedia.append(contentsOf: movieCredits.crew ?? [])
+                    }
+                }
+                
+                if requestedTV {
+                    let tvCredits = try await TMDBService.shared.getPersonTVCredits(id: person.id)
+                    switch intent.personCreditMode {
+                    case .cast:
+                        personMedia.append(contentsOf: tvCredits.cast ?? [])
+                    case .crew:
+                        personMedia.append(contentsOf: tvCredits.crew ?? [])
+                    case .any:
+                        personMedia.append(contentsOf: tvCredits.cast ?? [])
+                        personMedia.append(contentsOf: tvCredits.crew ?? [])
+                    }
+                }
+
+                if let genreId = intent.genreId {
+                    personMedia = personMedia.filter { item in
+                        guard let genreIds = item.genreIds, !genreIds.isEmpty else { return true }
+                        return genreIds.contains(genreId)
+                    }
+                }
+
+                if let year = intent.year {
+                    personMedia = personMedia.filter { item in
+                        guard let displayDate = item.displayDate, displayDate.count >= 4 else { return true }
+                        return String(displayDate.prefix(4)) == String(year)
+                    }
+                }
+                
+                if intent.releasedOnly {
+                    personMedia = filterReleasedItems(personMedia)
+                }
+
+                personMedia = dedupeMediaItems(personMedia).sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+                let filtered = filterResults(personMedia, applyingSelectedType: applySelectedTypeFilter)
+                if !filtered.isEmpty {
+                    results = filtered
+                    personResults = []
+                    currentPage = 1
+                    totalPages = 1
+                    activeSearchQuery = query
+                    return true
+                }
+            }
+        }
+
+        if !intent.providerNames.isEmpty, (requestedMovies || requestedTV) {
+            let providerIds = resolveProviderIDs(for: intent.providerNames)
+            if !providerIds.isEmpty {
+                let region = effectiveProviderRegion(for: intent.providerNames)
+                var combinedResults: [MediaItem] = []
+                var mergedTotalPages = 1
+
+                if requestedMovies {
+                    let movieResponse = try await TMDBService.shared.discoverMoviesWithProvider(
+                        providerIds: providerIds,
+                        region: region
+                    )
+                    combinedResults.append(contentsOf: movieResponse.results)
+                    mergedTotalPages = max(mergedTotalPages, movieResponse.totalPages ?? 1)
+                }
+
+                if requestedTV {
+                    let tvResponse = try await TMDBService.shared.discoverTVWithProvider(
+                        providerIds: providerIds,
+                        region: region
+                    )
+                    combinedResults.append(contentsOf: tvResponse.results)
+                    mergedTotalPages = max(mergedTotalPages, tvResponse.totalPages ?? 1)
+                }
+
+                var providerMedia = dedupeMediaItems(combinedResults)
+
+                if intent.releasedOnly {
+                    providerMedia = filterReleasedItems(providerMedia)
+                }
+
+                if let genreId = intent.genreId {
+                    providerMedia = providerMedia.filter { item in
+                        guard let genreIds = item.genreIds, !genreIds.isEmpty else { return true }
+                        return genreIds.contains(genreId)
+                    }
+                }
+
+                if let year = intent.year {
+                    providerMedia = providerMedia.filter { item in
+                        guard let displayDate = item.displayDate, displayDate.count >= 4 else { return true }
+                        return String(displayDate.prefix(4)) == String(year)
+                    }
+                }
+
+                providerMedia.sort { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+                let filtered = filterResults(providerMedia, applyingSelectedType: applySelectedTypeFilter)
+                if !filtered.isEmpty {
+                    results = filtered
+                    personResults = []
+                    currentPage = 1
+                    totalPages = mergedTotalPages
+                    activeSearchQuery = query
+                    return true
+                }
+            }
+        }
+
+        if !intent.companyNames.isEmpty, (requestedMovies || requestedTV) {
+            var companyIds: Set<Int> = []
+            for companyName in intent.companyNames {
+                let ids = try await resolveCompanyIDs(for: companyName, wantsTV: requestedTV && !requestedMovies)
+                companyIds.formUnion(ids)
+            }
+
+            guard !companyIds.isEmpty else { return false }
+            var combinedResults: [MediaItem] = []
+            var mergedTotalPages = 1
+
+            if requestedMovies {
+                let movieResponse = try await TMDBService.shared.discoverMoviesByCompany(companyIds: Array(companyIds))
+                combinedResults.append(contentsOf: movieResponse.results)
+                mergedTotalPages = max(mergedTotalPages, movieResponse.totalPages ?? 1)
+            }
+
+            if requestedTV {
+                let tvResponse = try await TMDBService.shared.discoverTVByCompany(companyIds: Array(companyIds))
+                combinedResults.append(contentsOf: tvResponse.results)
+                mergedTotalPages = max(mergedTotalPages, tvResponse.totalPages ?? 1)
+            }
+
+            var companyMedia = dedupeMediaItems(combinedResults)
+
+            if intent.releasedOnly {
+                companyMedia = filterReleasedItems(companyMedia)
+            }
+
+            if let genreId = intent.genreId {
+                companyMedia = companyMedia.filter { item in
+                    guard let genreIds = item.genreIds, !genreIds.isEmpty else { return true }
+                    return genreIds.contains(genreId)
+                }
+            }
+
+            if let year = intent.year {
+                companyMedia = companyMedia.filter { item in
+                    guard let displayDate = item.displayDate, displayDate.count >= 4 else { return true }
+                    return String(displayDate.prefix(4)) == String(year)
+                }
+            }
+
+            companyMedia.sort { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+            let filtered = filterResults(companyMedia, applyingSelectedType: applySelectedTypeFilter)
+            guard !filtered.isEmpty else { return false }
+
+            results = filtered
+            personResults = []
+            currentPage = 1
+            totalPages = mergedTotalPages
+            activeSearchQuery = query
+            return true
+        }
+
+        if let genreId = intent.genreId, requestedMovies, intent.personName == nil {
+            let response = try await TMDBService.shared.discoverMovies(genres: [genreId], year: intent.year)
+            let filtered = filterResults(response.results, applyingSelectedType: applySelectedTypeFilter)
+            guard !filtered.isEmpty else { return false }
+
+            results = filtered
+            personResults = []
+            currentPage = 1
+            totalPages = response.totalPages ?? 1
+            activeSearchQuery = query
+            return true
+        }
+
+        return false
+    }
+
+    private func parseNaturalLanguageIntent(from query: String) -> NaturalLanguageIntent {
+        let normalized = normalizeIntentText(query)
+        var intent = NaturalLanguageIntent()
+
+        let releasedPhrases = [
+            "released", "already released", "already out", "out now",
+            "have been out", "that are out", "came out", "have come out",
+            "exclude upcoming", "no upcoming", "not upcoming"
+        ]
+        intent.releasedOnly = releasedPhrases.contains { containsPhrase(normalized, phrase: $0) }
+
+        let moviePhrases = ["movie", "movies", "film", "films", "cinema"]
+        let tvPhrases = ["tv", "show", "shows", "series", "episodes", "episode"]
+        if moviePhrases.contains(where: { containsPhrase(normalized, phrase: $0) }) {
+            intent.explicitContentType = .movie
+        } else if tvPhrases.contains(where: { containsPhrase(normalized, phrase: $0) }) {
+            intent.explicitContentType = .tv
+        }
+
+        let genreMap: [(phrases: [String], genreId: Int)] = [
+            (["action", "fight"], 28),
+            (["adventure"], 12),
+            (["animation", "animated"], 16),
+            (["comedy", "funny"], 35),
+            (["crime", "gangster"], 80),
+            (["documentary", "doc"], 99),
+            (["drama"], 18),
+            (["family", "kids"], 10751),
+            (["fantasy"], 14),
+            (["history", "historical"], 36),
+            (["horror", "scary"], 27),
+            (["music", "musical"], 10402),
+            (["mystery"], 9648),
+            (["romance", "romantic"], 10749),
+            (["science fiction", "sci fi", "scifi"], 878),
+            (["thriller"], 53),
+            (["war"], 10752),
+            (["western"], 37)
+        ]
+
+        for entry in genreMap {
+            if entry.phrases.contains(where: { containsPhrase(normalized, phrase: $0) }) {
+                let genreId = entry.genreId
+                intent.genreId = genreId
+                break
+            }
+        }
+
+        if let yearMatch = normalized.range(of: #"\b(19|20)\d{2}\b"#, options: .regularExpression) {
+            intent.year = Int(normalized[yearMatch])
+        }
+
+        let starringPerson = extractEntity(
+            in: normalized,
+            triggers: ["starring", "featuring", "with actor", "with actress", "with", "acted by"],
+            stoppers: [" but ", " and ", " that ", " which ", " who ", " where ", " produced by ", " made by ", " from ", " by ", " released ", " movie ", " movies ", " tv ", " show ", " series "]
+        ) ?? extractEntityUsingPatterns(
+            in: normalized,
+            patterns: [
+                #"(?:movies|movie|films|film|shows|show|series|tv shows|tv)\s+(?:starring|featuring|with|acted by)\s+([a-z0-9&\-\.' ]{2,80})"#,
+                #"(?:starring|featuring|with|acted by)\s+([a-z0-9&\-\.' ]{2,80})\s+(?:movies|movie|films|film|shows|show|series|tv shows|tv)"#,
+                #"(?:cast featuring|cast with)\s+([a-z0-9&\-\.' ]{2,80})"#
+            ]
+        )
+        let crewPerson = extractEntity(
+            in: normalized,
+            triggers: ["directed by", "director", "directed", "produced by", "producer", "produced"],
+            stoppers: [" but ", " and ", " that ", " which ", " who ", " where ", " starring ", " featuring ", " with ", " actor ", " actress ", " released ", " movie ", " movies ", " tv ", " show ", " series ", " studios ", " studio "]
+        ) ?? extractEntityUsingPatterns(
+            in: normalized,
+            patterns: [
+                #"(?:movies|movie|films|film|shows|show|series|tv shows|tv)\s+(?:directed by|directed|from director|by director)\s+([a-z0-9&\-\.' ]{2,80})"#,
+                #"(?:movies|movie|films|film|shows|show|series|tv shows|tv)\s+(?:produced by|produced|from producer|by producer)\s+([a-z0-9&\-\.' ]{2,80})"#,
+                #"(?:directed by|directed|from director|by director)\s+([a-z0-9&\-\.' ]{2,80})\s+(?:movies|movie|films|film|shows|show|series|tv shows|tv)"#,
+                #"(?:produced by|produced|from producer|by producer)\s+([a-z0-9&\-\.' ]{2,80})\s+(?:movies|movie|films|film|shows|show|series|tv shows|tv)"#
+            ]
+        )
+        
+        if let starringPerson {
+            intent.personName = starringPerson
+            if containsPhrase(normalized, phrase: "director") || containsPhrase(normalized, phrase: "producer") {
+                intent.personCreditMode = .any
+            } else {
+                intent.personCreditMode = .cast
+            }
+        } else if let crewPerson {
+            intent.personName = crewPerson
+            intent.personCreditMode = .crew
+        }
+
+        let companyPhrase = extractEntity(
+            in: normalized,
+            triggers: ["produced by", "production by", "made by", "studio", "studios", "from", "by"],
+            stoppers: [" but ", " that ", " which ", " who ", " where ", " starring ", " featuring ", " with ", " actor ", " actress ", " directed by ", " director ", " producer ", " released ", " movie ", " movies ", " tv ", " show ", " series "]
+        ) ?? extractEntityUsingPatterns(
+            in: normalized,
+            patterns: [
+                #"(?:movies|movie|films|film|shows|show|series|tv shows|tv)\s+(?:made by|from studio|from studios|studio|studios|produced by|production by|distributed by)\s+([a-z0-9&\-\.' ]{2,80})"#,
+                #"(?:made by|from studio|from studios|studio|studios|produced by|production by|distributed by)\s+([a-z0-9&\-\.' ]{2,80})\s+(?:movies|movie|films|film|shows|show|series|tv shows|tv)"#,
+                #"(?:made for)\s+([a-z0-9&\-\+.' ]{2,80})"#
+            ]
+        )
+        if let companyPhrase, intent.personName == nil || looksLikeCompanyPhrase(companyPhrase) {
+            intent.companyNames = parseCompanyNames(from: companyPhrase)
+        }
+
+        intent.providerNames = extractProviderNames(from: normalized)
+
+        return intent
+    }
+
+    private func normalizeIntentText(_ text: String) -> String {
+        var normalized = text.lowercased()
+        let replacements = [",", ".", "?", "!", ":", ";", "(", ")", "\"", "'"]
+        for token in replacements {
+            normalized = normalized.replacingOccurrences(of: token, with: " ")
+        }
+        while normalized.contains("  ") {
+            normalized = normalized.replacingOccurrences(of: "  ", with: " ")
+        }
+        return normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func containsPhrase(_ text: String, phrase: String) -> Bool {
+        let paddedText = " \(text) "
+        let paddedPhrase = " \(phrase) "
+        return paddedText.contains(paddedPhrase)
+    }
+
+    private func extractEntity(in normalized: String, triggers: [String], stoppers: [String]) -> String? {
+        let orderedTriggers = triggers.sorted { $0.count > $1.count }
+        for trigger in orderedTriggers {
+            let pattern = "\(trigger) "
+            guard let range = normalized.range(of: pattern) else { continue }
+
+            var candidate = String(normalized[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            for stopper in stoppers {
+                if let stopRange = candidate.range(of: stopper) {
+                    candidate = String(candidate[..<stopRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+
+            if candidate.hasPrefix("the ") {
+                candidate = String(candidate.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if candidate.hasSuffix(" studio") {
+                candidate += "s"
+            }
+            if candidate.hasSuffix(" studioss") {
+                candidate = candidate.replacingOccurrences(of: " studioss", with: " studios")
+            }
+
+            let words = candidate.split(separator: " ")
+            if !candidate.isEmpty && words.count <= 6 {
+                return candidate
+            }
+        }
+        return nil
+    }
     
-    private func filterResults(_ items: [MediaItem]) -> [MediaItem] {
+    private func extractEntityUsingPatterns(in normalized: String, patterns: [String]) -> String? {
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let range = NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
+            guard let match = regex.firstMatch(in: normalized, options: [], range: range) else { continue }
+            guard match.numberOfRanges > 1, let captureRange = Range(match.range(at: 1), in: normalized) else { continue }
+            let candidate = normalized[captureRange].trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleaned = cleanupEntityCandidate(candidate)
+            if !cleaned.isEmpty { return cleaned }
+        }
+        return nil
+    }
+    
+    private func cleanupEntityCandidate(_ candidate: String) -> String {
+        var cleaned = candidate
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.hasPrefix("the ") {
+            cleaned = String(cleaned.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if cleaned.hasSuffix(" studio") {
+            cleaned += "s"
+        }
+        if cleaned.hasSuffix(" studioss") {
+            cleaned = cleaned.replacingOccurrences(of: " studioss", with: " studios")
+        }
+        let words = cleaned.split(separator: " ")
+        if words.isEmpty || words.count > 8 { return "" }
+        return cleaned
+    }
+    
+    private func looksLikeCompanyPhrase(_ phrase: String) -> Bool {
+        let normalized = phrase.lowercased()
+        let companyTokens = [
+            "studio", "studios", "pictures", "productions", "entertainment",
+            "media", "films", "network", "animation", "plus", "tv"
+        ]
+        return companyTokens.contains { normalized.contains($0) }
+    }
+
+    private func parseCompanyNames(from phrase: String) -> [String] {
+        var normalized = phrase
+            .replacingOccurrences(of: " and ", with: "|")
+            .replacingOccurrences(of: " & ", with: "|")
+            .replacingOccurrences(of: ",", with: "|")
+            .replacingOccurrences(of: " plus ", with: "|")
+            .replacingOccurrences(of: " or ", with: "|")
+
+        while normalized.contains("||") {
+            normalized = normalized.replacingOccurrences(of: "||", with: "|")
+        }
+
+        let names = normalized
+            .split(separator: "|")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .map { canonicalCompanyName($0) }
+            .filter { !$0.isEmpty }
+
+        var seen: Set<String> = []
+        var deduped: [String] = []
+        for name in names {
+            if seen.contains(name) { continue }
+            seen.insert(name)
+            deduped.append(name)
+        }
+        return deduped
+    }
+
+    private func canonicalCompanyName(_ name: String) -> String {
+        let lowered = name.lowercased()
+        if lowered == "universal" {
+            return "universal pictures"
+        }
+        return name
+    }
+
+    private func resolveCompanyIDs(for companyName: String, wantsTV: Bool) async throws -> [Int] {
+        let appHubIds = resolveCompanyIDsFromAppHubs(for: companyName)
+        if !appHubIds.isEmpty {
+            return appHubIds
+        }
+
+        let response = try await TMDBService.shared.searchCompanies(query: companyName)
+        guard !response.results.isEmpty else { return [] }
+
+        let normalizedQuery = companyName.lowercased()
+        let scored = response.results
+            .map { company in
+                (id: company.id, score: companyScore(name: company.name, query: normalizedQuery, wantsTV: wantsTV))
+            }
+            .sorted { $0.score > $1.score }
+
+        let positive = scored.filter { $0.score > 0 }.map(\.id)
+        if normalizedQuery.contains("marvel") {
+            return Array(positive.prefix(6))
+        }
+
+        if let first = positive.first {
+            return [first]
+        }
+        return [response.results[0].id]
+    }
+
+    private func resolveCompanyIDsFromAppHubs(for companyName: String) -> [Int] {
+        let normalizedName = normalizeIntentText(companyName)
+        let tokens = normalizedName.split(separator: " ").map(String.init)
+        let hubs = StorageService.shared.companyHubs
+
+        var matched: [Int] = []
+        for hub in hubs {
+            let hubName = normalizeIntentText(hub.name)
+            if hubName == normalizedName || hubName.contains(normalizedName) || normalizedName.contains(hubName) {
+                matched.append(contentsOf: hub.companyIds)
+                continue
+            }
+
+            if !tokens.isEmpty && tokens.allSatisfy({ hubName.contains($0) }) {
+                matched.append(contentsOf: hub.companyIds)
+            }
+        }
+
+        return Array(Set(matched))
+    }
+
+    private func extractProviderNames(from normalized: String) -> [String] {
+        let hubs = StorageService.shared.networkHubs
+        guard !hubs.isEmpty else { return [] }
+
+        var matches: [String] = []
+        for hub in hubs {
+            let aliases = providerAliases(for: hub.name)
+            if aliases.contains(where: { containsPhrase(normalized, phrase: $0) }) {
+                matches.append(hub.name)
+            }
+        }
+
+        var seen: Set<String> = []
+        var deduped: [String] = []
+        for name in matches {
+            if seen.contains(name) { continue }
+            seen.insert(name)
+            deduped.append(name)
+        }
+        return deduped
+    }
+
+    private func providerAliases(for providerName: String) -> [String] {
+        let normalized = normalizeIntentText(providerName)
+        switch normalized {
+        case "disney+":
+            return ["disney+", "disney plus", "disneyplus", "d+"]
+        case "netflix":
+            return ["netflix", "net flix"]
+        case "max":
+            return ["max", "hbo max", "hbomax"]
+        case "paramount+":
+            return ["paramount+", "paramount plus", "paramountplus"]
+        case "apple tv+", "apple tv":
+            return ["apple tv+", "apple tv plus", "appletv+", "appletv plus", "appletv"]
+        case "amazon prime video":
+            return ["amazon prime", "prime video", "prime"]
+        default:
+            return [normalized]
+        }
+    }
+
+    private func resolveProviderIDs(for providerNames: [String]) -> [Int] {
+        let hubs = StorageService.shared.networkHubs
+        var ids: [Int] = []
+        for name in providerNames {
+            if let hub = hubs.first(where: { normalizeIntentText($0.name) == normalizeIntentText(name) }) {
+                ids.append(contentsOf: hub.providerIds)
+            }
+        }
+        return Array(Set(ids))
+    }
+
+    private func effectiveProviderRegion(for providerNames: [String]) -> String {
+        let region = StorageService.shared.settings.region
+        let lowered = providerNames.map { $0.lowercased() }
+
+        // Match existing Disney+ ZA behavior used in browse rows.
+        if region == "ZA", lowered.contains(where: { $0.contains("disney") }) {
+            return "GB"
+        }
+        return region
+    }
+
+    private func companyScore(name: String, query: String, wantsTV: Bool) -> Int {
+        let normalizedName = name.lowercased()
+        var score = 0
+
+        if normalizedName == query { score += 100 }
+        if normalizedName.contains(query) { score += 60 }
+
+        let queryTokens = query.split(separator: " ").map(String.init)
+        for token in queryTokens where token.count > 1 {
+            if normalizedName.contains(token) {
+                score += 10
+            }
+        }
+
+        if wantsTV {
+            if normalizedName.contains("television") || normalizedName.contains("tv") || normalizedName.contains("animation") {
+                score += 20
+            }
+        } else {
+            if normalizedName.contains("studios") || normalizedName.contains("pictures") || normalizedName.contains("films") {
+                score += 10
+            }
+        }
+
+        if query.contains("marvel") && normalizedName.contains("marvel") {
+            score += 50
+        }
+
+        return score
+    }
+
+    private func dedupeMediaItems(_ items: [MediaItem]) -> [MediaItem] {
+        var seen = Set<Int>()
+        return items.filter { item in
+            guard !seen.contains(item.id) else { return false }
+            seen.insert(item.id)
+            return true
+        }
+    }
+
+    private func filterReleasedItems(_ items: [MediaItem]) -> [MediaItem] {
+        let today = Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let todayString = formatter.string(from: today)
+
+        return items.filter { item in
+            guard let releaseDate = item.releaseDate, releaseDate.count >= 10 else { return false }
+            return releaseDate <= todayString
+        }
+    }
+    
+    private func filterResults(_ items: [MediaItem], applyingSelectedType: Bool = true) -> [MediaItem] {
         var filtered = items
         
-        if let type = selectedType {
+        if applyingSelectedType, let type = selectedType {
             filtered = filtered.filter { $0.resolvedMediaType == type }
         }
         
@@ -1213,6 +1914,8 @@ class SearchViewModel: ObservableObject {
         results = []
         personResults = []
         hasSearched = false
+        usedNaturalLanguageInLastSearch = false
+        activeSearchQuery = ""
         selectedStreamingServiceIds.removeAll()
         streamingBaseResults = []
     }
@@ -1309,7 +2012,7 @@ struct NetworkTrendingPopup: View {
                     trendingContent
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitleIfSupported()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
@@ -1350,7 +2053,7 @@ struct NetworkTrendingPopup: View {
                     
                     // Divider
                     Rectangle()
-                        .fill(Color(.systemGray4).opacity(0.4))
+                        .fill(Color.gray.opacity(0.25))
                         .frame(width: 1)
                         .padding(.vertical, 4)
                     
@@ -1495,11 +2198,11 @@ private struct TrendingItemRow: View {
                         .scaledToFill()
                 case .empty:
                     Rectangle()
-                        .fill(Color(.systemGray5))
+                        .fill(Color.gray.opacity(0.18))
                         .overlay { ProgressView().scaleEffect(0.6) }
                 default:
                     Rectangle()
-                        .fill(Color(.systemGray5))
+                        .fill(Color.gray.opacity(0.18))
                         .overlay {
                             Image(systemName: "film")
                                 .font(.caption2)
@@ -1528,6 +2231,47 @@ private struct TrendingItemRow: View {
         }
         .padding(.vertical, 3)
         .contentShape(Rectangle())
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func inlineNavTitleIfSupported() -> some View {
+#if os(macOS)
+        self
+#else
+        self.navigationBarTitleDisplayMode(.inline)
+#endif
+    }
+}
+
+private extension Color {
+    init(hex: String) {
+        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: cleaned).scanHexInt64(&int)
+
+        let r, g, b: UInt64
+        switch cleaned.count {
+        case 6:
+            (r, g, b) = (int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 3:
+            (r, g, b) = (
+                ((int >> 8) & 0xF) * 17,
+                ((int >> 4) & 0xF) * 17,
+                (int & 0xF) * 17
+            )
+        default:
+            (r, g, b) = (128, 128, 128)
+        }
+
+        self.init(
+            .sRGB,
+            red: Double(r) / 255.0,
+            green: Double(g) / 255.0,
+            blue: Double(b) / 255.0,
+            opacity: 1.0
+        )
     }
 }
 

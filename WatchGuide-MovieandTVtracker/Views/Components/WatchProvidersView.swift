@@ -222,14 +222,14 @@ struct ProviderLogo: View {
                     switch phase {
                     case .empty:
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(.systemGray5))
+                            .fill(Color.gray.opacity(0.18))
                     case .success(let image):
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     case .failure:
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(.systemGray5))
+                            .fill(Color.gray.opacity(0.18))
                             .overlay {
                                 Text(String(provider.providerName.prefix(2)))
                                     .font(.caption)
@@ -237,7 +237,7 @@ struct ProviderLogo: View {
                             }
                     @unknown default:
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(.systemGray5))
+                            .fill(Color.gray.opacity(0.18))
                     }
                 }
                 .frame(width: logoSize, height: logoSize)

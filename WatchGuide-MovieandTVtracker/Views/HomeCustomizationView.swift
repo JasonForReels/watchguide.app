@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
 
 struct HomeCustomizationView: View {
     @ObservedObject private var storage = StorageService.shared
@@ -14,11 +17,13 @@ struct HomeCustomizationView: View {
     @State private var browseSections: [BrowseSectionItem] = []
     @State private var browseRows: [BrowseRowConfig] = []
     @State private var networkHubs: [NetworkHub] = []
+    @State private var companyHubs: [CompanyHub] = []
     @State private var customHubs: [CustomJSONHub] = []
     
     @State private var selectedSection: HomeSection = .sections
     
     @State private var showAddJSONHub = false
+    @State private var showAddStudioSheet = false
     
     // Hero Carousel sizing
     @ObservedObject private var profileService = ProfileService.shared
@@ -29,6 +34,7 @@ struct HomeCustomizationView: View {
         case sections = "Sections"
         case carousel = "Carousel"
         case networks = "Networks"
+        case studios = "Studios"
         case rows = "Rows"
         case hubs = "Hubs"
     }
@@ -81,17 +87,25 @@ struct HomeCustomizationView: View {
                         carouselSizeEditor
                     case .networks:
                         networksEditor
+                    case .studios:
+                        studiosEditor
                     case .rows:
                         browseRowsEditor
                     case .hubs:
                         customHubsEditor
                     }
                 }
+                #if os(macOS)
+                .listStyle(.inset)
+                #else
                 .listStyle(.insetGrouped)
                 .environment(\.editMode, .constant(.active))
+                #endif
             }
             .navigationTitle("Customize Home")
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -182,7 +196,7 @@ struct HomeCustomizationView: View {
             let previewHeight = previewWidth / selectedAspect.aspectRatio
             
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(.systemGray5))
+                .fill(Color.gray.opacity(0.18))
                 .frame(width: previewWidth, height: previewHeight)
                 .overlay(
                     VStack(spacing: 6) {
@@ -207,7 +221,11 @@ struct HomeCustomizationView: View {
     }
     
     private var carouselPreviewHeight: CGFloat {
+        #if os(macOS)
+        let screenWidth = NSScreen.main?.visibleFrame.width ?? 1200
+        #else
         let screenWidth = UIScreen.main.bounds.width - 48 // approximate list inset
+        #endif
         let previewWidth = screenWidth * max(0.45, min(1.0, widthRatio))
         return previewWidth / selectedAspect.aspectRatio + 16
     }
@@ -299,6 +317,93 @@ struct HomeCustomizationView: View {
             Text("Drag to reorder, toggle to show/hide content rows.")
         }
     }
+
+    // MARK: - Studios
+    private var studiosEditor: some View {
+        Group {
+            if companyHubs.isEmpty {
+                Section {
+                    Text("No studios configured")
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                Section {
+                    ForEach($companyHubs) { $hub in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text(hub.name)
+                                    .fontWeight(.medium)
+                                Spacer()
+                                Toggle("", isOn: $hub.isEnabled)
+                                    .labelsHidden()
+                            }
+
+                            HStack(spacing: 10) {
+                                Picker("Shape", selection: shapeBinding(for: $hub)) {
+                                    ForEach(CompanyHub.ButtonShape.allCases, id: \.rawValue) { shape in
+                                        Text(shape.displayName).tag(shape)
+                                    }
+                                }
+
+                                Picker("Background", selection: backgroundBinding(for: $hub)) {
+                                    ForEach(CompanyHub.BackgroundStyle.allCases, id: \.rawValue) { style in
+                                        Text(style.displayName).tag(style)
+                                    }
+                                }
+                            }
+                            .font(.caption)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .onMove { from, to in
+                        companyHubs.move(fromOffsets: from, toOffset: to)
+                    }
+                    .onDelete { indexSet in
+                        companyHubs.remove(atOffsets: indexSet)
+                    }
+                } header: {
+                    Text("Studios")
+                } footer: {
+                    Text("Drag to reorder. Toggle to show/hide. Choose shape and background for each studio button.")
+                }
+            }
+
+            Section {
+                Button {
+                    showAddStudioSheet = true
+                } label: {
+                    Label("Add Studio", systemImage: "plus.circle")
+                }
+            }
+        }
+        .sheet(isPresented: $showAddStudioSheet) {
+            NavigationStack {
+                List {
+                    ForEach(StudioTemplate.defaults, id: \.name) { template in
+                        Button {
+                            addStudioTemplate(template)
+                            showAddStudioSheet = false
+                        } label: {
+                            HStack {
+                                Text(template.name)
+                                Spacer()
+                                if companyHubs.contains(where: { $0.name.caseInsensitiveCompare(template.name) == .orderedSame }) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                }
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("Add Studio")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") { showAddStudioSheet = false }
+                    }
+                }
+            }
+        }
+    }
     
     // MARK: - Custom Hubs
     private var customHubsEditor: some View {
@@ -379,6 +484,7 @@ struct HomeCustomizationView: View {
         browseSections = storage.browseSections.sorted { $0.sortOrder < $1.sortOrder }
         browseRows = storage.browseRows.sorted { $0.sortOrder < $1.sortOrder }
         networkHubs = storage.networkHubs.sorted { $0.sortOrder < $1.sortOrder }
+        companyHubs = storage.companyHubs
         customHubs = storage.customJSONHubs.sorted { $0.sortOrder < $1.sortOrder }
         
         // Load carousel settings from active profile
@@ -398,6 +504,7 @@ struct HomeCustomizationView: View {
         storage.updateBrowseSections(browseSections)
         storage.updateBrowseRows(browseRows)
         storage.reorderNetworkHubs(networkHubs)
+        storage.reorderCompanyHubs(companyHubs)
         
         // For custom hubs: reconcile with storage (handle deletions + reorder)
         let currentIds = Set(customHubs.map { $0.id })
@@ -433,6 +540,58 @@ struct HomeCustomizationView: View {
             customHubs[i].sortOrder = i
         }
     }
+
+    private func shapeBinding(for hub: Binding<CompanyHub>) -> Binding<CompanyHub.ButtonShape> {
+        Binding<CompanyHub.ButtonShape>(
+            get: { hub.wrappedValue.buttonShape ?? .roundedRectangle },
+            set: { hub.wrappedValue.buttonShape = $0 }
+        )
+    }
+
+    private func backgroundBinding(for hub: Binding<CompanyHub>) -> Binding<CompanyHub.BackgroundStyle> {
+        Binding<CompanyHub.BackgroundStyle>(
+            get: { hub.wrappedValue.backgroundStyle ?? .solid },
+            set: { hub.wrappedValue.backgroundStyle = $0 }
+        )
+    }
+
+    private func addStudioTemplate(_ template: StudioTemplate) {
+        guard !companyHubs.contains(where: { $0.name.caseInsensitiveCompare(template.name) == .orderedSame }) else { return }
+        companyHubs.append(
+            CompanyHub(
+                name: template.name,
+                logoPath: template.logoURL,
+                companyIds: [template.companyId],
+                networkIds: [],
+                buttonShape: .roundedRectangle,
+                backgroundStyle: .solid
+            )
+        )
+    }
+}
+
+private struct StudioTemplate {
+    let name: String
+    let companyId: Int
+    let logoURL: String?
+
+    static let defaults: [StudioTemplate] = [
+        StudioTemplate(name: "Paramount Pictures", companyId: 4, logoURL: "https://cdn.brandfetch.io/idrAEeTLeo/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1757576972155"),
+        StudioTemplate(name: "Walt Disney Pictures", companyId: 2, logoURL: "https://cdn.brandfetch.io/idxASqzkm_/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1675929043591"),
+        StudioTemplate(name: "20th Century Studios", companyId: 127928, logoURL: "https://cdn.brandfetch.io/id80eyhRc1/w/820/h/683/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1667562091650"),
+        StudioTemplate(name: "Searchlight Pictures", companyId: 127929, logoURL: nil),
+        StudioTemplate(name: "Warner Bros.", companyId: 174, logoURL: "https://cdn.brandfetch.io/idxBWIwtz0/w/405/h/396/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1768344714851"),
+        StudioTemplate(name: "Pixar", companyId: 3, logoURL: "https://cdn.brandfetch.io/idYVybSjsA/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1764458646138"),
+        StudioTemplate(name: "Universal Pictures", companyId: 33, logoURL: "https://cdn.brandfetch.io/id4AnmmNSk/theme/light/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1767628904850"),
+        StudioTemplate(name: "Sony Pictures", companyId: 34, logoURL: "https://cdn.brandfetch.io/idIBgcvFOi/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1766845823465"),
+        StudioTemplate(name: "Metro-Goldwyn-Mayer", companyId: 21, logoURL: "https://cdn.brandfetch.io/idLI5gJfl8/w/161/h/86/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1667810266726"),
+        StudioTemplate(name: "Lionsgate Films", companyId: 1632, logoURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Lionsgate_2025.svg/500px-Lionsgate_2025.svg.png"),
+        StudioTemplate(name: "A24", companyId: 41077, logoURL: "https://cdn.brandfetch.io/idHlMmIC6s/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1748302432792"),
+        StudioTemplate(name: "DreamWorks", companyId: 521, logoURL: "https://cdn.brandfetch.io/idj7QnEvUG/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1764869429974"),
+        StudioTemplate(name: "Blumhouse Productions", companyId: 3172, logoURL: "https://cdn.brandfetch.io/idMdr695hi/theme/dark/logo.svg?c=1bxid64Mup7aczewSAYMX&t=1767230760280"),
+        StudioTemplate(name: "Happy Madison Productions", companyId: 878, logoURL: "https://upload.wikimedia.org/wikipedia/commons/4/4f/Happy-Madison-Productions-logo.png"),
+        StudioTemplate(name: "Amblin Entertainment", companyId: 56, logoURL: "https://upload.wikimedia.org/wikipedia/en/1/16/Amblin_Entertainment_%28Print%29.svg")
+    ]
 }
 
 #Preview {

@@ -76,7 +76,7 @@ struct VideoCard: View {
                                 .aspectRatio(16.0/9.0, contentMode: .fill)
                         default:
                             Rectangle()
-                                .fill(Color(.systemGray5))
+                                .fill(Color.gray.opacity(0.18))
                         }
                     }
                     .frame(width: cardSize.width, height: cardSize.height)
@@ -107,7 +107,11 @@ struct VideoCard: View {
                                 .foregroundColor(.white.opacity(0.85))
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
-                                .background(Capsule().fill(.ultraThinMaterial))
+                                .background {
+                                    Capsule()
+                                        .fill(.clear)
+                                        .glassEffect(.regular, in: .capsule)
+                                }
                                 .padding(6)
                         }
                     }

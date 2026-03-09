@@ -30,7 +30,7 @@ struct PostSignInSyncView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemBackground)
+                Color.gray.opacity(0.02)
                     .ignoresSafeArea()
                 
                 VStack(spacing: 0) {
@@ -62,7 +62,9 @@ struct PostSignInSyncView: View {
                     }
                 }
             }
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 // No cancel — user must complete this flow
             }
@@ -179,7 +181,7 @@ struct PostSignInSyncView: View {
             .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(.systemGray6))
+                    .fill(Color.gray.opacity(0.12))
             )
         }
         .transition(.opacity.combined(with: .scale(scale: 0.95)))
@@ -217,7 +219,7 @@ struct PostSignInSyncView: View {
             .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(.systemGray6))
+                    .fill(Color.gray.opacity(0.12))
             )
         }
         .transition(.opacity.combined(with: .scale(scale: 0.95)))

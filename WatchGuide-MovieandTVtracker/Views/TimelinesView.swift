@@ -303,7 +303,9 @@ struct MCUTimelineView: View {
             }
         }
         .navigationTitle(timeline.title)
+        #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .task { await loadPosters() }
     }
 
@@ -539,7 +541,7 @@ struct TimelineEntryRow: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(.systemGray6))
+                .fill(Color.gray.opacity(0.12))
         )
     }
 
@@ -574,7 +576,7 @@ struct LogoScoreRow: View {
         .foregroundColor(.primary)
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(Color(.systemGray5))
+        .background(Color.gray.opacity(0.18))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
@@ -620,7 +622,7 @@ struct TimelinePoster: View {
                     .scaledToFill()
             case .empty:
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color(.systemGray5))
+                    .fill(Color.gray.opacity(0.18))
                     .overlay(ProgressView())
             default:
                 RoundedRectangle(cornerRadius: 8, style: .continuous)

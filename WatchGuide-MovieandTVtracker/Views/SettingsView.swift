@@ -54,10 +54,20 @@ struct SettingsView: View {
                                 Circle()
                                     .fill(Color.accentColor.opacity(0.15))
                                     .frame(width: 44, height: 44)
-                                
-                                Image(systemName: "person.circle")
-                                    .font(.title2)
-                                    .foregroundColor(.accentColor)
+
+                                if let profile = profileService.activeProfile {
+                                    ProfileAvatarImageView(
+                                        profile: profile,
+                                        size: 32,
+                                        showBorder: false
+                                    )
+                                    .frame(width: 32, height: 32)
+                                    .clipShape(Circle())
+                                } else {
+                                    Image(systemName: "person.circle")
+                                        .font(.title2)
+                                        .foregroundColor(.accentColor)
+                                }
                             }
                             
                             VStack(alignment: .leading, spacing: 2) {
@@ -230,6 +240,36 @@ struct SettingsView: View {
                         Text(language.name).tag(language.code)
                     }
                 }
+            }
+
+            Section {
+                Toggle("Natural Language Search", isOn: $settings.useAppleIntelligenceSearch)
+                Button("View Apple Intelligence Guide") {
+                    AppleIntelligenceGuideManager.shared.presentManually()
+                }
+                let capability = AppleIntelligenceCapabilityService.currentReport()
+                HStack {
+                    Text("Device Support")
+                    Spacer()
+                    Text(capability.isAppleIntelligenceAvailableNow ? "Ready" : "Limited")
+                        .foregroundColor(capability.isAppleIntelligenceAvailableNow ? .green : .secondary)
+                }
+            } header: {
+                HStack(spacing: 8) {
+                    Text("Apple Intelligence")
+                    Text("BETA")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color.orange.opacity(0.2))
+                        )
+                        .foregroundColor(.orange)
+                }
+            } footer: {
+                Text("When enabled, search can use Apple Intelligence on supported devices to rewrite natural-language prompts into stronger movie and TV queries. If unavailable, Watch Guide falls back to standard search.")
             }
             
             // Kids Profile
@@ -616,6 +656,8 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showAuthSheet) {
             AuthView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showPasscodeSetup) {
             ParentPasscodeSetupSheet { passcode in
@@ -768,7 +810,7 @@ struct BrowseRowsSettingsView: View {
         }
         .navigationTitle("Browse Rows")
         .toolbar {
-            EditButton()
+            PlatformEditButton()
         }
         .onAppear {
             rows = storage.browseRows.sorted { $0.sortOrder < $1.sortOrder }
@@ -833,7 +875,7 @@ struct NetworkHubsSettingsView: View {
         }
         .navigationTitle("Networks")
         .toolbar {
-            EditButton()
+            PlatformEditButton()
         }
         .onAppear {
             hubs = storage.networkHubs.sorted { $0.sortOrder < $1.sortOrder }
@@ -912,7 +954,7 @@ struct AddCompanyHubSheet: View {
                 
                 Section {
                     TextField("e.g., 420, 174", text: $companyIdsText)
-                        .keyboardType(.numbersAndPunctuation)
+                        .platformKeyboardTypeNumbersAndPunctuation()
                 } header: {
                     Text("Company IDs")
                 } footer: {
@@ -921,7 +963,7 @@ struct AddCompanyHubSheet: View {
                 
                 Section {
                     TextField("e.g., 213, 49", text: $networkIdsText)
-                        .keyboardType(.numbersAndPunctuation)
+                        .platformKeyboardTypeNumbersAndPunctuation()
                 } header: {
                     Text("Network IDs")
                 } footer: {
@@ -929,7 +971,7 @@ struct AddCompanyHubSheet: View {
                 }
             }
             .navigationTitle("Add Company Hub")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitleIfSupported()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -1097,7 +1139,7 @@ struct AddImportedListSheet: View {
                 Section {
                     TextField("List ID or URL", text: $listIdOrURL)
                         .textContentType(.URL)
-                        .autocapitalization(.none)
+                        .platformAutocapitalizationNone()
                         .autocorrectionDisabled()
                         .onChange(of: listIdOrURL) { _, _ in
                             previewInfo = nil
@@ -1162,7 +1204,7 @@ struct AddImportedListSheet: View {
                 }
             }
             .navigationTitle("Add List")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitleIfSupported()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -1179,7 +1221,11 @@ struct AddImportedListSheet: View {
                 if isLoading {
                     ProgressView()
                         .padding()
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .background {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(.clear)
+                                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
                 }
             }
         }
@@ -1337,7 +1383,7 @@ struct CustomHomeRowsSettingsView: View {
         }
         .navigationTitle("Custom Rows")
         .toolbar {
-            EditButton()
+            PlatformEditButton()
         }
         .sheet(isPresented: $showAddRow) {
             AddCustomHomeRowSheet()
@@ -1366,7 +1412,7 @@ struct AddCustomHomeRowSheet: View {
                 Section {
                     TextField("e.g. username/list-name", text: $mdblistURL)
                         .textContentType(.URL)
-                        .autocapitalization(.none)
+                        .platformAutocapitalizationNone()
                         .autocorrectionDisabled()
                         .onChange(of: mdblistURL) { _, _ in
                             previewItems = []
@@ -1433,7 +1479,7 @@ struct AddCustomHomeRowSheet: View {
                         TextField("Custom Name (optional)", text: $customName)
                         TextField("Header Image URL (optional)", text: $imageURL)
                             .textContentType(.URL)
-                            .autocapitalization(.none)
+                            .platformAutocapitalizationNone()
                             .autocorrectionDisabled()
                     }
                     
@@ -1460,7 +1506,7 @@ struct AddCustomHomeRowSheet: View {
                 }
             }
             .navigationTitle("Add Custom Row")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitleIfSupported()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -1587,7 +1633,7 @@ struct SupabaseSetupGuideView: View {
                         Text(sqlSchema)
                             .font(.system(.caption, design: .monospaced))
                             .padding()
-                            .background(Color(.systemGray6))
+                            .background(Color.gray.opacity(0.12))
                             .cornerRadius(8)
                     }
                     
@@ -1602,7 +1648,7 @@ struct SupabaseSetupGuideView: View {
                     #endif
                 }
                 .padding()
-                .background(Color(.systemGray6).opacity(0.5))
+                .background(Color.gray.opacity(0.08))
                 .cornerRadius(12)
                 
                 // Step 3
@@ -1626,7 +1672,7 @@ struct SupabaseSetupGuideView: View {
             .padding()
         }
         .navigationTitle("Setup Guide")
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineNavTitleIfSupported()
     }
     
     private var sqlSchema: String {
@@ -2205,7 +2251,7 @@ struct ParentPasscodeSetupSheet: View {
                     let currentCode = step == .create ? passcode : confirmPasscode
                     ForEach(0..<4, id: \.self) { index in
                         Circle()
-                            .fill(index < currentCode.count ? Color.accentColor : Color(.systemGray4))
+                            .fill(index < currentCode.count ? Color.accentColor : Color.gray.opacity(0.35))
                             .frame(width: 16, height: 16)
                             .animation(.easeInOut(duration: 0.15), value: currentCode.count)
                     }
@@ -2220,7 +2266,7 @@ struct ParentPasscodeSetupSheet: View {
                 
                 // Hidden text field to capture keyboard input
                 TextField("", text: step == .create ? $passcode : $confirmPasscode)
-                    .keyboardType(.numberPad)
+                    .platformKeyboardTypeNumberPad()
                     .focused($isFocused)
                     .frame(width: 1, height: 1)
                     .opacity(0.01)
@@ -2259,7 +2305,7 @@ struct ParentPasscodeSetupSheet: View {
                 Spacer()
                 Spacer()
             }
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitleIfSupported()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -2311,7 +2357,7 @@ struct ParentPasscodeEntrySheet: View {
                 HStack(spacing: 16) {
                     ForEach(0..<4, id: \.self) { index in
                         Circle()
-                            .fill(index < enteredPasscode.count ? Color.orange : Color(.systemGray4))
+                            .fill(index < enteredPasscode.count ? Color.orange : Color.gray.opacity(0.35))
                             .frame(width: 16, height: 16)
                             .animation(.easeInOut(duration: 0.15), value: enteredPasscode.count)
                     }
@@ -2326,7 +2372,7 @@ struct ParentPasscodeEntrySheet: View {
                 
                 // Hidden text field
                 TextField("", text: $enteredPasscode)
-                    .keyboardType(.numberPad)
+                    .platformKeyboardTypeNumberPad()
                     .focused($isFocused)
                     .frame(width: 1, height: 1)
                     .opacity(0.01)
@@ -2351,7 +2397,7 @@ struct ParentPasscodeEntrySheet: View {
                 Spacer()
                 Spacer()
             }
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitleIfSupported()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -2513,7 +2559,7 @@ struct CustomJSONHubsSettingsView: View {
         .navigationTitle("Hub Customisation")
         .toolbar {
             if !storage.customJSONHubs.isEmpty {
-                EditButton()
+                PlatformEditButton()
             }
         }
         .sheet(isPresented: $showAddHub) {
@@ -2620,7 +2666,7 @@ struct ExportHubSheet: View {
                         .foregroundColor(.secondary)
                         .padding()
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(.systemGray6))
+                        .background(Color.gray.opacity(0.12))
                         .cornerRadius(12)
                 }
                 .frame(maxHeight: 300)
@@ -2660,7 +2706,7 @@ struct ExportHubSheet: View {
                 
                 Spacer()
             }
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitleIfSupported()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -2904,9 +2950,9 @@ struct AddCustomHubSheet: View {
                     Section {
                         TextField("https://example.com/image.png", text: $imageURL)
                             .textContentType(.URL)
-                            .autocapitalization(.none)
+                            .platformAutocapitalizationNone()
                             .autocorrectionDisabled()
-                            .keyboardType(.URL)
+                            .platformKeyboardTypeURL()
                         
                         // Image preview
                         if !imageURL.isEmpty, let url = URL(string: imageURL) {
@@ -2945,7 +2991,7 @@ struct AddCustomHubSheet: View {
                         TextField("Row Name (shown on Browse)", text: $rowName)
                         
                         TextField("Brand Color (optional, e.g. #FF6600)", text: $brandColor)
-                            .autocapitalization(.none)
+                            .platformAutocapitalizationNone()
                             .autocorrectionDisabled()
                     } header: {
                         HStack(spacing: 6) {
@@ -2958,7 +3004,7 @@ struct AddCustomHubSheet: View {
                 }
             }
             .navigationTitle("Add Custom Hub")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitleIfSupported()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -2982,7 +3028,10 @@ struct AddCustomHubSheet: View {
                             .foregroundColor(.secondary)
                     }
                     .padding(24)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .background {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.black.opacity(0.18))
+                    }
                 }
             }
         }
@@ -2994,7 +3043,7 @@ struct AddCustomHubSheet: View {
         // URL or search input
         TextField("Paste MDBList URL or search...", text: $mdblistInput)
             .textContentType(.URL)
-            .autocapitalization(.none)
+            .platformAutocapitalizationNone()
             .autocorrectionDisabled()
             .onChange(of: mdblistInput) { _, _ in
                 error = nil
@@ -3101,9 +3150,9 @@ struct AddCustomHubSheet: View {
     private var jsonSection: some View {
         TextField("https://example.com/list.json", text: $jsonURL)
             .textContentType(.URL)
-            .autocapitalization(.none)
+            .platformAutocapitalizationNone()
             .autocorrectionDisabled()
-            .keyboardType(.URL)
+            .platformKeyboardTypeURL()
             .onChange(of: jsonURL) { _, _ in
                 jsonPreviewCount = 0
                 jsonPreviewSamples = []
@@ -3353,6 +3402,93 @@ private struct StepBadge: View {
             .foregroundColor(.white)
             .frame(width: 18, height: 18)
             .background(Circle().fill(Color.accentColor))
+    }
+}
+
+private struct PlatformEditButton: View {
+    var body: some View {
+#if os(macOS)
+        EmptyView()
+#else
+        EditButton()
+#endif
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func platformKeyboardTypeNumbersAndPunctuation() -> some View {
+#if os(macOS)
+        self
+#else
+        self.keyboardType(.numbersAndPunctuation)
+#endif
+    }
+
+    @ViewBuilder
+    func platformKeyboardTypeNumberPad() -> some View {
+#if os(macOS)
+        self
+#else
+        self.keyboardType(.numberPad)
+#endif
+    }
+
+    @ViewBuilder
+    func platformKeyboardTypeURL() -> some View {
+#if os(macOS)
+        self
+#else
+        self.keyboardType(.URL)
+#endif
+    }
+
+    @ViewBuilder
+    func platformAutocapitalizationNone() -> some View {
+#if os(macOS)
+        self
+#else
+        self.autocapitalization(.none)
+#endif
+    }
+
+    @ViewBuilder
+    func inlineNavTitleIfSupported() -> some View {
+#if os(macOS)
+        self
+#else
+        self.navigationBarTitleDisplayMode(.inline)
+#endif
+    }
+}
+
+private extension Color {
+    init(hex: String) {
+        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: cleaned).scanHexInt64(&int)
+
+        let r, g, b: UInt64
+        switch cleaned.count {
+        case 6:
+            (r, g, b) = (int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 3:
+            (r, g, b) = (
+                ((int >> 8) & 0xF) * 17,
+                ((int >> 4) & 0xF) * 17,
+                (int & 0xF) * 17
+            )
+        default:
+            (r, g, b) = (128, 128, 128)
+        }
+
+        self.init(
+            .sRGB,
+            red: Double(r) / 255.0,
+            green: Double(g) / 255.0,
+            blue: Double(b) / 255.0,
+            opacity: 1.0
+        )
     }
 }
 

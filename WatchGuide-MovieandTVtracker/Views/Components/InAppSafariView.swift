@@ -1,4 +1,5 @@
 import SwiftUI
+#if canImport(UIKit) && canImport(SafariServices)
 import SafariServices
 
 /// A SwiftUI wrapper around SFSafariViewController for an in-app browser experience.
@@ -16,3 +17,27 @@ struct InAppSafariView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
+#else
+/// macOS fallback: provide a simple handoff to the system browser.
+struct InAppSafariView: View {
+    let url: URL
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Open in Browser")
+                .font(.headline)
+            Text(url.absoluteString)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+            Button("Open") {
+                openURL(url)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(24)
+    }
+}
+#endif

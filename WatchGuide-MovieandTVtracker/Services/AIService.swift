@@ -31,7 +31,7 @@ actor AIService {
             switch self {
             case .gemini25Flash: return "Gemini 2.5 Flash"
             case .gemini20Flash: return "Gemini 2.0 Flash"
-            case .gpt5Nano: return "GPT-5 Nano"
+            case .gpt5Nano: return "ChatGPT 5 Nano"
             }
         }
         
@@ -147,7 +147,7 @@ actor AIService {
         conversationHistory: [ChatMessage],
         likedItems: [SavedMediaItem],
         webSearchEnabled: Bool = true,
-        model: ChronModel = .gemini25Flash,
+        model: ChronModel = .gpt5Nano,
         restrictedMode: Bool = false
     ) async throws -> (String, TrailerResponse?) {
         guard !apiKey.isEmpty else {
@@ -182,7 +182,7 @@ actor AIService {
         conversationHistory: [ChatMessage],
         likedItems: [SavedMediaItem],
         webSearchEnabled: Bool = true,
-        model: ChronModel = .gemini25Flash,
+        model: ChronModel = .gpt5Nano,
         restrictedMode: Bool = false
     ) -> AsyncStream<StreamEvent> {
         AsyncStream { continuation in

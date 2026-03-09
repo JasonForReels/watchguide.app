@@ -96,7 +96,13 @@ struct MediaPosterCard: View {
                     .zIndex(0)
             }
 
-            PosterImageView(posterPath: item.posterPath, size: .medium, mediaId: item.id, mediaType: item.resolvedMediaType)
+            PosterImageView(
+                posterPath: item.posterPath,
+                backdropPath: item.backdropPath,
+                size: .medium,
+                mediaId: item.id,
+                mediaType: item.resolvedMediaType
+            )
                 .frame(width: posterSize.width, height: posterSize.height)
                 .clipped()
                 .shadow(color: .black.opacity(0.2), radius: isHovered ? 12 : 4, y: isHovered ? 8 : 2)
@@ -176,7 +182,13 @@ struct SavedMediaPosterCard: View {
 
     var body: some View {
         let posterSize = ResponsiveSizing.posterSize(horizontalSizeClass: horizontalSizeClass)
-        PosterImageView(posterPath: item.posterPath, size: .medium, mediaId: item.mediaId, mediaType: item.mediaType)
+        PosterImageView(
+            posterPath: item.posterPath,
+            backdropPath: item.backdropPath,
+            size: .medium,
+            mediaId: item.mediaId,
+            mediaType: item.mediaType
+        )
             .frame(width: posterSize.width, height: posterSize.height)
             .clipped()
             .shadow(color: .black.opacity(0.2), radius: isHovered ? 12 : 4, y: isHovered ? 8 : 2)

@@ -83,7 +83,7 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
     func requestLocation() {
         errorMessage = nil
         switch authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse:
+        case _ where isAuthorized(authorizationStatus):
             manager.requestLocation()
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
@@ -96,9 +96,17 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
-        if authorizationStatus == .authorizedAlways || authorizationStatus == .authorizedWhenInUse {
+        if isAuthorized(authorizationStatus) {
             manager.requestLocation()
         }
+    }
+
+    private func isAuthorized(_ status: CLAuthorizationStatus) -> Bool {
+        #if os(macOS)
+        return status == .authorized || status == .authorizedAlways
+        #else
+        return status == .authorizedWhenInUse || status == .authorizedAlways
+        #endif
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
@@ -366,7 +374,9 @@ struct BoxOfficeCinemaSelectorView: View {
             .padding(.bottom, 8)
         }
         .navigationTitle("Box Office")
+        #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 NavigationLink(destination: CinemaTripPlannerView()) {
@@ -662,7 +672,7 @@ private struct CinemaDetailCard: View {
                     .padding(.vertical, 12)
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color(.systemGray5))
+                            .fill(Color.gray.opacity(0.18))
                     )
                 }
 
@@ -674,7 +684,7 @@ private struct CinemaDetailCard: View {
                         .frame(width: 44, height: 44)
                         .background(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Color(.systemGray5))
+                                .fill(Color.gray.opacity(0.18))
                         )
                 }
             }
@@ -816,7 +826,9 @@ private struct CinemaListSheet: View {
                 }
             }
             .navigationTitle("All Cinemas")
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }

@@ -180,7 +180,9 @@ struct TabButton: View {
     let action: () -> Void
     
     var body: some View {
-        Button(action: action) {
+        Button {
+            action()
+        } label: {
             HStack(spacing: 6) {
                 Text(title)
                     .fontWeight(isSelected ? .semibold : .regular)
@@ -191,13 +193,13 @@ struct TabButton: View {
                         .fontWeight(.medium)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(isSelected ? Color.white.opacity(0.2) : Color(.systemGray4))
+                        .background(isSelected ? Color.white.opacity(0.2) : Color.gray.opacity(0.35))
                         .cornerRadius(8)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(isSelected ? Color.accentColor : Color(.systemGray6))
+            .background(isSelected ? Color.accentColor : Color.gray.opacity(0.12))
             .foregroundColor(isSelected ? .white : .primary)
             .cornerRadius(20)
         }

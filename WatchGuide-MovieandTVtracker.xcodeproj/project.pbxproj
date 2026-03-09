@@ -585,8 +585,17 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.0.0;
-				"MARKETING_VERSION[sdk=iphoneos*]" = 3.0.0;
+				MARKETING_VERSION = 3.1;
+				"MARKETING_VERSION[sdk=iphoneos*]" = 3.1;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-weak_framework",
+					FoundationModels,
+					"-weak_framework",
+					ImagePlayground,
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "$(inherited)";
+				"OTHER_LDFLAGS[sdk=macosx*]" = "$(inherited)";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -597,6 +606,8 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				"TARGETED_DEVICE_FAMILY[sdk=xros*]" = 7;
+				"TARGETED_DEVICE_FAMILY[sdk=xrsimulator*]" = 7;
 			};
 			name = Debug;
 		};
@@ -628,8 +639,17 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.0.0;
-				"MARKETING_VERSION[sdk=iphoneos*]" = 3.0.0;
+				MARKETING_VERSION = 3.1;
+				"MARKETING_VERSION[sdk=iphoneos*]" = 3.1;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-weak_framework",
+					FoundationModels,
+					"-weak_framework",
+					ImagePlayground,
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "$(inherited)";
+				"OTHER_LDFLAGS[sdk=macosx*]" = "$(inherited)";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -640,6 +660,8 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				"TARGETED_DEVICE_FAMILY[sdk=xros*]" = 7;
+				"TARGETED_DEVICE_FAMILY[sdk=xrsimulator*]" = 7;
 			};
 			name = Release;
 		};
@@ -652,7 +674,7 @@
 				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
-				MARKETING_VERSION = 3.0.0;
+				MARKETING_VERSION = 3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.organizationName.WatchGuide-MovieandTVtrackerTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -671,7 +693,7 @@
 				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
-				MARKETING_VERSION = 3.0.0;
+				MARKETING_VERSION = 3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.organizationName.WatchGuide-MovieandTVtrackerTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -688,7 +710,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 3.0.0;
+				MARKETING_VERSION = 3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.organizationName.WatchGuide-MovieandTVtrackerUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -705,7 +727,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 3.0.0;
+				MARKETING_VERSION = 3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.organizationName.WatchGuide-MovieandTVtrackerUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -733,7 +755,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.0.0;
+				MARKETING_VERSION = 3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker.watchguide-movieandtvtrackerwidgetextension";
 				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
 				PRODUCT_MODULE_NAME = WatchGuide_MovieandTVtrackerWidgetExtension;
@@ -764,7 +786,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.0.0;
+				MARKETING_VERSION = 3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker.watchguide-movieandtvtrackerwidgetextension";
 				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
 				PRODUCT_MODULE_NAME = WatchGuide_MovieandTVtrackerWidgetExtension;

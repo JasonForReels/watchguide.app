@@ -349,7 +349,7 @@ struct PopcornRefreshableScrollView<Content: View>: View {
         }
         .coordinateSpace(name: "popcornScroll")
         .refreshable {
-            #if !os(tvOS)
+            #if canImport(UIKit) && !os(tvOS)
             // Haptic feedback
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()

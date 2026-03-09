@@ -25,17 +25,33 @@ struct AuthView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 28) {
+                VStack(spacing: 24) {
                     // Header
                     VStack(spacing: 12) {
                         ZStack {
                             Circle()
                                 .fill(Color.accentColor.opacity(0.15))
                                 .frame(width: 80, height: 80)
-                            
-                            Image(systemName: "person.circle.fill")
-                                .font(.system(size: 40))
-                                .foregroundColor(.accentColor)
+
+                            if let profile = profileService.activeProfile {
+                                ProfileAvatarImageView(
+                                    profile: profile,
+                                    size: 56,
+                                    showBorder: false
+                                )
+                                .frame(width: 56, height: 56)
+                                .clipShape(Circle())
+                            } else {
+                                Image(systemName: "person.fill")
+                                    .font(.system(size: 28, weight: .semibold))
+                                    .foregroundColor(.accentColor)
+                                    .frame(width: 56, height: 56)
+                                    .background(
+                                        Circle()
+                                            .fill(Color.accentColor.opacity(0.12))
+                                    )
+                                    .clipShape(Circle())
+                            }
                         }
                         
                         Text("Sign In")
@@ -66,7 +82,7 @@ struct AuthView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color(.systemGray6))
+                            .background(Color.gray.opacity(0.12))
                             .foregroundColor(.primary)
                             .cornerRadius(12)
                         }
@@ -78,13 +94,19 @@ struct AuthView: View {
                                 .multilineTextAlignment(.center)
                         }
                     }
-                    
-                    Spacer(minLength: 40)
                 }
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 24)
+                .padding(.bottom, 24)
             }
+            #if !os(macOS)
+            .scrollDismissesKeyboard(.interactively)
+            #endif
             .navigationTitle("Sign In")
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -95,8 +117,10 @@ struct AuthView: View {
             .alert("Reset Password", isPresented: $showForgotPassword) {
                 TextField("Email", text: $email)
                     .textContentType(.emailAddress)
+                    #if !os(macOS)
                     .keyboardType(.emailAddress)
                     .autocapitalization(.none)
+                    #endif
                 Button("Cancel", role: .cancel) { }
                 Button("Send Reset Link") {
                     Task {
@@ -114,11 +138,19 @@ struct AuthView: View {
             } message: {
                 Text("If an account exists with that email, you'll receive a password reset link shortly.")
             }
+            #if os(macOS)
+            .sheet(isPresented: $showProfileSetup) {
+                FirstProfileSetupView {
+                    dismiss()
+                }
+            }
+            #else
             .fullScreenCover(isPresented: $showProfileSetup) {
                 FirstProfileSetupView {
                     dismiss()
                 }
             }
+            #endif
         }
     }
     
@@ -138,12 +170,14 @@ struct AuthView: View {
                         .foregroundColor(.secondary)
                     TextField("you@example.com", text: $email)
                         .textContentType(.emailAddress)
+                        #if !os(macOS)
                         .keyboardType(.emailAddress)
                         .autocapitalization(.none)
+                        #endif
                         .autocorrectionDisabled()
                 }
                 .padding()
-                .background(Color(.systemGray6))
+                .background(Color.gray.opacity(0.12))
                 .cornerRadius(12)
             }
             
@@ -160,7 +194,7 @@ struct AuthView: View {
                         .textContentType(isSignUp ? .newPassword : .password)
                 }
                 .padding()
-                .background(Color(.systemGray6))
+                .background(Color.gray.opacity(0.12))
                 .cornerRadius(12)
             }
             
@@ -178,7 +212,7 @@ struct AuthView: View {
                             .textContentType(.newPassword)
                     }
                     .padding()
-                    .background(Color(.systemGray6))
+                    .background(Color.gray.opacity(0.12))
                     .cornerRadius(12)
                 }
             }
@@ -326,7 +360,7 @@ struct AccountView: View {
                     Spacer()
                 }
                 .padding()
-                .background(Color(.systemGray6))
+                .background(Color.gray.opacity(0.12))
                 .cornerRadius(12)
                 
                 // Sign out button
@@ -356,7 +390,7 @@ struct AccountView: View {
                     .foregroundColor(.red.opacity(0.8))
                     .frame(maxWidth: .infinity)
                     .padding(12)
-                    .background(Color(.systemGray6))
+                    .background(Color.gray.opacity(0.12))
                     .cornerRadius(12)
                 }
             }

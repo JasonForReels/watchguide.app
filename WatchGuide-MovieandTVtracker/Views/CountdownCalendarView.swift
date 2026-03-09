@@ -509,7 +509,7 @@ struct CountdownFeaturedCard: View {
                             .aspectRatio(16.0/9.0, contentMode: .fill)
                     default:
                         Rectangle()
-                            .fill(Color(.systemGray5))
+                            .fill(Color.gray.opacity(0.18))
                             .aspectRatio(16.0/9.0, contentMode: .fill)
                     }
                 }
@@ -706,7 +706,9 @@ struct CountdownLanguageFilterSheet: View {
             }
             .searchable(text: $searchText, prompt: "Search languages")
             .navigationTitle("Language")
+            #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }

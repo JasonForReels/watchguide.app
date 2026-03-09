@@ -9,6 +9,9 @@ import Combine
 @MainActor
 class StorageService: ObservableObject {
     static let shared = StorageService()
+
+    private static let remoteStudioHubsURLString = "https://raw.githubusercontent.com/WatchGuide-app/Studios-hubs/refs/heads/main/studios.json"
+    private static let remoteStudioAssetsBaseURLString = "https://raw.githubusercontent.com/WatchGuide-app/Studios-hubs/refs/heads/main/"
     
     // MARK: - Published Properties
     @Published private(set) var wantToWatch: [SavedMediaItem] = []
@@ -93,6 +96,7 @@ class StorageService: ObservableObject {
         migrateBrowseRowsIfNeeded()
         initializeDefaultHubs()
         initializeNetworkHubs()
+        Task { await refreshCompanyHubsFromRemote() }
         
         // Load cloud sync preference
         cloudSyncEnabled = UserDefaults.standard.bool(forKey: "cloud_sync_enabled")
@@ -193,6 +197,99 @@ class StorageService: ObservableObject {
         
         companyHubs = defaultHubs
         save(companyHubs, to: companyHubsURL)
+    }
+
+    private struct RemoteStudioHub: Decodable {
+        let name: String
+        let logoURL: String?
+        let logoPath: String?
+        let companyId: Int?
+        let companyIds: [Int]?
+        let networkIds: [Int]?
+        let buttonShape: String?
+        let backgroundStyle: String?
+        let isEnabled: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case logoURL
+            case logoPath
+            case companyId
+            case companyIds
+            case networkIds
+            case buttonShape
+            case backgroundStyle
+            case isEnabled
+        }
+    }
+
+    private func normalizeRemoteLogoPath(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        if value.hasPrefix("http://") || value.hasPrefix("https://") {
+            return value
+        }
+        return Self.remoteStudioAssetsBaseURLString + value.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    private func makeCompanyHub(from remote: RemoteStudioHub) -> CompanyHub? {
+        let ids = remote.companyIds ?? (remote.companyId.map { [$0] } ?? [])
+        guard !remote.name.isEmpty, !ids.isEmpty else { return nil }
+        return CompanyHub(
+            name: remote.name,
+            logoPath: normalizeRemoteLogoPath(remote.logoURL ?? remote.logoPath),
+            companyIds: ids,
+            networkIds: remote.networkIds ?? [],
+            buttonShape: remote.buttonShape.flatMap { CompanyHub.ButtonShape(rawValue: $0) },
+            backgroundStyle: remote.backgroundStyle.flatMap { CompanyHub.BackgroundStyle(rawValue: $0) }
+        )
+    }
+
+    func refreshCompanyHubsFromRemote() async {
+        guard let url = URL(string: Self.remoteStudioHubsURLString) else { return }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                return
+            }
+
+            let decoder = JSONDecoder()
+            let remoteEntries = try decoder.decode([RemoteStudioHub].self, from: data)
+            let remoteHubs = remoteEntries.compactMap { makeCompanyHub(from: $0) }
+            guard !remoteHubs.isEmpty else { return }
+
+            if companyHubs.isEmpty {
+                companyHubs = remoteHubs
+                save(companyHubs, to: companyHubsURL)
+                return
+            }
+
+            var merged = companyHubs
+            for remote in remoteHubs {
+                if let existingIndex = merged.firstIndex(where: { $0.name.caseInsensitiveCompare(remote.name) == .orderedSame }) {
+                    let existing = merged[existingIndex]
+                    let updated = CompanyHub(
+                        id: existing.id,
+                        name: existing.name,
+                        logoPath: remote.logoPath ?? existing.logoPath,
+                        companyIds: remote.companyIds,
+                        networkIds: remote.networkIds,
+                        isEnabled: existing.isEnabled,
+                        buttonShape: existing.buttonShape ?? remote.buttonShape,
+                        backgroundStyle: existing.backgroundStyle ?? remote.backgroundStyle,
+                        createdAt: existing.createdAt
+                    )
+                    merged[existingIndex] = updated
+                } else {
+                    merged.append(remote)
+                }
+            }
+
+            companyHubs = merged
+            save(companyHubs, to: companyHubsURL)
+        } catch {
+            print("Failed to refresh remote studio hubs: \(error)")
+        }
     }
     
     // MARK: - Network Hubs (Streaming Services)
@@ -756,6 +853,15 @@ class StorageService: ObservableObject {
     func deleteCompanyHub(id: String) {
         companyHubs.removeAll { $0.id == id }
         save(companyHubs, to: companyHubsURL)
+    }
+
+    func reorderCompanyHubs(_ hubs: [CompanyHub]) {
+        companyHubs = hubs
+        save(companyHubs, to: companyHubsURL)
+    }
+
+    func getEnabledCompanyHubs() -> [CompanyHub] {
+        companyHubs.filter { $0.isEnabled }
     }
     
     // MARK: - Imported Lists (PublicMetaDB)

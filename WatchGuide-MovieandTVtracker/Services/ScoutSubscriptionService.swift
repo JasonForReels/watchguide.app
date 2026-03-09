@@ -110,6 +110,10 @@ final class ScoutSubscriptionService: ObservableObject {
         defer { isPurchasing = false }
 
         do {
+            #if os(visionOS)
+            // visionOS requires PurchaseAction (SwiftUI) or purchase(confirmIn:options:).
+            return .failed("Purchases are not available from this flow on visionOS yet.")
+            #else
             let result = try await product.purchase()
             switch result {
             case .success(let verification):
@@ -128,6 +132,7 @@ final class ScoutSubscriptionService: ObservableObject {
             @unknown default:
                 return .failed("Unknown App Store purchase state.")
             }
+            #endif
         } catch {
             print("Scout IAP purchase error: \(error)")
             return .failed(error.localizedDescription)

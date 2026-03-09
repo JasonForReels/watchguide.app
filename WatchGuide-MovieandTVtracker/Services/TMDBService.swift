@@ -401,6 +401,14 @@ actor TMDBService {
         ]
         return try await request("/search/person", queryItems: queryItems)
     }
+
+    func searchCompanies(query: String, page: Int = 1) async throws -> TMDBResponse<Company> {
+        let queryItems = [
+            URLQueryItem(name: "query", value: query),
+            URLQueryItem(name: "page", value: "\(page)")
+        ]
+        return try await request("/search/company", queryItems: queryItems)
+    }
     
     // MARK: - Discover
     func discoverMovies(genres: [Int]? = nil, year: Int? = nil, sortBy: String = "popularity.desc", page: Int = 1) async throws -> TMDBResponse<MediaItem> {

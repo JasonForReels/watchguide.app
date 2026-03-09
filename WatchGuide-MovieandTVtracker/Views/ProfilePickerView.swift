@@ -8,17 +8,18 @@
 import SwiftUI
 
 struct ProfilePickerView: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var profileService = ProfileService.shared
     @State private var showAddProfile = false
     @State private var showEditProfile: UserProfile?
     @State private var isManageMode = false
-    @State private var selectedProfile: UserProfile?
+    @State private var selectedProfileId: String?
     @State private var animateIn = false
     @State private var isRefreshing = false
     
     var body: some View {
         ZStack {
-            Color(.systemBackground)
+            Color.primary.opacity(0.02)
                 .ignoresSafeArea()
             
             VStack(spacing: 28) {
@@ -43,11 +44,14 @@ struct ProfilePickerView: View {
                                 if isManageMode {
                                     showEditProfile = profile
                                 } else {
+                                    guard selectedProfileId == nil else { return }
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                        selectedProfile = profile
+                                        selectedProfileId = profile.id
                                     }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                         profileService.switchToProfile(profile)
+                                        // dismiss() works when presented as sheet; no-op when inline
+                                        dismiss()
                                     }
                                 }
                             }
@@ -81,7 +85,7 @@ struct ProfilePickerView: View {
                         .padding(.vertical, 10)
                         .background(
                             Capsule()
-                                .stroke(Color(.systemGray4), lineWidth: 1)
+                                .stroke(Color.gray.opacity(0.35), lineWidth: 1)
                         )
                 }
                 .padding(.bottom, 40)
@@ -89,6 +93,8 @@ struct ProfilePickerView: View {
             }
         }
         .onAppear {
+            // Reset selection state each time the picker appears
+            selectedProfileId = nil
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 animateIn = true
             }
@@ -120,7 +126,9 @@ struct ProfileAvatarCard: View {
     @State private var isPressed = false
     
     var body: some View {
-        Button(action: onTap) {
+        Button {
+            onTap()
+        } label: {
             VStack(spacing: 10) {
                 ZStack {
                     ProfileAvatarImageView(profile: profile, size: 100)
@@ -180,15 +188,17 @@ struct AddProfileCard: View {
     let onTap: () -> Void
     
     var body: some View {
-        Button(action: onTap) {
+        Button {
+            onTap()
+        } label: {
             VStack(spacing: 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color(.systemGray6))
+                        .fill(Color.gray.opacity(0.12))
                         .frame(width: 100, height: 100)
                         .overlay(
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color(.systemGray4), lineWidth: 1.5)
+                                .stroke(Color.gray.opacity(0.35), lineWidth: 1.5)
                                 .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
                         )
                     
@@ -296,7 +306,7 @@ struct ProfileSwitcherSheet: View {
                                 .padding(12)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(Color(.systemGray6))
+                                        .fill(Color.gray.opacity(0.12))
                                 )
                             }
                             .buttonStyle(.plain)
@@ -342,7 +352,7 @@ struct ProfileSwitcherSheet: View {
                                 .padding(14)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(Color(.systemGray6))
+                                        .fill(Color.gray.opacity(0.12))
                                 )
                             }
                             .buttonStyle(.plain)
@@ -365,7 +375,7 @@ struct ProfileSwitcherSheet: View {
                                 .padding(14)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(Color(.systemGray6))
+                                        .fill(Color.gray.opacity(0.12))
                                 )
                             }
                             .buttonStyle(.plain)
@@ -377,7 +387,9 @@ struct ProfileSwitcherSheet: View {
                 }
             }
             .navigationTitle("Profiles")
+#if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+#endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -460,7 +472,9 @@ struct ProfileSetupView: View {
                 .padding(24)
             }
             .navigationTitle(isEditing ? "Edit Profile" : "New Profile")
+#if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+#endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -563,7 +577,14 @@ struct ProfileSetupView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "person.crop.square.fill")
-                    Text(avatarImageURL != nil ? "Change Avatar" : "Pick an Avatar")
+                    Text(avatarImageURL != nil ? "Change Avatar" : "Choose Avatar")
+                    Text("BETA")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.orange.opacity(0.18)))
+                        .foregroundColor(.orange)
                 }
                 .font(.subheadline)
                 .fontWeight(.medium)
@@ -592,43 +613,13 @@ struct ProfileSetupView: View {
                 
                 TextField("Name", text: $name)
                     .padding()
-                    .background(Color(.systemGray6))
+                    .background(Color.gray.opacity(0.12))
                     .cornerRadius(12)
             }
             
-            // Fallback Icon Selection (shown when no custom avatar is set)
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Fallback Icon")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
-                if avatarImageURL != nil {
-                    Text("A custom avatar is set. The icon below is used as a fallback.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 6), spacing: 12) {
-                    ForEach(ProfileAvatar.allCases) { avatar in
-                        Button {
-                            selectedAvatar = avatar
-                        } label: {
-                            Image(systemName: avatar.rawValue)
-                                .font(.title3)
-                                .foregroundColor(selectedAvatar == avatar ? selectedColor.color : .secondary)
-                                .frame(width: 44, height: 44)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(selectedAvatar == avatar ? selectedColor.color.opacity(0.15) : Color(.systemGray6))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(selectedAvatar == avatar ? selectedColor.color : Color.clear, lineWidth: 2)
-                                )
-                        }
-                    }
-                }
-            }
+            Text("Avatars are currently in beta.")
+                .font(.caption)
+                .foregroundColor(.secondary)
             
             // Color Selection
             VStack(alignment: .leading, spacing: 10) {
@@ -678,7 +669,7 @@ struct ProfileSetupView: View {
                 }
             }
             .padding()
-            .background(Color(.systemGray6))
+            .background(Color.gray.opacity(0.12))
             .cornerRadius(12)
             
             // Delete button (editing only, non-kids profile if more than 1 profile)
@@ -746,14 +737,16 @@ struct ProfileSetupView: View {
                     in: ...Date(),
                     displayedComponents: .date
                 )
+#if !os(macOS)
                 .datePickerStyle(.wheel)
+#endif
                 .labelsHidden()
                 .onChange(of: dateOfBirth) { _, newValue in
                     ageGroup = ProfileService.ageGroupFromDateOfBirth(newValue)
                 }
             }
             .padding()
-            .background(Color(.systemGray6))
+            .background(Color.gray.opacity(0.12))
             .cornerRadius(12)
             
             // Age Group Result

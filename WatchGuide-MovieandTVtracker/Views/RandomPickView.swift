@@ -118,7 +118,7 @@ struct RandomPickView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(sourceItems.isEmpty ? Color(.systemGray4) : Color.accentColor)
+                    .background(sourceItems.isEmpty ? Color.gray.opacity(0.35) : Color.accentColor)
                     .foregroundColor(.white)
                     .cornerRadius(16)
                 }
@@ -222,8 +222,11 @@ struct RandomPickView: View {
                 .fontWeight(.medium)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
-                .background(.ultraThinMaterial)
-                .cornerRadius(12)
+                .background {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(.clear)
+                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
             }
             .buttonStyle(.plain)
         }
@@ -327,7 +330,7 @@ struct SourceChip: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
-            .background(isSelected ? Color.accentColor.opacity(0.15) : Color(.systemGray6))
+            .background(isSelected ? Color.accentColor.opacity(0.15) : Color.gray.opacity(0.12))
             .foregroundColor(isSelected ? .accentColor : .primary)
             .cornerRadius(12)
             .overlay(

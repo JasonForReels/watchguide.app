@@ -32,7 +32,7 @@ struct SplashScreenView: View {
                     finishSplash()
                 }
             }
-            #if !os(tvOS)
+            #if !os(tvOS) && !os(macOS)
             .statusBarHidden(true)
             .persistentSystemOverlays(.hidden)
             #endif

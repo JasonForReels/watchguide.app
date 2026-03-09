@@ -190,7 +190,7 @@ struct DiscoverView: View {
     }
 }
 
-// MARK: - Feature Card
+// MARK: - Feature Card (Liquid Glass — iOS 26 SDK)
 struct DiscoverFeatureCard: View {
     let title: String
     let subtitle: String
@@ -218,14 +218,7 @@ struct DiscoverFeatureCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(isLarge ? 20 : 16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(accentColor.opacity(0.08))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(accentColor.opacity(0.15), lineWidth: 1)
-        )
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
         .scaleEffect(isPressed ? 0.97 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
         .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
@@ -234,7 +227,7 @@ struct DiscoverFeatureCard: View {
     }
 }
 
-// MARK: - Quick Stat Pill
+// MARK: - Quick Stat Pill (Liquid Glass — iOS 26 SDK)
 struct QuickStatPill: View {
     let label: String
     let value: String
@@ -258,8 +251,7 @@ struct QuickStatPill: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
+        .glassEffect(.regular, in: .capsule)
     }
 }
 
