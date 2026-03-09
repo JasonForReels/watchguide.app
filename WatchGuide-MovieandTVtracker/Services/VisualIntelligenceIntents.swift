@@ -1,6 +1,6 @@
 import Foundation
 
-#if os(iOS) && canImport(AppIntents) && canImport(VisualIntelligence) && !targetEnvironment(simulator)
+#if os(iOS) && canImport(AppIntents) && canImport(VisualIntelligence) && !targetEnvironment(simulator) && !targetEnvironment(macCatalyst)
 import AppIntents
 import VisualIntelligence
 import Vision

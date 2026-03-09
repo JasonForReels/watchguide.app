@@ -33,7 +33,7 @@ struct WatchGuide_MovieandTVtrackerApp: App {
     }
 
     private func registerAppShortcutsIfAvailable() {
-#if canImport(AppIntents) && canImport(VisualIntelligence) && !targetEnvironment(simulator)
+#if canImport(AppIntents) && canImport(VisualIntelligence) && !targetEnvironment(simulator) && !targetEnvironment(macCatalyst)
         // Keep app launch resilient if AppShortcuts provider source is not compiled into this target.
         // Visual intelligence features continue to work without this registration call.
         if #available(iOS 18.0, *) {}

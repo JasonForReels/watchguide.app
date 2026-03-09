@@ -31,7 +31,7 @@ struct BrowseView: View {
     @ObservedObject private var profileService = ProfileService.shared
     
     enum StudioSheet: String, Identifiable {
-        case twentiethCentury, warnerBros, dreamWorks, dcStudios, universalPictures, sonyPictures
+        case disney
         var id: String { rawValue }
     }
     
@@ -237,12 +237,7 @@ struct BrowseView: View {
             browseRowsSection
         case .studios:
             StudiosHubRow(
-                onTwentiethCenturyTap: { activeStudioSheet = .twentiethCentury },
-                onWarnerBrosTap: { activeStudioSheet = .warnerBros },
-                onDreamWorksTap: { activeStudioSheet = .dreamWorks },
-                onDCStudiosTap: { activeStudioSheet = .dcStudios },
-                onUniversalPicturesTap: { activeStudioSheet = .universalPictures },
-                onSonyPicturesTap: { activeStudioSheet = .sonyPictures }
+                onDisneyTap: { activeStudioSheet = .disney }
             )
         case .customHubs:
             customHubsSection
@@ -405,18 +400,8 @@ struct BrowseView: View {
     @ViewBuilder
     private func studioSheetContent(for studio: StudioSheet) -> some View {
         switch studio {
-        case .twentiethCentury:
-            TwentiethCenturyStudiosSheet(selectedItem: $selectedItem)
-        case .warnerBros:
-            WarnerBrosSheet(selectedItem: $selectedItem)
-        case .dreamWorks:
-            DreamWorksSheet(selectedItem: $selectedItem)
-        case .dcStudios:
-            DCStudiosSheet(selectedItem: $selectedItem)
-        case .universalPictures:
-            UniversalPicturesSheet(selectedItem: $selectedItem)
-        case .sonyPictures:
-            SonyPicturesSheet(selectedItem: $selectedItem)
+        case .disney:
+            DisneyHubSheet(selectedItem: $selectedItem)
         }
     }
 
@@ -1403,124 +1388,80 @@ struct LiquidGlassHubButton: View {
 
 // MARK: - Studios Hub Row
 struct StudiosHubRow: View {
-    let onTwentiethCenturyTap: () -> Void
-    let onWarnerBrosTap: () -> Void
-    let onDreamWorksTap: () -> Void
-    let onDCStudiosTap: () -> Void
-    let onUniversalPicturesTap: () -> Void
-    let onSonyPicturesTap: () -> Void
+    let onDisneyTap: () -> Void
     
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                StudioHubButton(
-                    label: "20th Century",
-                    brandColor: Color(red: 0x66/255, green: 0x66/255, blue: 0x66/255),
-                    action: onTwentiethCenturyTap
-                )
-                StudioHubButton(
-                    label: "Warner Bros",
-                    brandColor: Color(red: 0x05/255, green: 0x00/255, blue: 0x8C/255),
-                    action: onWarnerBrosTap
-                )
-                StudioHubButton(
-                    label: "DreamWorks",
-                    brandColor: Color(red: 0x22/255, green: 0x22/255, blue: 0x22/255),
-                    action: onDreamWorksTap
-                )
-                StudioHubButton(
-                    label: "DC Studios",
-                    brandColor: Color(red: 0x00/255, green: 0x74/255, blue: 0xE8/255),
-                    action: onDCStudiosTap
-                )
-                StudioHubButton(
-                    label: "Universal",
-                    brandColor: Color(red: 0x37/255, green: 0x5F/255, blue: 0x78/255),
-                    action: onUniversalPicturesTap
-                )
-                StudioHubButton(
-                    label: "Sony Pictures",
-                    brandColor: Color(red: 0xB5/255, green: 0xB6/255, blue: 0xB7/255),
-                    action: onSonyPicturesTap
-                )
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Studios")
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    DisneyStudioHubButton(action: onDisneyTap)
+                }
+                .padding(.horizontal)
             }
-            .padding(.horizontal)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
     }
 }
 
-// MARK: - Studio Hub Button
-struct StudioHubButton: View {
-    let label: String
-    let brandColor: Color
+// MARK: - Disney Studio Hub Button (Liquid Glass)
+struct DisneyStudioHubButton: View {
     let action: () -> Void
     @State private var isPressed = false
     
     var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(.caption)
-                .fontWeight(.bold)
-                .foregroundColor(.white)
+        VStack(spacing: 10) {
+            Button(action: action) {
+                ZStack {
+                    Image("WaltDisneyPictures")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 54, height: 54)
+                        .clipShape(Circle())
+                }
+                .frame(width: 62, height: 62)
+                .modifier(LiquidGlassCircle())
+                .scaleEffect(isPressed ? 0.90 : 1.0)
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
+            }
+            .buttonStyle(.plain)
+            .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+                isPressed = pressing
+            }, perform: {})
+            
+            Text("Disney")
+                .font(.caption2)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .frame(minWidth: 80)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(brandColor)
-                )
         }
-        .buttonStyle(.plain)
-        .shadow(color: brandColor.opacity(0.35), radius: isPressed ? 2 : 5, y: isPressed ? 1 : 3)
-        .scaleEffect(isPressed ? 0.94 : 1.0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
-        .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
-            isPressed = pressing
-        }, perform: {})
     }
 }
 
-// MARK: - 20th Century Studios Sheet
-struct TwentiethCenturyStudiosSheet: View {
+// MARK: - Disney Hub Sheet (TMDB Company ID 2 — Walt Disney Pictures)
+struct DisneyHubSheet: View {
     @Binding var selectedItem: MediaItem?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var allItems: [SavedMediaItem] = []
+    @State private var movieItems: [MediaItem] = []
+    @State private var tvItems: [MediaItem] = []
     @State private var isLoading = true
-    @State private var error: String?
+    @State private var errorMessage: String?
     @State private var selectedTab = 0
-    
-    private var movies: [SavedMediaItem] {
-        allItems.filter { $0.mediaType == .movie }
-    }
-    
-    private var tvShows: [SavedMediaItem] {
-        allItems.filter { $0.mediaType == .tv }
-    }
-    
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Header with logo
-                AsyncImage(url: URL(string: "https://i.ibb.co/0VZ8BZdZ/20th-century-studios-seeklogo.png")) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .renderingMode(.template)
-                            .foregroundColor(colorScheme == .dark ? .white : .black)
-                            .aspectRatio(contentMode: .fit)
-                            .frame(height: 60)
-                    default:
-                        EmptyView()
-                    }
-                }
-                .padding(.vertical, 16)
-                
-                // Tab picker
+                // Header with local asset logo
+                Image("WaltDisneyPictures")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 64)
+                    .padding(.vertical, 16)
+
                 Picker("Content Type", selection: $selectedTab) {
                     Text("Movies").tag(0)
                     Text("TV").tag(1)
@@ -1528,19 +1469,19 @@ struct TwentiethCenturyStudiosSheet: View {
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
                 .padding(.bottom, 16)
-                
+
                 if isLoading {
                     Spacer()
                     ProgressView()
                         .scaleEffect(1.2)
                     Spacer()
-                } else if let error = error {
+                } else if let errorMessage {
                     Spacer()
                     VStack(spacing: 12) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.largeTitle)
                             .foregroundColor(.orange)
-                        Text(error)
+                        Text(errorMessage)
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -1548,8 +1489,7 @@ struct TwentiethCenturyStudiosSheet: View {
                     .padding()
                     Spacer()
                 } else {
-                    let items = selectedTab == 0 ? movies : tvShows
-                    
+                    let items = selectedTab == 0 ? movieItems : tvItems
                     if items.isEmpty {
                         Spacer()
                         VStack(spacing: 12) {
@@ -1564,37 +1504,18 @@ struct TwentiethCenturyStudiosSheet: View {
                     } else {
                         ScrollView {
                             LazyVGrid(columns: [
-                                GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
-                            ], spacing: 20) {
+                                GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 32)
+                            ], spacing: 32) {
                                 ForEach(items) { item in
-                                    SavedMediaPosterCard(item: item)
+                                    MediaPosterCard(item: item)
                                         .onTapGesture {
-                                            // Convert SavedMediaItem to MediaItem
-                                            let mediaItem = MediaItem(
-                                                id: item.mediaId,
-                                                title: item.mediaType == .movie ? item.title : nil,
-                                                name: item.mediaType == .tv ? item.title : nil,
-                                                originalTitle: nil,
-                                                originalName: nil,
-                                                overview: item.overview,
-                                                posterPath: item.posterPath,
-                                                backdropPath: item.backdropPath,
-                                                releaseDate: item.year,
-                                                firstAirDate: item.year,
-                                                voteAverage: item.voteAverage,
-                                                voteCount: nil,
-                                                popularity: nil,
-                                                genreIds: nil,
-                                                mediaType: item.mediaType.rawValue,
-                                                adult: nil,
-                                                originalLanguage: nil
-                                            )
-                                            selectedItem = mediaItem
+                                            selectedItem = item
                                             dismiss()
                                         }
                                 }
                             }
-                            .padding()
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 24)
                         }
                     }
                 }
@@ -1602,9 +1523,7 @@ struct TwentiethCenturyStudiosSheet: View {
             .inlineNavTitleIfSupported()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        dismiss()
-                    }
+                    Button("Close") { dismiss() }
                 }
             }
         }
@@ -1612,27 +1531,24 @@ struct TwentiethCenturyStudiosSheet: View {
             await loadContent()
         }
     }
-    
+
     private func loadContent() async {
         isLoading = true
-        error = nil
-        
+        errorMessage = nil
+
         do {
-            // Fetch from MDBList: dualipafan01/20th-century-studios
-            allItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: "dualipafan01/20th-century-studios")
-            if allItems.isEmpty {
-                error = "No content found in this list."
-            }
+            async let movies = TMDBService.shared.discoverMoviesByCompany(companyIds: [2])
+            async let tvShows = TMDBService.shared.discoverTVByCompany(companyIds: [2])
+            movieItems = try await movies.results
+            tvItems = try await tvShows.results
         } catch {
-            self.error = "Failed to load content. Please try again."
-            print("20th Century Studios error: \(error)")
+            errorMessage = "Failed to load Disney content. Please try again."
+            print("DisneyHubSheet error: \(error)")
         }
-        
+
         isLoading = false
     }
 }
-
-// ... (other company sheets and browse sections omitted for brevity, unchanged)
 
 // MARK: - Browse Customize Sheet (Legacy - kept for backwards compatibility)
 struct BrowseCustomizeSheet: View {
@@ -2207,55 +2123,7 @@ struct CustomJSONHubSheet: View {
     }
 }
 
-struct WarnerBrosSheet: View {
-    @Binding var selectedItem: MediaItem?
-    var body: some View {
-        CompanyHubSheet(
-            companyHub: CompanyHub(name: "Warner Bros.", companyIds: [174]),
-            selectedItem: $selectedItem
-        )
-    }
-}
-
-struct DreamWorksSheet: View {
-    @Binding var selectedItem: MediaItem?
-    var body: some View {
-        CompanyHubSheet(
-            companyHub: CompanyHub(name: "DreamWorks", companyIds: [521]),
-            selectedItem: $selectedItem
-        )
-    }
-}
-
-struct DCStudiosSheet: View {
-    @Binding var selectedItem: MediaItem?
-    var body: some View {
-        CompanyHubSheet(
-            companyHub: CompanyHub(name: "DC Studios", companyIds: [9993]),
-            selectedItem: $selectedItem
-        )
-    }
-}
-
-struct UniversalPicturesSheet: View {
-    @Binding var selectedItem: MediaItem?
-    var body: some View {
-        CompanyHubSheet(
-            companyHub: CompanyHub(name: "Universal Pictures", companyIds: [33]),
-            selectedItem: $selectedItem
-        )
-    }
-}
-
-struct SonyPicturesSheet: View {
-    @Binding var selectedItem: MediaItem?
-    var body: some View {
-        CompanyHubSheet(
-            companyHub: CompanyHub(name: "Sony Pictures", companyIds: [34]),
-            selectedItem: $selectedItem
-        )
-    }
-}
+// Old studio sheets (WarnerBros, DreamWorks, etc.) removed — now using DisneyHubSheet
 
 private extension View {
     @ViewBuilder
