@@ -453,6 +453,7 @@ struct UserSettings: Codable, Equatable {
     var preferredLanguage: String
     var autoPlayTrailers: Bool
     var autoPlayTrailersMuted: Bool
+    var showTrailersInMediaDetail: Bool
     var compactMode: Bool
     var ambientModeEnabled: Bool
     var heroCarouselSource: HeroCarouselSource
@@ -470,6 +471,7 @@ struct UserSettings: Codable, Equatable {
         self.preferredLanguage = Locale.current.language.languageCode?.identifier ?? "en"
         self.autoPlayTrailers = false
         self.autoPlayTrailersMuted = true
+        self.showTrailersInMediaDetail = true
         self.compactMode = false
         self.ambientModeEnabled = false
         self.heroCarouselSource = .trendingMovies
@@ -488,6 +490,7 @@ struct UserSettings: Codable, Equatable {
         case preferredLanguage
         case autoPlayTrailers
         case autoPlayTrailersMuted
+        case showTrailersInMediaDetail
         case compactMode
         case ambientModeEnabled
         case heroCarouselSource
@@ -508,6 +511,7 @@ struct UserSettings: Codable, Equatable {
         preferredLanguage = try container.decodeIfPresent(String.self, forKey: .preferredLanguage) ?? preferredLanguage
         autoPlayTrailers = try container.decodeIfPresent(Bool.self, forKey: .autoPlayTrailers) ?? autoPlayTrailers
         autoPlayTrailersMuted = try container.decodeIfPresent(Bool.self, forKey: .autoPlayTrailersMuted) ?? autoPlayTrailersMuted
+        showTrailersInMediaDetail = try container.decodeIfPresent(Bool.self, forKey: .showTrailersInMediaDetail) ?? showTrailersInMediaDetail
         compactMode = try container.decodeIfPresent(Bool.self, forKey: .compactMode) ?? compactMode
         ambientModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .ambientModeEnabled) ?? ambientModeEnabled
         if let sourceRaw = try container.decodeIfPresent(String.self, forKey: .heroCarouselSource),
@@ -530,6 +534,7 @@ struct UserSettings: Codable, Equatable {
         try container.encode(preferredLanguage, forKey: .preferredLanguage)
         try container.encode(autoPlayTrailers, forKey: .autoPlayTrailers)
         try container.encode(autoPlayTrailersMuted, forKey: .autoPlayTrailersMuted)
+        try container.encode(showTrailersInMediaDetail, forKey: .showTrailersInMediaDetail)
         try container.encode(compactMode, forKey: .compactMode)
         try container.encode(ambientModeEnabled, forKey: .ambientModeEnabled)
         try container.encode(heroCarouselSource.rawValue, forKey: .heroCarouselSource)

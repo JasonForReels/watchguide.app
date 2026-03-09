@@ -23,6 +23,7 @@ struct MediaDetailView: View {
     let item: MediaItem
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: MediaDetailViewModel
+    @ObservedObject private var storage = StorageService.shared
     @State private var selectedSeason: Season?
     @State private var selectedPerson: SelectedPerson?
     @State private var selectedCompanyHub: CompanyHub?
@@ -78,7 +79,7 @@ struct MediaDetailView: View {
                         }
                         
                         #if !os(tvOS)
-                        if let trailer = viewModel.preferredTrailer {
+                        if shouldShowDetailTrailer, let trailer = viewModel.preferredTrailer {
                             if showInlineTrailer {
                                 // Inline embedded trailer player (autoplay muted)
                                 VStack(alignment: .leading, spacing: 8) {
@@ -266,9 +267,9 @@ struct MediaDetailView: View {
             .ignoresSafeArea(edges: .top)
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(viewModel.preferredTrailer != nil ? .hidden : .visible, for: .navigationBar)
-            .toolbarBackground(viewModel.preferredTrailer != nil ? .hidden : .visible, for: .navigationBar)
-            .toolbarColorScheme(viewModel.preferredTrailer != nil ? .dark : .light, for: .navigationBar)
+            .toolbar((shouldShowDetailTrailer && viewModel.preferredTrailer != nil) ? .hidden : .visible, for: .navigationBar)
+            .toolbarBackground((shouldShowDetailTrailer && viewModel.preferredTrailer != nil) ? .hidden : .visible, for: .navigationBar)
+            .toolbarColorScheme((shouldShowDetailTrailer && viewModel.preferredTrailer != nil) ? .dark : .light, for: .navigationBar)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -338,6 +339,9 @@ struct MediaDetailView: View {
     
     // MARK: - Header Section (Auto-Playing Trailer)
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var shouldShowDetailTrailer: Bool {
+        storage.settings.showTrailersInMediaDetail
+    }
     
     private var headerSection: some View {
         GeometryReader { geometry in
@@ -350,7 +354,7 @@ struct MediaDetailView: View {
                 Color.black
                 
                 // Layer 1: Trailer video (underneath the backdrop)
-                if let trailerKey = viewModel.preferredTrailer?.key {
+                if shouldShowDetailTrailer, let trailerKey = viewModel.preferredTrailer?.key {
                     EmbeddedTrailerPlayer(
                         videoKey: trailerKey,
                         title: viewModel.preferredTrailer?.name ?? item.displayTitle,
@@ -380,7 +384,7 @@ struct MediaDetailView: View {
                 }
                 .frame(width: width, height: height)
                 .clipped()
-                .opacity(viewModel.preferredTrailer != nil ? 0 : 1)
+                .opacity((shouldShowDetailTrailer && viewModel.preferredTrailer != nil) ? 0 : 1)
                 .animation(.easeInOut(duration: 0.8), value: viewModel.preferredTrailer?.key)
                 
                 // Layer 3: Gradient overlay
@@ -393,7 +397,7 @@ struct MediaDetailView: View {
                 
                 // Layer 4: Content overlay
                 VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
-                    if viewModel.preferredTrailer != nil {
+                    if shouldShowDetailTrailer && viewModel.preferredTrailer != nil {
                         // Trailer playing: only keep the title logo/text visible over video.
                         if let logoURL = resolvedDetailLogoURL(width: width, height: height) {
                             AsyncImage(url: logoURL) { phase in

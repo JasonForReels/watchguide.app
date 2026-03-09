@@ -25,12 +25,27 @@ enum PlatformURLHandler {
         NSWorkspace.shared.open(url)
         #endif
     }
+
+    static func openAppSettings() {
+        #if os(iOS) || os(tvOS)
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
+        }
+        #elseif os(macOS)
+        if let privacyURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices") {
+            NSWorkspace.shared.open(privacyURL)
+        }
+        #endif
+    }
 }
 
 enum PlatformClipboard {
     static func copy(_ string: String) {
         #if os(iOS)
         UIPasteboard.general.string = string
+        #elseif os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
         #endif
     }
 }

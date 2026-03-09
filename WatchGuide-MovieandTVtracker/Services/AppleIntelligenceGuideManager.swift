@@ -36,8 +36,8 @@ enum AppleIntelligenceCapabilityService {
     private static var availabilityTuple: (isAvailable: Bool, summary: String) {
         #if os(iOS)
         if #available(iOS 18.0, *) {
-            if ProcessInfo.processInfo.isiOSAppOnMac {
-                return (true, "Apple Intelligence may be available on this Apple-silicon Mac.")
+            if PlatformCompatibility.isDesignedForiPadOnMac {
+                return (true, "Apple Intelligence may be available on this Apple-silicon Mac (iPad app).")
             }
             #if canImport(UIKit)
             if UIDevice.current.userInterfaceIdiom == .pad {
@@ -81,12 +81,7 @@ enum AppleIntelligenceCapabilityService {
     }
 
     private static var visualIntelligenceSupported: Bool {
-        #if canImport(VisualIntelligence)
-        if #available(iOS 18.0, macOS 15.0, *) {
-            return true
-        }
-        #endif
-        return false
+        return PlatformCompatibility.supportsVisualIntelligence
     }
 
     private static var currentPlatformName: String {

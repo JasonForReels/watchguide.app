@@ -69,7 +69,7 @@ struct ContentView: View {
                 profileService.markInitialSyncComplete()
             }
         } else if requiresProfilePicker {
-            ProfilePickerView()
+            ProfilePickerView(dismissOnSelection: false)
         } else if authService.isAuthenticated && authService.requiresPostSignInSyncDecision {
             // Just signed in/up — show sync decision popup over a loading state
             platformBackgroundColor
@@ -238,7 +238,6 @@ struct ContentView: View {
             ProfilePickerView()
         }
         .ignoresSafeArea(.keyboard)
-        .id("\(authService.isAuthenticated)-\(profileService.activeProfile?.id ?? "none")")
     }
     
     // MARK: - Mac Layout
@@ -254,8 +253,7 @@ struct ContentView: View {
             .navigationTitle("WatchGuide")
             .listStyle(.sidebar)
             .safeAreaInset(edge: .bottom) {
-                HStack {
-                    Spacer()
+                VStack(spacing: 6) {
                     Button {
                         showProfileSwitcherPage = true
                     } label: {
@@ -263,6 +261,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(.borderless)
                 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             }

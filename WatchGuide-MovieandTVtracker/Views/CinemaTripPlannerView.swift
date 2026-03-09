@@ -404,13 +404,9 @@ private struct NewCinemaTripSheet: View {
             .onChange(of: prepMinutes) { _, _ in clearScoutResult() }
             .alert("Location Access Needed", isPresented: $showLocationPermissionAlert) {
                 Button("Not Now", role: .cancel) {}
-                #if canImport(UIKit)
                 Button("Open Settings") {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
-                    }
+                    PlatformURLHandler.openAppSettings()
                 }
-                #endif
             } message: {
                 Text("Scout needs your location to calculate when you should leave. Please allow location access for Watch Guide.")
             }

@@ -91,6 +91,8 @@ actor VisualPosterMatchRegistry {
 @available(iOS 18.0, *)
 struct VisualPosterIntentValueQuery: IntentValueQuery {
     func values(for input: SemanticContentDescriptor) async throws -> [VisualPosterMatchEntity] {
+        guard PlatformCompatibility.supportsVisualIntelligence else { return [] }
+
         let labels = input.labels
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -520,6 +522,8 @@ struct OpenVisualPosterMatchIntent: OpenIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
+        guard PlatformCompatibility.supportsVisualIntelligence else { return .result() }
+
         let mappedAction: VisualIntentAction
         switch action ?? .openDetails {
         case .openDetails:

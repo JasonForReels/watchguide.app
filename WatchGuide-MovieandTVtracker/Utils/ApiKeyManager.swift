@@ -18,7 +18,7 @@ class ApiKeyManager {
     
     private init() {
         // Initialize keys from encrypted file on first launch
-        initializeKeysFromEncryptedFile()
+        initializeKeysFromEncryptedFile(force: false)
     }
     
     // MARK: - Properties
@@ -49,23 +49,35 @@ class ApiKeyManager {
     /// - Parameter key: The key name (e.g., "OPENAI_API_KEY")
     /// - Returns: The API key value, or nil if not found
     func get(key: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        
-        if status == errSecSuccess,
-           let data = result as? Data,
-           let string = String(data: data, encoding: .utf8) {
-            return string
+        // First check this app's service namespace.
+        if let value = readValue(key: key, service: service) {
+            return value
         }
-        
+
+        // Fallback to related service namespaces so macOS/iOS variants share values.
+        let fallbackServices = relatedServiceNames(excluding: service)
+        for fallback in fallbackServices {
+            if let value = readValue(key: key, service: fallback) {
+                // Promote into current service for faster future reads.
+                _ = save(key: key, value: value)
+                return value
+            }
+        }
+
+        // Self-heal: if critical keys are missing, try re-initializing from bundled plist.
+        if key == "SUPABASE_URL" || key == "SUPABASE_ANON_KEY" {
+            initializeKeysFromEncryptedFile(force: true)
+            if let value = readValue(key: key, service: service) {
+                return value
+            }
+            for fallback in fallbackServices {
+                if let value = readValue(key: key, service: fallback) {
+                    _ = save(key: key, value: value)
+                    return value
+                }
+            }
+        }
+
         return nil
     }
     
@@ -92,9 +104,9 @@ class ApiKeyManager {
     // MARK: - Private Methods
     
     /// Initializes API keys from encrypted file on first launch
-    private func initializeKeysFromEncryptedFile() {
+    private func initializeKeysFromEncryptedFile(force: Bool) {
         // Check if already initialized
-        if UserDefaults.standard.bool(forKey: initializationKey) {
+        if !force && UserDefaults.standard.bool(forKey: initializationKey) {
             print("ApiKeyManager: Already initialized, skipping")
             return
         }
@@ -202,6 +214,58 @@ class ApiKeyManager {
         
         let status = SecItemAdd(query as CFDictionary, nil)
         return status == errSecSuccess
+    }
+
+    private func readValue(key: String, service: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let string = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return string
+    }
+
+    private func relatedServiceNames(excluding current: String) -> [String] {
+        let bundleId = Bundle.main.bundleIdentifier ?? ""
+        guard !bundleId.isEmpty else { return [] }
+
+        let components = bundleId.split(separator: ".")
+        guard components.count > 1 else { return [] }
+        let appName = components.last.map(String.init) ?? ""
+        guard !appName.isEmpty else { return [] }
+
+        var candidates = Set<String>()
+
+        // Drop platform suffixes some targets use.
+        if appName.hasSuffix("-macOS") {
+            let base = String(appName.dropLast("-macOS".count))
+            let prefix = components.dropLast().joined(separator: ".")
+            candidates.insert("\(prefix).\(base)")
+        } else if appName.hasSuffix("-iOS") {
+            let base = String(appName.dropLast("-iOS".count))
+            let prefix = components.dropLast().joined(separator: ".")
+            candidates.insert("\(prefix).\(base)")
+        }
+
+        // Swap common suffix forms.
+        candidates.insert(bundleId.replacingOccurrences(of: ".macOS", with: ""))
+        candidates.insert(bundleId.replacingOccurrences(of: ".iOS", with: ""))
+        candidates.insert(bundleId.replacingOccurrences(of: "-macOS", with: ""))
+        candidates.insert(bundleId.replacingOccurrences(of: "-iOS", with: ""))
+
+        candidates.remove(current)
+        candidates.remove("")
+        return Array(candidates)
     }
     
     /// Delete an API key from Keychain

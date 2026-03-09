@@ -10,6 +10,7 @@ import SwiftUI
 struct ProfilePickerView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var profileService = ProfileService.shared
+    let dismissOnSelection: Bool
     @State private var showAddProfile = false
     @State private var showEditProfile: UserProfile?
     @State private var isManageMode = false
@@ -17,6 +18,10 @@ struct ProfilePickerView: View {
     @State private var animateIn = false
     @State private var isRefreshing = false
     
+    init(dismissOnSelection: Bool = true) {
+        self.dismissOnSelection = dismissOnSelection
+    }
+
     var body: some View {
         ZStack {
             Color.primary.opacity(0.02)
@@ -50,8 +55,9 @@ struct ProfilePickerView: View {
                                     }
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                         profileService.switchToProfile(profile)
-                                        // dismiss() works when presented as sheet; no-op when inline
-                                        dismiss()
+                                        if dismissOnSelection {
+                                            dismiss()
+                                        }
                                     }
                                 }
                             }

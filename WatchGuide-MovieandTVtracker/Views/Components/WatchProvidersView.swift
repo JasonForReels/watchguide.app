@@ -139,11 +139,14 @@ struct WatchProvidersView: View {
             }
             
             // Link to JustWatch
-            #if os(iOS)
             if let link = link, let url = URL(string: link) {
                 Button {
+                    #if os(iOS) && !targetEnvironment(macCatalyst)
                     safariURL = url
                     showSafari = true
+                    #else
+                    PlatformURLHandler.openURL(url)
+                    #endif
                 } label: {
                     HStack {
                         Text("More options on JustWatch")
@@ -155,9 +158,8 @@ struct WatchProvidersView: View {
                 }
                 .padding(.top, 4)
             }
-            #endif
         }
-        #if os(iOS)
+        #if os(iOS) && !targetEnvironment(macCatalyst)
         .sheet(isPresented: $showSafari) {
             if let url = safariURL {
                 WatchProviderSafariView(url: url)
@@ -169,7 +171,7 @@ struct WatchProvidersView: View {
 }
 
 // MARK: - In-App Safari for Watch Providers
-#if os(iOS)
+#if os(iOS) && !targetEnvironment(macCatalyst)
 private struct WatchProviderSafariView: UIViewControllerRepresentable {
     let url: URL
     

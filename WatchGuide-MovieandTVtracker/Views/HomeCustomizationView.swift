@@ -223,8 +223,17 @@ struct HomeCustomizationView: View {
     private var carouselPreviewHeight: CGFloat {
         #if os(macOS)
         let screenWidth = NSScreen.main?.visibleFrame.width ?? 1200
+        #elseif canImport(UIKit)
+        let screenWidth: CGFloat = {
+            let windowWidth = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap(\.windows)
+                .first(where: \.isKeyWindow)?
+                .bounds.width ?? 0
+            return windowWidth > 0 ? windowWidth - 48 : 350
+        }()
         #else
-        let screenWidth = UIScreen.main.bounds.width - 48 // approximate list inset
+        let screenWidth: CGFloat = 350
         #endif
         let previewWidth = screenWidth * max(0.45, min(1.0, widthRatio))
         return previewWidth / selectedAspect.aspectRatio + 16

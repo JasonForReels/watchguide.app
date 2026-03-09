@@ -164,10 +164,10 @@ struct BrowseView: View {
             .sheet(item: $selectedMiniGame) { game in
                 MiniGameSheet(game: game, candidates: miniGameCandidates)
             }
-            #if os(iOS)
             .sheet(isPresented: $showCustomizeSheet) {
                 HomeCustomizationView()
             }
+            #if os(iOS)
             .sheet(isPresented: $showSettingsSheet) {
                 NavigationStack {
                     SettingsView()
@@ -388,10 +388,18 @@ struct BrowseView: View {
         }
         #else
         ToolbarItem(placement: .primaryAction) {
-            Button {
-                showSettingsPage = true
-            } label: {
-                Image(systemName: "gearshape.fill")
+            HStack(spacing: 12) {
+                Button {
+                    showCustomizeSheet = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                }
+                
+                Button {
+                    showSettingsPage = true
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                }
             }
         }
         #endif

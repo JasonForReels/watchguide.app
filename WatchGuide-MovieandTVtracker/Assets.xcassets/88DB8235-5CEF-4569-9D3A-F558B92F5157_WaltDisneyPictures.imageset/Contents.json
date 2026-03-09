@@ -4,6 +4,14 @@
       "filename" : "88DB8235-5CEF-4569-9D3A-F558B92F5157_WaltDisneyPictures.png",
       "idiom" : "universal",
       "scale" : "1x"
+    },
+    {
+      "idiom" : "universal",
+      "scale" : "2x"
+    },
+    {
+      "idiom" : "universal",
+      "scale" : "3x"
     }
   ],
   "info" : {

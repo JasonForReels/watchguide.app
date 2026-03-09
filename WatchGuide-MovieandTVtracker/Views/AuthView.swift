@@ -2,7 +2,7 @@
 //  AuthView.swift
 //  WatchGuide-MovieandTVtracker
 //
-//  Sign in / Sign up view — supports Supabase email auth & Sign in with Apple
+//  Sign in / Sign up view — supports Supabase email auth
 //
 
 import SwiftUI
@@ -65,7 +65,7 @@ struct AuthView: View {
                             .padding(.horizontal, 16)
                     }
                     .padding(.top, 20)
-                    
+
                     // Email option
                     if showEmailForm {
                         emailFormSection
@@ -86,12 +86,15 @@ struct AuthView: View {
                             .foregroundColor(.primary)
                             .cornerRadius(12)
                         }
+                        .disabled(!authService.isSupabaseAvailable)
+                        .opacity(authService.isSupabaseAvailable ? 1.0 : 0.55)
                         
                         if !authService.isSupabaseAvailable {
-                            Text("Email sign-in requires a linked Supabase project.")
+                            Text("Email sign-in requires Supabase. Link Supabase in Settings.")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -300,6 +303,11 @@ struct AuthView: View {
     // MARK: - Email Auth
     
     private func handleEmailSubmit() async {
+        guard authService.isSupabaseAvailable else {
+            authService.errorMessage = "Email sign-in requires a linked Supabase project."
+            return
+        }
+
         if isSignUp {
             let success = await authService.signUp(email: email, password: password)
             if success {
@@ -316,14 +324,15 @@ struct AuthView: View {
             }
         }
     }
+
 }
 
 // MARK: - Account View (for Settings)
 
 struct AccountView: View {
     @ObservedObject var authService = AuthService.shared
-    @State private var showSignOutConfirmation = false
-    @State private var showDeleteAccountConfirmation = false
+    @State private var showSignOutAlert = false
+    @State private var showDeleteAccountAlert = false
     @State private var deleteAccountError: String?
     
     var body: some View {
@@ -365,7 +374,7 @@ struct AccountView: View {
                 
                 // Sign out button
                 Button {
-                    showSignOutConfirmation = true
+                    showSignOutAlert = true
                 } label: {
                     HStack {
                         Image(systemName: "rectangle.portrait.and.arrow.right")
@@ -377,10 +386,20 @@ struct AccountView: View {
                     .background(Color.red.opacity(0.1))
                     .cornerRadius(12)
                 }
-                
+                .alert("Sign Out", isPresented: $showSignOutAlert) {
+                    Button("Sign Out", role: .destructive) {
+                        Task {
+                            await authService.signOut()
+                        }
+                    }
+                    Button("Cancel", role: .cancel) { }
+                } message: {
+                    Text("You will need to sign in again to sync your lists across devices.")
+                }
+
                 // Delete account button
                 Button {
-                    showDeleteAccountConfirmation = true
+                    showDeleteAccountAlert = true
                 } label: {
                     HStack {
                         Image(systemName: "trash")
@@ -393,29 +412,19 @@ struct AccountView: View {
                     .background(Color.gray.opacity(0.12))
                     .cornerRadius(12)
                 }
-            }
-            .confirmationDialog("Sign Out", isPresented: $showSignOutConfirmation, titleVisibility: .visible) {
-                Button("Sign Out", role: .destructive) {
-                    Task {
-                        await authService.signOut()
-                    }
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("You will need to sign in again to sync your lists across devices.")
-            }
-            .confirmationDialog("Delete Account?", isPresented: $showDeleteAccountConfirmation, titleVisibility: .visible) {
-                Button("Delete Account", role: .destructive) {
-                    Task {
-                        let success = await authService.deleteAccount()
-                        if !success {
-                            deleteAccountError = authService.errorMessage ?? "Failed to delete account."
+                .alert("Delete Account?", isPresented: $showDeleteAccountAlert) {
+                    Button("Delete Account", role: .destructive) {
+                        Task {
+                            let success = await authService.deleteAccount()
+                            if !success {
+                                deleteAccountError = authService.errorMessage ?? "Failed to delete account."
+                            }
                         }
                     }
+                    Button("Cancel", role: .cancel) { }
+                } message: {
+                    Text("This permanently deletes your account and cloud data. This cannot be undone.")
                 }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This permanently deletes your account and cloud data. This cannot be undone.")
             }
             .alert("Delete Account Failed", isPresented: Binding(
                 get: { deleteAccountError != nil },

@@ -62,7 +62,7 @@ struct EmbeddedTrailerPlayer: View {
                         player.pause()
                     }
             } else if let youtubeID = embeddedYouTubeID {
-                #if os(iOS) || targetEnvironment(macCatalyst)
+                #if canImport(WebKit) && !os(tvOS)
                 YouTubeNoChromeWebPlayer(videoID: youtubeID, autoplay: autoPlay, muted: isMuted)
                     .allowsHitTesting(false)
                 #else
@@ -239,6 +239,65 @@ private struct YouTubeNoChromeWebPlayer: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
         load(into: uiView, coordinator: context.coordinator)
+    }
+
+    private func load(into webView: WKWebView, coordinator: Coordinator) {
+        let autoplayValue = autoplay ? "1" : "0"
+        let mutedValue = muted ? "1" : "0"
+        let src = "https://www.youtube-nocookie.com/embed/\(videoID)?autoplay=\(autoplayValue)&mute=\(mutedValue)&playsinline=1&controls=0&modestbranding=1&rel=0&iv_load_policy=3&fs=0&disablekb=1&loop=1&playlist=\(videoID)"
+        guard coordinator.lastSource != src else { return }
+        coordinator.lastSource = src
+        let html = """
+        <!doctype html>
+        <html>
+          <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <style>
+              html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+              iframe { position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; pointer-events: none; }
+            </style>
+          </head>
+          <body>
+            <iframe
+              src="\(src)"
+              title="Trailer"
+              allow="autoplay; encrypted-media; picture-in-picture"
+              allowfullscreen>
+            </iframe>
+          </body>
+        </html>
+        """
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube-nocookie.com"))
+    }
+}
+#endif
+
+#if canImport(WebKit) && os(macOS)
+private struct YouTubeNoChromeWebPlayer: NSViewRepresentable {
+    let videoID: String
+    let autoplay: Bool
+    let muted: Bool
+
+    class Coordinator {
+        var lastSource: String?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.allowsAirPlayForMediaPlayback = false
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.allowsMagnification = false
+        load(into: webView, coordinator: context.coordinator)
+        return webView
+    }
+
+    func updateNSView(_ nsView: WKWebView, context: Context) {
+        load(into: nsView, coordinator: context.coordinator)
     }
 
     private func load(into webView: WKWebView, coordinator: Coordinator) {

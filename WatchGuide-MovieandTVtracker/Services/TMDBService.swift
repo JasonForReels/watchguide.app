@@ -411,7 +411,14 @@ actor TMDBService {
     }
     
     // MARK: - Discover
-    func discoverMovies(genres: [Int]? = nil, year: Int? = nil, sortBy: String = "popularity.desc", page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+    func discoverMovies(
+        genres: [Int]? = nil,
+        year: Int? = nil,
+        originalLanguage: String? = nil,
+        productionRegion: String? = nil,
+        sortBy: String = "popularity.desc",
+        page: Int = 1
+    ) async throws -> TMDBResponse<MediaItem> {
         let adult = await includeAdultValue()
         var queryItems = [
             URLQueryItem(name: "sort_by", value: sortBy),
@@ -424,10 +431,23 @@ actor TMDBService {
         if let year = year {
             queryItems.append(URLQueryItem(name: "primary_release_year", value: "\(year)"))
         }
+        if let originalLanguage = originalLanguage, !originalLanguage.isEmpty {
+            queryItems.append(URLQueryItem(name: "with_original_language", value: originalLanguage))
+        }
+        if let productionRegion = productionRegion, !productionRegion.isEmpty {
+            queryItems.append(URLQueryItem(name: "with_origin_country", value: productionRegion))
+        }
         return try await request("/discover/movie", queryItems: queryItems)
     }
     
-    func discoverTV(genres: [Int]? = nil, year: Int? = nil, sortBy: String = "popularity.desc", page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+    func discoverTV(
+        genres: [Int]? = nil,
+        year: Int? = nil,
+        originalLanguage: String? = nil,
+        productionRegion: String? = nil,
+        sortBy: String = "popularity.desc",
+        page: Int = 1
+    ) async throws -> TMDBResponse<MediaItem> {
         let adult = await includeAdultValue()
         var queryItems = [
             URLQueryItem(name: "sort_by", value: sortBy),
@@ -439,6 +459,12 @@ actor TMDBService {
         }
         if let year = year {
             queryItems.append(URLQueryItem(name: "first_air_date_year", value: "\(year)"))
+        }
+        if let originalLanguage = originalLanguage, !originalLanguage.isEmpty {
+            queryItems.append(URLQueryItem(name: "with_original_language", value: originalLanguage))
+        }
+        if let productionRegion = productionRegion, !productionRegion.isEmpty {
+            queryItems.append(URLQueryItem(name: "with_origin_country", value: productionRegion))
         }
         return try await request("/discover/tv", queryItems: queryItems)
     }

@@ -77,6 +77,8 @@ struct SettingsView: View {
                                 Text("Sync your lists across all devices")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             
                             Spacer()
@@ -92,6 +94,8 @@ struct SettingsView: View {
             } footer: {
                 if !authService.isAuthenticated {
                     Text("Sign in to sync your watchlist, watched items, and likes across all your devices")
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             
@@ -121,6 +125,8 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
                         Text("Upgrade to Unlimited (\(scoutSubscription.subscriptionProduct?.displayPrice ?? "$1.99")/month)")
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .disabled(scoutSubscription.isUnlimitedActive || scoutSubscription.isPurchasing || scoutSubscription.isLoadingProduct)
@@ -153,6 +159,8 @@ struct SettingsView: View {
                     Text("Auto-renewable monthly subscription")
                     Text("Price: \(scoutSubscription.subscriptionProduct?.displayPrice ?? "$1.99") per month")
                     Text("Payment is charged to your Apple Account at confirmation. Subscription renews automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel in Apple Account Settings.")
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -270,6 +278,8 @@ struct SettingsView: View {
                 }
             } footer: {
                 Text("When enabled, search can use Apple Intelligence on supported devices to rewrite natural-language prompts into stronger movie and TV queries. If unavailable, Watch Guide falls back to standard search.")
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             
             // Kids Profile
@@ -321,13 +331,17 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("Parental Controls")
-            } footer: {
-                if settings.isKidsProfile {
-                    Text("Scout AI is hidden and content is restricted to ages 13 and under. A parent passcode is required to change these settings.")
-                } else {
-                    Text("Enable Kids Profile to restrict content to ages 13 and under and hide Scout AI. A parent passcode protects the setting.")
+                } footer: {
+                    if settings.isKidsProfile {
+                        Text("Scout AI is hidden and content is restricted to ages 13 and under. A parent passcode is required to change these settings.")
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("Enable Kids Profile to restrict content to ages 13 and under and hide Scout AI. A parent passcode protects the setting.")
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-            }
             
             // Display Options
             Section("Display") {
@@ -335,6 +349,7 @@ struct SettingsView: View {
                 Toggle("Ambient Mode", isOn: $settings.ambientModeEnabled)
                 Toggle("Auto-play Trailers", isOn: $settings.autoPlayTrailers)
                 Toggle("Mute Trailers on Autoplay", isOn: $settings.autoPlayTrailersMuted)
+                Toggle("Show Trailers in Media Details", isOn: $settings.showTrailersInMediaDetail)
                 
                 // Include Adult Content toggle — only affects TMDB browse results, NOT Scout AI
                 Toggle("Include Adult Content (Browse)", isOn: Binding(
@@ -422,8 +437,11 @@ struct SettingsView: View {
                             .foregroundColor(.accentColor)
                             .frame(width: 24)
                         Text("Browse Rows")
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                         Spacer()
                         Text("\(storage.browseRows.filter { $0.isEnabled }.count) enabled")
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     .foregroundColor(.primary)
@@ -437,8 +455,11 @@ struct SettingsView: View {
                             .foregroundColor(.purple)
                             .frame(width: 24)
                         Text("Networks")
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                         Spacer()
                         Text("\(storage.networkHubs.filter { $0.isEnabled }.count) enabled")
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     .foregroundColor(.primary)
@@ -450,8 +471,11 @@ struct SettingsView: View {
                             .foregroundColor(.orange)
                             .frame(width: 24)
                         Text("Hub Customisation")
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                         Spacer()
                         Text("\(storage.customJSONHubs.filter { $0.isEnabled }.count) active")
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     .foregroundColor(.primary)
@@ -479,6 +503,8 @@ struct SettingsView: View {
                                 .foregroundColor(.green)
                             Text("Auto-syncing via \(storage.cloudProviderDisplayName)")
                                 .font(.subheadline)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
                             Spacer()
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
@@ -491,6 +517,8 @@ struct SettingsView: View {
                                     .foregroundColor(.green)
                                 Text("Auto-syncing via \(storage.cloudProviderDisplayName)")
                                     .font(.subheadline)
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
                                 Spacer()
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.green)
@@ -642,6 +670,14 @@ struct SettingsView: View {
                 .padding(.vertical, 4)
             }
         }
+        #if os(macOS)
+        .formStyle(.grouped)
+        .padding(.top, 8)
+        #endif
+        #if os(macOS)
+        .font(.callout)
+        .environment(\.defaultMinListRowHeight, 34)
+        #endif
         .navigationTitle("Settings")
         .onChange(of: settings) { _, newValue in
             storage.updateSettings(newValue)
@@ -712,7 +748,7 @@ struct SettingsView: View {
             
             VStack(alignment: .leading, spacing: 12) {
                 Text("Discord")
-                    .font(.custom("ABCGintoDiscordNord-Bold", size: 34))
+                    .font(.custom("ABCGintoDiscordNord-Bold", size: isMacSettingsLayout ? 26 : 34))
                     .foregroundColor(Color(red: 0.36, green: 0.40, blue: 0.95))
                 
                 HStack(spacing: 10) {
@@ -734,6 +770,8 @@ struct SettingsView: View {
                     Text("Join the community for support and updates")
                         .font(.subheadline)
                         .foregroundColor(.white)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Image(systemName: "arrow.right")
                         .foregroundColor(.white)
@@ -756,6 +794,14 @@ struct SettingsView: View {
         if PlatformURLHandler.canOpenURL(url) {
             PlatformURLHandler.openURL(url)
         }
+    }
+
+    private var isMacSettingsLayout: Bool {
+        #if os(macOS)
+        return true
+        #else
+        return false
+        #endif
     }
     
     private var regionOptions: [(code: String, name: String)] {
@@ -1637,7 +1683,6 @@ struct SupabaseSetupGuideView: View {
                             .cornerRadius(8)
                     }
                     
-                    #if os(iOS)
                     Button {
                         PlatformClipboard.copy(sqlSchema)
                     } label: {
@@ -1645,7 +1690,6 @@ struct SupabaseSetupGuideView: View {
                             .font(.subheadline)
                     }
                     .buttonStyle(.bordered)
-                    #endif
                 }
                 .padding()
                 .background(Color.gray.opacity(0.08))
@@ -2674,7 +2718,6 @@ struct ExportHubSheet: View {
                 
                 // Actions
                 VStack(spacing: 12) {
-                    #if os(iOS)
                     Button {
                         PlatformClipboard.copy(jsonString)
                         withAnimation { copied = true }
@@ -2690,6 +2733,7 @@ struct ExportHubSheet: View {
                     }
                     .buttonStyle(.borderedProminent)
                     
+                    #if os(iOS)
                     Button {
                         shareJSON()
                     } label: {

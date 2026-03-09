@@ -137,6 +137,44 @@ struct SearchView: View {
                                 showChevron: true
                             )
                         }
+
+                        // Production language filter
+                        Menu {
+                            Button("Any Language") {
+                                viewModel.selectedProductionLanguage = nil
+                            }
+                            Divider()
+                            ForEach(viewModel.productionLanguageOptions, id: \.code) { language in
+                                Button(language.name) {
+                                    viewModel.selectedProductionLanguage = language.code
+                                }
+                            }
+                        } label: {
+                            FilterChip(
+                                title: viewModel.selectedProductionLanguageName ?? "Language",
+                                isSelected: viewModel.selectedProductionLanguage != nil,
+                                showChevron: true
+                            )
+                        }
+
+                        // Production region filter
+                        Menu {
+                            Button("Any Region") {
+                                viewModel.selectedProductionRegion = nil
+                            }
+                            Divider()
+                            ForEach(viewModel.productionRegionOptions, id: \.code) { region in
+                                Button(region.name) {
+                                    viewModel.selectedProductionRegion = region.code
+                                }
+                            }
+                        } label: {
+                            FilterChip(
+                                title: viewModel.selectedProductionRegionName ?? "Production",
+                                isSelected: viewModel.selectedProductionRegion != nil,
+                                showChevron: true
+                            )
+                        }
                     }
                 }
                 .padding(.horizontal)
@@ -341,6 +379,18 @@ struct SearchView: View {
                 }
             }
         }
+        .onChange(of: viewModel.selectedGenre?.id) { _, _ in
+            rerunSearchForFilterChangeIfNeeded()
+        }
+        .onChange(of: viewModel.selectedYear) { _, _ in
+            rerunSearchForFilterChangeIfNeeded()
+        }
+        .onChange(of: viewModel.selectedProductionLanguage) { _, _ in
+            rerunSearchForFilterChangeIfNeeded()
+        }
+        .onChange(of: viewModel.selectedProductionRegion) { _, _ in
+            rerunSearchForFilterChangeIfNeeded()
+        }
         .task {
             await viewModel.loadGenres()
         }
@@ -379,6 +429,16 @@ struct SearchView: View {
         let shouldUseNaturalLanguage = storage.settings.useAppleIntelligenceSearch && useNaturalLanguageForNextSearch
         await viewModel.search(useNaturalLanguage: shouldUseNaturalLanguage)
         useNaturalLanguageForNextSearch = false
+    }
+
+    private func rerunSearchForFilterChangeIfNeeded() {
+        if viewModel.isStreamingMode && viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            viewModel.applyStreamingFilters()
+        } else if viewModel.hasSearched {
+            Task {
+                await viewModel.search(useNaturalLanguage: viewModel.usedNaturalLanguageInLastSearch)
+            }
+        }
     }
 }
 
@@ -1000,6 +1060,8 @@ class SearchViewModel: ObservableObject {
     @Published var selectedType: MediaType?
     @Published var selectedGenre: Genre?
     @Published var selectedYear: Int?
+    @Published var selectedProductionLanguage: String?
+    @Published var selectedProductionRegion: String?
     @Published var genres: [Genre] = []
     @Published var isLoading = false
     @Published var isLoadingMore = false
@@ -1033,6 +1095,34 @@ class SearchViewModel: ObservableObject {
             brandColorHex: "#030327",
             listURL: "https://mdblist.com/lists/dualipafan01/cartoon-network"
         )
+    ]
+
+    let productionLanguageOptions: [(code: String, name: String)] = [
+        ("en", "English"),
+        ("es", "Spanish"),
+        ("fr", "French"),
+        ("de", "German"),
+        ("ja", "Japanese"),
+        ("ko", "Korean"),
+        ("pt", "Portuguese"),
+        ("zh", "Chinese"),
+        ("hi", "Hindi"),
+        ("it", "Italian")
+    ]
+
+    let productionRegionOptions: [(code: String, name: String)] = [
+        ("US", "United States"),
+        ("GB", "United Kingdom"),
+        ("CA", "Canada"),
+        ("AU", "Australia"),
+        ("ZA", "South Africa"),
+        ("DE", "Germany"),
+        ("FR", "France"),
+        ("JP", "Japan"),
+        ("KR", "South Korea"),
+        ("IN", "India"),
+        ("BR", "Brazil"),
+        ("NG", "Nigeria")
     ]
 
     private var streamingBaseResults: [MediaItem] = []
@@ -1071,6 +1161,16 @@ class SearchViewModel: ObservableObject {
 
     var isStreamingMode: Bool {
         !selectedStreamingServiceIds.isEmpty
+    }
+
+    var selectedProductionLanguageName: String? {
+        guard let selectedProductionLanguage else { return nil }
+        return productionLanguageOptions.first(where: { $0.code == selectedProductionLanguage })?.name
+    }
+
+    var selectedProductionRegionName: String? {
+        guard let selectedProductionRegion else { return nil }
+        return productionRegionOptions.first(where: { $0.code == selectedProductionRegion })?.name
     }
 
     var selectedStreamingServiceNames: [String] {
@@ -1130,7 +1230,7 @@ class SearchViewModel: ObservableObject {
                 totalPages = response.totalPages ?? 1
                 personResults = response.results
                 results = []
-            } else if selectedGenre != nil || selectedYear != nil {
+            } else if selectedGenre != nil || selectedYear != nil || selectedProductionLanguage != nil || selectedProductionRegion != nil {
                 usedNaturalLanguageInLastSearch = false
                 // Use discover endpoint for filters
                 await searchWithFilters()
@@ -1190,6 +1290,27 @@ class SearchViewModel: ObservableObject {
             if selectedType == .person {
                 let response = try await TMDBService.shared.searchPerson(query: activeSearchQuery, page: currentPage)
                 personResults.append(contentsOf: response.results)
+            } else if selectedGenre != nil || selectedYear != nil || selectedProductionLanguage != nil || selectedProductionRegion != nil {
+                let genreIds = selectedGenre != nil ? [selectedGenre!.id] : nil
+                if selectedType == .tv {
+                    let response = try await TMDBService.shared.discoverTV(
+                        genres: genreIds,
+                        year: selectedYear,
+                        originalLanguage: selectedProductionLanguage,
+                        productionRegion: selectedProductionRegion,
+                        page: currentPage
+                    )
+                    results.append(contentsOf: filterResults(response.results))
+                } else {
+                    let response = try await TMDBService.shared.discoverMovies(
+                        genres: genreIds,
+                        year: selectedYear,
+                        originalLanguage: selectedProductionLanguage,
+                        productionRegion: selectedProductionRegion,
+                        page: currentPage
+                    )
+                    results.append(contentsOf: filterResults(response.results))
+                }
             } else {
                 let response = try await TMDBService.shared.searchMulti(query: activeSearchQuery, page: currentPage)
                 results.append(contentsOf: filterResults(response.results))
@@ -1207,13 +1328,23 @@ class SearchViewModel: ObservableObject {
             let genreIds = selectedGenre != nil ? [selectedGenre!.id] : nil
             
             if selectedType == .movie || selectedType == nil {
-                let movies = try await TMDBService.shared.discoverMovies(genres: genreIds, year: selectedYear)
+                let movies = try await TMDBService.shared.discoverMovies(
+                    genres: genreIds,
+                    year: selectedYear,
+                    originalLanguage: selectedProductionLanguage,
+                    productionRegion: selectedProductionRegion
+                )
                 results = movies.results
                 totalPages = movies.totalPages ?? 1
             }
             
             if selectedType == .tv {
-                let shows = try await TMDBService.shared.discoverTV(genres: genreIds, year: selectedYear)
+                let shows = try await TMDBService.shared.discoverTV(
+                    genres: genreIds,
+                    year: selectedYear,
+                    originalLanguage: selectedProductionLanguage,
+                    productionRegion: selectedProductionRegion
+                )
                 results = shows.results
                 totalPages = shows.totalPages ?? 1
             }
@@ -1827,6 +1958,12 @@ class SearchViewModel: ObservableObject {
         if applyingSelectedType, let type = selectedType {
             filtered = filtered.filter { $0.resolvedMediaType == type }
         }
+
+        if let selectedProductionLanguage, !selectedProductionLanguage.isEmpty {
+            filtered = filtered.filter { item in
+                item.originalLanguage == selectedProductionLanguage
+            }
+        }
         
         // Kids profile: filter to only show family-friendly content
         if StorageService.shared.settings.isKidsProfile {
@@ -1879,6 +2016,8 @@ class SearchViewModel: ObservableObject {
         query = ""
         selectedGenre = nil
         selectedYear = nil
+        selectedProductionLanguage = nil
+        selectedProductionRegion = nil
         selectedType = nil
 
         isLoading = true
