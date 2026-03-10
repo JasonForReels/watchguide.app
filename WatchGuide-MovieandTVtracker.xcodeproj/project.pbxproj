@@ -573,6 +573,10 @@
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/WatchGuide-MovieandTVtracker/Stubs",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "WatchGuide-MovieandTVtracker/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Watch Guide";
@@ -631,6 +635,10 @@
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/WatchGuide-MovieandTVtracker/Stubs",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "WatchGuide-MovieandTVtracker/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Watch Guide";
