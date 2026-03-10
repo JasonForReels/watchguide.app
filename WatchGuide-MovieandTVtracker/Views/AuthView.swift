@@ -331,31 +331,27 @@ struct AuthView: View {
 
 struct AccountView: View {
     @ObservedObject var authService = AuthService.shared
-    @State private var showSignOutAlert = false
-    @State private var showDeleteAccountAlert = false
     @State private var deleteAccountError: String?
-    
+
     var body: some View {
         if let user = authService.currentUser {
-            // Logged in state
             VStack(spacing: 16) {
-                // User info card
                 HStack(spacing: 16) {
                     ZStack {
                         Circle()
                             .fill(Color.accentColor.opacity(0.15))
                             .frame(width: 56, height: 56)
-                        
+
                         Text(userInitials(from: user.email))
                             .font(.title2)
                             .fontWeight(.bold)
                             .foregroundColor(.accentColor)
                     }
-                    
+
                     VStack(alignment: .leading, spacing: 4) {
                         Text(user.email ?? "User")
                             .font(.headline)
-                        
+
                         HStack(spacing: 4) {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption)
@@ -365,65 +361,26 @@ struct AccountView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
-                    
+
                     Spacer()
                 }
                 .padding()
                 .background(Color.gray.opacity(0.12))
                 .cornerRadius(12)
-                
-                // Sign out button
-                Button {
-                    showSignOutAlert = true
-                } label: {
-                    HStack {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                        Text("Sign Out")
+
+                SignOutActionButton {
+                    Task {
+                        await authService.signOut()
                     }
-                    .foregroundColor(.red)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.red.opacity(0.1))
-                    .cornerRadius(12)
-                }
-                .alert("Sign Out", isPresented: $showSignOutAlert) {
-                    Button("Sign Out", role: .destructive) {
-                        Task {
-                            await authService.signOut()
-                        }
-                    }
-                    Button("Cancel", role: .cancel) { }
-                } message: {
-                    Text("You will need to sign in again to sync your lists across devices.")
                 }
 
-                // Delete account button
-                Button {
-                    showDeleteAccountAlert = true
-                } label: {
-                    HStack {
-                        Image(systemName: "trash")
-                        Text("Delete Account")
-                    }
-                    .font(.subheadline)
-                    .foregroundColor(.red.opacity(0.8))
-                    .frame(maxWidth: .infinity)
-                    .padding(12)
-                    .background(Color.gray.opacity(0.12))
-                    .cornerRadius(12)
-                }
-                .alert("Delete Account?", isPresented: $showDeleteAccountAlert) {
-                    Button("Delete Account", role: .destructive) {
-                        Task {
-                            let success = await authService.deleteAccount()
-                            if !success {
-                                deleteAccountError = authService.errorMessage ?? "Failed to delete account."
-                            }
+                DeleteAccountActionButton {
+                    Task {
+                        let success = await authService.deleteAccount()
+                        if !success {
+                            deleteAccountError = authService.errorMessage ?? "Failed to delete account."
                         }
                     }
-                    Button("Cancel", role: .cancel) { }
-                } message: {
-                    Text("This permanently deletes your account and cloud data. This cannot be undone.")
                 }
             }
             .alert("Delete Account Failed", isPresented: Binding(
@@ -436,7 +393,7 @@ struct AccountView: View {
             }
         }
     }
-    
+
     private func userInitials(from email: String?) -> String {
         guard let email = email else { return "?" }
         let parts = email.split(separator: "@")
@@ -444,6 +401,65 @@ struct AccountView: View {
             return String(name.prefix(2)).uppercased()
         }
         return "?"
+    }
+}
+
+private struct SignOutActionButton: View {
+    let onConfirm: () -> Void
+    @State private var showConfirmation = false
+
+    var body: some View {
+        Button {
+            showConfirmation = true
+        } label: {
+            HStack {
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+                Text("Sign Out")
+            }
+            .foregroundColor(.red)
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(Color.red.opacity(0.1))
+            .cornerRadius(12)
+        }
+        .confirmationDialog("Sign Out", isPresented: $showConfirmation, titleVisibility: .visible) {
+            Button("Sign Out", role: .destructive) {
+                onConfirm()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("You will need to sign in again to sync your lists across devices.")
+        }
+    }
+}
+
+private struct DeleteAccountActionButton: View {
+    let onConfirm: () -> Void
+    @State private var showConfirmation = false
+
+    var body: some View {
+        Button {
+            showConfirmation = true
+        } label: {
+            HStack {
+                Image(systemName: "trash")
+                Text("Delete Account")
+            }
+            .font(.subheadline)
+            .foregroundColor(.red.opacity(0.8))
+            .frame(maxWidth: .infinity)
+            .padding(12)
+            .background(Color.gray.opacity(0.12))
+            .cornerRadius(12)
+        }
+        .confirmationDialog("Delete Account?", isPresented: $showConfirmation, titleVisibility: .visible) {
+            Button("Delete Account", role: .destructive) {
+                onConfirm()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This permanently deletes your account and cloud data. This cannot be undone.")
+        }
     }
 }
 
