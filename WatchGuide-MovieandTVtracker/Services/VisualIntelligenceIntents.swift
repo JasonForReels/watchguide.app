@@ -1,6 +1,13 @@
 import Foundation
 
-#if os(iOS) && canImport(AppIntents) && canImport(VisualIntelligence) && !targetEnvironment(simulator) && !targetEnvironment(macCatalyst)
+// NOTE: We intentionally avoid `canImport(VisualIntelligence)` here because
+// evaluating canImport causes the Swift compiler to auto-link the framework
+// via -weak_framework for ALL architectures in a universal build.
+// VisualIntelligence only ships on real-device SDKs, so the x86_64 simulator
+// linker fails. Using os/targetEnvironment guards alone keeps the import
+// inside a block the compiler skips on simulators & Mac Catalyst, preventing
+// the auto-link record from being emitted.
+#if os(iOS) && canImport(AppIntents) && !targetEnvironment(simulator) && !targetEnvironment(macCatalyst) && arch(arm64)
 import AppIntents
 import VisualIntelligence
 import Vision
