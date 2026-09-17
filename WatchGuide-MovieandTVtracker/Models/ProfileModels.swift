@@ -99,6 +99,35 @@ enum HeroCarouselAspect: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Hero Carousel Style
+/// Which hero carousel presentation the home screen uses.
+enum HeroCarouselStyle: String, Codable, CaseIterable, Identifiable {
+    /// The original bordered card that pushes slides sideways.
+    case classic = "classic"
+    /// Layered parallax stage: an ambient background, an alpha-channel subject
+    /// cutout that moves faster in front of it, a transparent logo layer, and a
+    /// gradient mask that locks the controls in place.
+    case cinematic = "cinematic"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .classic: return "Classic"
+        case .cinematic: return "Cinematic"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .classic:
+            return "A framed card that slides between titles. Uses the artwork's own title lettering."
+        case .cinematic:
+            return "A layered stage with depth: artwork dissolves and pushes in behind a character cutout that moves in front of it, while the title logo and controls stay locked in place. Orientation and width don't apply."
+        }
+    }
+}
+
 // MARK: - User Profile
 struct UserProfile: Identifiable, Codable, Equatable {
     let id: String
@@ -111,6 +140,7 @@ struct UserProfile: Identifiable, Codable, Equatable {
     var avatarImageURL: String?  // Remote avatar image URL from avatars.json
     var heroCarouselWidthRatio: Double?
     var heroCarouselAspect: HeroCarouselAspect?
+    var heroCarouselStyle: HeroCarouselStyle?
     let createdAt: Date
     var updatedAt: Date
     
@@ -123,7 +153,8 @@ struct UserProfile: Identifiable, Codable, Equatable {
         dateOfBirth: Date? = nil,
         avatarImageURL: String? = nil,
         heroCarouselWidthRatio: Double? = nil,
-        heroCarouselAspect: HeroCarouselAspect? = nil
+        heroCarouselAspect: HeroCarouselAspect? = nil,
+        heroCarouselStyle: HeroCarouselStyle? = nil
     ) {
         self.id = UUID().uuidString
         self.name = name
@@ -135,6 +166,7 @@ struct UserProfile: Identifiable, Codable, Equatable {
         self.avatarImageURL = avatarImageURL
         self.heroCarouselWidthRatio = heroCarouselWidthRatio
         self.heroCarouselAspect = heroCarouselAspect
+        self.heroCarouselStyle = heroCarouselStyle
         self.createdAt = Date()
         self.updatedAt = Date()
     }
@@ -175,7 +207,8 @@ struct UserProfile: Identifiable, Codable, Equatable {
         lhs.dateOfBirth == rhs.dateOfBirth &&
         lhs.avatarImageURL == rhs.avatarImageURL &&
         lhs.heroCarouselWidthRatio == rhs.heroCarouselWidthRatio &&
-        lhs.heroCarouselAspect == rhs.heroCarouselAspect
+        lhs.heroCarouselAspect == rhs.heroCarouselAspect &&
+        lhs.heroCarouselStyle == rhs.heroCarouselStyle
     }
 }
 

@@ -7,9 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0243AFCF2F4A46F400FDE2AE /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3317100050869B1A47AEDAE4 /* YouTubePlayerKit */; };
-		02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; platformFilter = ios; productRef = B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */; };
-		5BE2372F3C8A663BE4C076C0 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; platformFilters = (ios, macos, ); productRef = B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */; };
+		5BE2372F3C8A663BE4C076C0 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		968EA9D62FCED26600C5A0C2 /* ComingSoonWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 968EA9D52FCED26600C5A0C2 /* ComingSoonWidget.swift */; };
 		CF3A53FBEE56856AA8DA83E8 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97E6A83F51243F7CD71ADD17 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift */; };
 /* End PBXBuildFile section */
 
@@ -65,6 +65,7 @@
 		0216118A2F52FBF00054D35E /* showtimes.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = showtimes.py; sourceTree = "<group>"; };
 		0243AAB22F48E59800FDE2AE /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = /System/Library/Frameworks/WidgetKit.framework; sourceTree = "<absolute>"; };
 		0243AAB42F48E59800FDE2AE /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = /System/Library/Frameworks/SwiftUI.framework; sourceTree = "<absolute>"; };
+		026E50752FB1BC150089A988 /* UnityAds.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = UnityAds.xcframework; path = Frameworks/UnityAds.xcframework; sourceTree = "<group>"; };
 		184F590C2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "WatchGuide-MovieandTVtracker.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		184F59192E6ACF2000FBE038 /* WatchGuide-MovieandTVtrackerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "WatchGuide-MovieandTVtrackerTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		184F59232E6ACF2000FBE038 /* 
@@ -72,6 +73,7 @@
 
 .xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "\n\n\n.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = "WatchGuide-MovieandTVtrackerWidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		968EA9D52FCED26600C5A0C2 /* ComingSoonWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComingSoonWidget.swift; sourceTree = "<group>"; };
 		97E6A83F51243F7CD71ADD17 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift */ = {isa = PBXFileReference; explicitFileType = sourcecode.swift; path = "WatchGuide-MovieandTVtrackerWidgetExtension.swift"; sourceTree = "<group>"; };
 		ABAFBFC0370DED87737A2023 /* WatchGuide-MovieandTVtrackerWidgetExtension.entitlements */ = {isa = PBXFileReference; explicitFileType = text.plist.entitlements; path = "WatchGuide-MovieandTVtrackerWidgetExtension.entitlements"; sourceTree = "<group>"; };
 		C4C9BD98E1B110381A6482B2 /* Info.plist */ = {isa = PBXFileReference; explicitFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -113,7 +115,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0243AFCF2F4A46F400FDE2AE /* YouTubePlayerKit in Frameworks */,
 				02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -153,10 +154,26 @@
 		0243AAB12F48E59800FDE2AE /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				026E50752FB1BC150089A988 /* UnityAds.xcframework */,
 				0243AAB22F48E59800FDE2AE /* WidgetKit.framework */,
 				0243AAB42F48E59800FDE2AE /* SwiftUI.framework */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		02E866942F61DA6A0060E95F /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				02E866952F61DA710060E95F /* YouTubeHelper */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		02E866952F61DA710060E95F /* YouTubeHelper */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = YouTubeHelper;
 			sourceTree = "<group>";
 		};
 		184F59032E6ACF1E00FBE038 = {
@@ -169,6 +186,7 @@
 				184F590D2E6ACF1E00FBE038 /* Products */,
 				021611892F52FBEF0054D35E /* scripts */,
 				FFFA4531B70D5DD3F37DF227 /* WatchGuide-MovieandTVtrackerWidgetExtension */,
+				02E866942F61DA6A0060E95F /* Support */,
 			);
 			sourceTree = "<group>";
 		};
@@ -192,6 +210,7 @@
 				97E6A83F51243F7CD71ADD17 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift */,
 				C4C9BD98E1B110381A6482B2 /* Info.plist */,
 				ABAFBFC0370DED87737A2023 /* WatchGuide-MovieandTVtrackerWidgetExtension.entitlements */,
+				968EA9D52FCED26600C5A0C2 /* ComingSoonWidget.swift */,
 			);
 			path = "WatchGuide-MovieandTVtrackerWidgetExtension";
 			sourceTree = "<group>";
@@ -219,7 +238,7 @@
 			);
 			name = "WatchGuide-MovieandTVtracker";
 			packageProductDependencies = (
-				3317100050869B1A47AEDAE4 /* YouTubePlayerKit */,
+				B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */,
 			);
 			productName = "WatchGuide-MovieandTVtracker";
 			productReference = 184F590C2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker.app */;
@@ -335,7 +354,7 @@
 			mainGroup = 184F59032E6ACF1E00FBE038;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				33069E29849577834425E2AD /* XCRemoteSwiftPackageReference "YouTubePlayerKit" */,
+				33069E29849577834425E2AD /* XCLocalSwiftPackageReference "Frameworks/YouTubePlayerKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 184F590D2E6ACF1E00FBE038 /* Products */;
@@ -390,6 +409,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				CF3A53FBEE56856AA8DA83E8 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift in Sources */,
+				968EA9D62FCED26600C5A0C2 /* ComingSoonWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -430,6 +450,7 @@
 		AB9392946E899CE6746332EB /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = "WatchGuide-MovieandTVtrackerWidgetExtension";
+			platformFilter = ios;
 			target = 3031DE02715B6249A99B4795 /* WatchGuide-MovieandTVtrackerWidgetExtension */;
 			targetProxy = E9072B74D1E127DAD38F871D /* PBXContainerItemProxy */;
 		};
@@ -561,7 +582,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = AppIconAlt;
+				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=appletvos*]" = "";
+				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=appletvsimulator*]" = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletvos*]" = "Brand Assets";
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletvsimulator*]" = "Brand Assets";
 				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=macosx*]" = "AppIcon macOS";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "WatchGuide-MovieandTVtracker/WatchGuide-MovieandTVtracker.entitlements";
@@ -573,14 +598,14 @@
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/WatchGuide-MovieandTVtracker/Stubs",
-				);
+				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "WatchGuide-MovieandTVtracker/Info.plist";
+				"INFOPLIST_FILE[sdk=appletvos*]" = "WatchGuide-MovieandTVtracker/Info-tvOS.plist";
+				"INFOPLIST_FILE[sdk=appletvsimulator*]" = "WatchGuide-MovieandTVtracker/Info-tvOS.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Watch Guide";
 				"INFOPLIST_KEY_CFBundleIconName[sdk=macosx*]" = "AppIcon macOS";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -591,31 +616,35 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.1;
-				"MARKETING_VERSION[sdk=iphoneos*]" = 3.1;
-				OTHER_LDFLAGS = (
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 5.2;
+				"MARKETING_VERSION[sdk=iphoneos*]" = 5.2;
+				OTHER_LDFLAGS = "$(inherited)";
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"-weak_framework",
 					FoundationModels,
 					"-weak_framework",
 					ImagePlayground,
-					"-weak_framework",
-					VisualIntelligence,
 				);
 				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "$(inherited)";
 				"OTHER_LDFLAGS[sdk=macosx*]" = "$(inherited)";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "WatchGuide-MovieandTVtracker/Support/WatchGuide-MovieandTVtracker-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				"TARGETED_DEVICE_FAMILY[sdk=appletvos*]" = 3;
+				"TARGETED_DEVICE_FAMILY[sdk=appletvsimulator*]" = 3;
 				"TARGETED_DEVICE_FAMILY[sdk=xros*]" = 7;
 				"TARGETED_DEVICE_FAMILY[sdk=xrsimulator*]" = 7;
+				TVOS_DEPLOYMENT_TARGET = 26.0;
 			};
 			name = Debug;
 		};
@@ -624,6 +653,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = AppIconAlt;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletvos*]" = "Brand Assets";
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletvsimulator*]" = "Brand Assets";
 				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=macosx*]" = "AppIcon macOS";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "WatchGuide-MovieandTVtracker/WatchGuide-MovieandTVtracker.entitlements";
@@ -635,14 +666,14 @@
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/WatchGuide-MovieandTVtracker/Stubs",
-				);
+				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "WatchGuide-MovieandTVtracker/Info.plist";
+				"INFOPLIST_FILE[sdk=appletvos*]" = "WatchGuide-MovieandTVtracker/Info-tvOS.plist";
+				"INFOPLIST_FILE[sdk=appletvsimulator*]" = "WatchGuide-MovieandTVtracker/Info-tvOS.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Watch Guide";
 				"INFOPLIST_KEY_CFBundleIconName[sdk=macosx*]" = "AppIcon macOS";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -653,31 +684,35 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.1;
-				"MARKETING_VERSION[sdk=iphoneos*]" = 3.1;
-				OTHER_LDFLAGS = (
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 5.2;
+				"MARKETING_VERSION[sdk=iphoneos*]" = 5.2;
+				OTHER_LDFLAGS = "$(inherited)";
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"-weak_framework",
 					FoundationModels,
 					"-weak_framework",
 					ImagePlayground,
-					"-weak_framework",
-					VisualIntelligence,
 				);
 				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "$(inherited)";
 				"OTHER_LDFLAGS[sdk=macosx*]" = "$(inherited)";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "WatchGuide-MovieandTVtracker/Support/WatchGuide-MovieandTVtracker-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				"TARGETED_DEVICE_FAMILY[sdk=appletvos*]" = 3;
+				"TARGETED_DEVICE_FAMILY[sdk=appletvsimulator*]" = 3;
 				"TARGETED_DEVICE_FAMILY[sdk=xros*]" = 7;
 				"TARGETED_DEVICE_FAMILY[sdk=xrsimulator*]" = 7;
+				TVOS_DEPLOYMENT_TARGET = 26.0;
 			};
 			name = Release;
 		};
@@ -690,7 +725,7 @@
 				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 5.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.organizationName.WatchGuide-MovieandTVtrackerTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -709,7 +744,7 @@
 				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 5.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.organizationName.WatchGuide-MovieandTVtrackerTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -726,7 +761,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 5.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.organizationName.WatchGuide-MovieandTVtrackerUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -743,7 +778,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 5.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.organizationName.WatchGuide-MovieandTVtrackerUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -771,7 +806,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 5.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker.watchguide-movieandtvtrackerwidgetextension";
 				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
 				PRODUCT_MODULE_NAME = WatchGuide_MovieandTVtrackerWidgetExtension;
@@ -802,7 +837,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 5.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker.watchguide-movieandtvtrackerwidgetextension";
 				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
 				PRODUCT_MODULE_NAME = WatchGuide_MovieandTVtrackerWidgetExtension;
@@ -868,25 +903,17 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		33069E29849577834425E2AD /* XCRemoteSwiftPackageReference "YouTubePlayerKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/SvenTiigi/YouTubePlayerKit.git";
-			requirement = {
-				kind = upToNextMinorVersion;
-				minimumVersion = 2.0.0;
-			};
+/* Begin XCLocalSwiftPackageReference section */
+		33069E29849577834425E2AD /* XCLocalSwiftPackageReference "Frameworks/YouTubePlayerKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Frameworks/YouTubePlayerKit;
 		};
-/* End XCRemoteSwiftPackageReference section */
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		3317100050869B1A47AEDAE4 /* YouTubePlayerKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 33069E29849577834425E2AD /* XCRemoteSwiftPackageReference "YouTubePlayerKit" */;
-			productName = YouTubePlayerKit;
-		};
 		B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 33069E29849577834425E2AD /* XCLocalSwiftPackageReference "Frameworks/YouTubePlayerKit" */;
 			productName = YouTubePlayerKit;
 		};
 /* End XCSwiftPackageProductDependency section */

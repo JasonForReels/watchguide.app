@@ -1,6 +1,6 @@
 import Foundation
 
-#if canImport(FoundationModels)
+#if canImport(FoundationModels) && !os(tvOS)
 import FoundationModels
 #endif
 
@@ -54,7 +54,7 @@ actor AppleIntelligenceSummaryService {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty else { return "" }
 
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !os(tvOS)
         if #available(iOS 18.0, macOS 15.0, *), isAvailable {
             let session = LanguageModelSession(instructions: instructions)
             let response = try await session.respond(to: trimmedPrompt)

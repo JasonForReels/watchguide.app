@@ -97,8 +97,19 @@ actor MDBListService {
         guard !trimmed.isEmpty else { throw MDBListError.invalidURL }
 
         let cacheKey = "directURL::\(trimmed)"
+        
+        // L1: in-memory
         if let cached = listCache[cacheKey], Date().timeIntervalSince(cached.timestamp) < cacheTTL {
             return cached.items
+        }
+        
+        // L2: Supabase shared cache
+        let supabaseKey = SupabaseCacheService.mdblistCacheKey(type: "list", identifier: trimmed)
+        if let cachedData = await SupabaseCacheService.shared.get(key: supabaseKey) {
+            if let items = try? decodeListItems(from: cachedData), !items.isEmpty {
+                listCache[cacheKey] = (items: items, timestamp: Date())
+                return items
+            }
         }
 
         guard let url = URL(string: trimmed) else { throw MDBListError.invalidURL }
@@ -117,6 +128,20 @@ actor MDBListService {
 
         let items = try decodeListItems(from: data)
         listCache[cacheKey] = (items: items, timestamp: Date())
+        
+        // Fire-and-forget L2 write
+        if !items.isEmpty {
+            let capturedData = data
+            Task.detached {
+                await SupabaseCacheService.shared.set(
+                    key: supabaseKey,
+                    source: .mdblist,
+                    responseData: capturedData,
+                    ttlSeconds: SupabaseCacheService.CacheTTL.trending
+                )
+            }
+        }
+        
         return items
     }
     
@@ -339,11 +364,22 @@ actor MDBListService {
     func getRatings(tmdbId: Int, mediaType: MediaType) async throws -> MDBListMediaInfo {
         guard !apiKey.isEmpty else { throw MDBListError.notConfigured }
         
-        // Check in-memory cache
+        // L1: in-memory cache
         let cacheKey = "ratings-\(mediaType.rawValue)-\(tmdbId)"
         if let cached = ratingsCache[cacheKey],
            Date().timeIntervalSince(cached.timestamp) < cacheTTL {
             return cached.info
+        }
+        
+        // L2: Supabase shared cache
+        let supabaseKey = SupabaseCacheService.mdblistCacheKey(type: "ratings", identifier: "\(mediaType.rawValue)-\(tmdbId)")
+        if let cachedData = await SupabaseCacheService.shared.get(key: supabaseKey) {
+            let snakeDecoder = JSONDecoder()
+            snakeDecoder.keyDecodingStrategy = .convertFromSnakeCase
+            if let info = try? snakeDecoder.decode(MDBListMediaInfo.self, from: cachedData) {
+                ratingsCache[cacheKey] = (info: info, timestamp: Date())
+                return info
+            }
         }
         
         var urlString = "https://mdblist.com/api/?apikey=\(apiKey)&tm=\(tmdbId)"
@@ -373,8 +409,19 @@ actor MDBListService {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let info = try decoder.decode(MDBListMediaInfo.self, from: data)
         
-        // Cache the result
+        // Store in L1
         ratingsCache[cacheKey] = (info: info, timestamp: Date())
+        
+        // Fire-and-forget L2 write
+        let capturedData = data
+        Task.detached {
+            await SupabaseCacheService.shared.set(
+                key: supabaseKey,
+                source: .mdblist,
+                responseData: capturedData,
+                ttlSeconds: SupabaseCacheService.CacheTTL.ratings
+            )
+        }
         
         return info
     }
@@ -399,104 +446,113 @@ actor MDBListService {
     /// Fetch list items and convert to MediaItem format (for hero carousel, etc.)
     func fetchListItemsAsMediaItems(listId: String, limit: Int? = nil) async throws -> [MediaItem] {
         let items = try await getListItems(listId: listId)
-        var mediaItems: [MediaItem] = []
-        
         let sequence = (limit != nil) ? Array(items.prefix(limit!)) : items
-        for item in sequence {
-            if let tmdbId = item.id, tmdbId > 0 {
-                do {
-                    let mediaType = resolveMDBListMediaType(item.mediatype)
-                    
-                    if mediaType == .movie {
-                        let details = try await TMDBService.shared.getMovieDetails(id: tmdbId)
-                        let mi = MediaItem(
-                            id: details.id,
-                            title: details.title,
-                            name: nil,
-                            originalTitle: details.originalTitle,
-                            originalName: nil,
-                            overview: details.overview,
-                            posterPath: details.posterPath,
-                            backdropPath: details.backdropPath,
-                            releaseDate: details.releaseDate,
-                            firstAirDate: nil,
-                            voteAverage: details.voteAverage,
-                            voteCount: nil,
-                            popularity: nil,
-                            genreIds: nil,
-                            mediaType: "movie",
-                            adult: nil,
-                            originalLanguage: nil
-                        )
-                        mediaItems.append(mi)
+        
+        return await withTaskGroup(of: (Int, MediaItem?).self) { group in
+            for (index, item) in sequence.enumerated() {
+                group.addTask {
+                    if let tmdbId = item.id, tmdbId > 0 {
+                        do {
+                            let normalized = item.mediatype?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+                            let mediaType: MediaType = (normalized == "show" || normalized == "tv" || normalized == "series") ? .tv : .movie
+                            
+                            if mediaType == .movie {
+                                let details = try await TMDBService.shared.getMovieDetails(id: tmdbId)
+                                let mi = MediaItem(
+                                    id: details.id,
+                                    title: details.title,
+                                    name: nil,
+                                    originalTitle: details.originalTitle,
+                                    originalName: nil,
+                                    overview: details.overview,
+                                    posterPath: details.posterPath,
+                                    backdropPath: details.backdropPath,
+                                    releaseDate: details.releaseDate,
+                                    firstAirDate: nil,
+                                    voteAverage: details.voteAverage,
+                                    voteCount: nil,
+                                    popularity: nil,
+                                    genreIds: nil,
+                                    mediaType: "movie",
+                                    adult: nil,
+                                    originalLanguage: nil
+                                )
+                                return (index, mi)
+                            } else {
+                                let details = try await TMDBService.shared.getTVShowDetails(id: tmdbId)
+                                let mi = MediaItem(
+                                    id: details.id,
+                                    title: nil,
+                                    name: details.name,
+                                    originalTitle: nil,
+                                    originalName: details.originalName,
+                                    overview: details.overview,
+                                    posterPath: details.posterPath,
+                                    backdropPath: details.backdropPath,
+                                    releaseDate: nil,
+                                    firstAirDate: details.firstAirDate,
+                                    voteAverage: details.voteAverage,
+                                    voteCount: nil,
+                                    popularity: nil,
+                                    genreIds: nil,
+                                    mediaType: "tv",
+                                    adult: nil,
+                                    originalLanguage: nil
+                                )
+                                return (index, mi)
+                            }
+                        } catch {
+                            return (index, item.toSavedMediaItem()?.asMediaItem())
+                        }
                     } else {
-                        let details = try await TMDBService.shared.getTVShowDetails(id: tmdbId)
-                        let mi = MediaItem(
-                            id: details.id,
-                            title: nil,
-                            name: details.name,
-                            originalTitle: nil,
-                            originalName: details.originalName,
-                            overview: details.overview,
-                            posterPath: details.posterPath,
-                            backdropPath: details.backdropPath,
-                            releaseDate: nil,
-                            firstAirDate: details.firstAirDate,
-                            voteAverage: details.voteAverage,
-                            voteCount: nil,
-                            popularity: nil,
-                            genreIds: nil,
-                            mediaType: "tv",
-                            adult: nil,
-                            originalLanguage: nil
-                        )
-                        mediaItems.append(mi)
-                    }
-                } catch {
-                    // Fall back to basic item from MDBList data
-                    if let basicItem = item.toSavedMediaItem() {
-                        mediaItems.append(basicItem.asMediaItem())
+                        return (index, item.toSavedMediaItem()?.asMediaItem())
                     }
                 }
-            } else if let basicItem = item.toSavedMediaItem() {
-                mediaItems.append(basicItem.asMediaItem())
             }
+            
+            var results = [(Int, MediaItem?)]()
+            for await result in group {
+                results.append(result)
+            }
+            return results.sorted(by: { $0.0 < $1.0 }).compactMap { $0.1 }
         }
-        
-        return mediaItems
     }
     
     /// Fetch list items and convert to app's SavedMediaItem format
     func fetchListItemsAsSavedMedia(listId: String, limit: Int? = nil) async throws -> [SavedMediaItem] {
         let items = try await getListItems(listId: listId)
-        var savedItems: [SavedMediaItem] = []
-        
         let sequence = (limit != nil) ? Array(items.prefix(limit!)) : items
-        for item in sequence {
-            // Try to look up in TMDB for full details
-            if let tmdbId = item.id, tmdbId > 0 {
-                do {
-                    let mediaType = resolveMDBListMediaType(item.mediatype)
-                    
-                    if mediaType == .movie {
-                        let details = try await TMDBService.shared.getMovieDetails(id: tmdbId)
-                        savedItems.append(SavedMediaItem(from: details))
+        
+        return await withTaskGroup(of: (Int, SavedMediaItem?).self) { group in
+            for (index, item) in sequence.enumerated() {
+                group.addTask {
+                    if let tmdbId = item.id, tmdbId > 0 {
+                        do {
+                            let normalized = item.mediatype?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+                            let mediaType: MediaType = (normalized == "show" || normalized == "tv" || normalized == "series") ? .tv : .movie
+                            
+                            if mediaType == .movie {
+                                let details = try await TMDBService.shared.getMovieDetails(id: tmdbId)
+                                return (index, SavedMediaItem(from: details))
+                            } else {
+                                let details = try await TMDBService.shared.getTVShowDetails(id: tmdbId)
+                                return (index, SavedMediaItem(from: details))
+                            }
+                        } catch {
+                            return (index, item.toSavedMediaItem())
+                        }
                     } else {
-                        let details = try await TMDBService.shared.getTVShowDetails(id: tmdbId)
-                        savedItems.append(SavedMediaItem(from: details))
-                    }
-                } catch {
-                    // Create basic saved item from MDBList data
-                    if let savedItem = item.toSavedMediaItem() {
-                        savedItems.append(savedItem)
+                        return (index, item.toSavedMediaItem())
                     }
                 }
-            } else if let savedItem = item.toSavedMediaItem() {
-                savedItems.append(savedItem)
             }
+            
+            var results = [(Int, SavedMediaItem?)]()
+            for await result in group {
+                results.append(result)
+            }
+            return results.sorted(by: { $0.0 < $1.0 }).compactMap { $0.1 }
         }
-        
-        return savedItems
     }
     
     /// Parse list ID from URL or return as-is

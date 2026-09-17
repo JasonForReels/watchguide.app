@@ -277,6 +277,7 @@ actor HomeScreenSyncService {
                         posterPath: item.posterPath,
                         backdropPath: item.backdropPath,
                         year: item.year,
+                        releaseDate: item.releaseDate,
                         voteAverage: item.voteAverage,
                         overview: item.overview,
                         sortOrder: index
@@ -333,6 +334,7 @@ actor HomeScreenSyncService {
                         posterPath: item.posterPath,
                         backdropPath: item.backdropPath,
                         year: item.year,
+                        releaseDate: item.releaseDate,
                         voteAverage: item.voteAverage,
                         overview: item.overview,
                         addedAt: Date()
@@ -845,6 +847,7 @@ struct SyncedExtensionListItem: Codable {
     let posterPath: String?
     let backdropPath: String?
     let year: String?
+    let releaseDate: String?
     let voteAverage: Double?
     let overview: String?
     let sortOrder: Int
@@ -858,6 +861,7 @@ struct SyncedExtensionListItem: Codable {
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
         case year
+        case releaseDate = "release_date"
         case voteAverage = "vote_average"
         case overview
         case sortOrder = "sort_order"
@@ -874,6 +878,7 @@ struct SyncedExtensionListItem: Codable {
         try container.encode(posterPath, forKey: .posterPath)
         try container.encode(backdropPath, forKey: .backdropPath)
         try container.encode(year, forKey: .year)
+        try container.encode(releaseDate, forKey: .releaseDate)
         try container.encode(voteAverage, forKey: .voteAverage)
         try container.encode(overview, forKey: .overview)
         try container.encode(sortOrder, forKey: .sortOrder)

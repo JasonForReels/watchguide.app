@@ -33,7 +33,7 @@ extension StreamingService {
         StreamingService(id: 15,  name: "Hulu",          logoPath: "/zxrVdFjIjLqkfnwyghnfywTn3Lh.jpg"),
         StreamingService(id: 531, name: "Paramount+",    logoPath: "/xbhHHa1YgtpwhC8lb1NQ3ACVcLd.jpg"),
         StreamingService(id: 386, name: "Peacock",       logoPath: "/xTHltMrZPAJFLQ6qyCBjAnXSmZt.jpg"),
-        StreamingService(id: 350, name: "Apple TV+",     logoPath: "/6uhKBfmtzFqOcLousHwZuzcrScK.jpg"),
+        StreamingService(id: 350, name: "Apple TV",      logoPath: "/6uhKBfmtzFqOcLousHwZuzcrScK.jpg"),
         StreamingService(id: 283, name: "Crunchyroll",   logoPath: "/8Gt1iClBlzTeQs8WQm8UrCoIxnQ.jpg"),
         StreamingService(id: 73,  name: "Tubi",          logoPath: "/w2TDH9TRI7pltfahKF0ehQbi2eg.jpg"),
         StreamingService(id: 300, name: "Pluto TV",      logoPath: "/t6N57S17sdXRXmZDAkaGP0NHNG0.jpg"),
@@ -61,8 +61,6 @@ final class MyStreamingViewModel: ObservableObject {
     @Published var topRatedTV: [MediaItem] = []
     @Published var isLoading = false
     @Published var hasLoaded = false
-
-    private static let storageKey = "myStreamingSelectedServiceIds"
 
     init() {
         loadSelection()
@@ -185,14 +183,16 @@ final class MyStreamingViewModel: ObservableObject {
     }
 
     private func saveSelection() {
-        let data = try? JSONEncoder().encode(Array(selectedServiceIds))
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
+        var settings = StorageService.shared.settings
+        settings.streamqServiceIds = Array(selectedServiceIds)
+        StorageService.shared.updateSettings(settings)
     }
 
     private func loadSelection() {
-        guard let data = UserDefaults.standard.data(forKey: Self.storageKey),
-              let ids = try? JSONDecoder().decode([Int].self, from: data) else { return }
-        selectedServiceIds = Set(ids)
+        let ids = StorageService.shared.settings.streamqServiceIds
+        if !ids.isEmpty {
+            selectedServiceIds = Set(ids)
+        }
     }
 }
 
@@ -200,59 +200,59 @@ final class MyStreamingViewModel: ObservableObject {
 
 struct MyStreamingView: View {
     @StateObject private var viewModel = MyStreamingViewModel()
+    @ObservedObject private var leavingSoon = LeavingSoonService.shared
     @State private var selectedItem: MediaItem?
     @State private var showServicePicker = false
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if viewModel.hasSelection {
-                    streamingContentView
-                } else {
-                    emptyStateView
+        Group {
+            if viewModel.hasSelection {
+                streamingContentView
+            } else {
+                emptyStateView
+            }
+        }
+        .navigationTitle("StreamQ")
+        #if os(iOS)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showServicePicker = true
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
                 }
             }
-            .navigationTitle("My Streaming")
-            #if os(iOS)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showServicePicker = true
-                    } label: {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
-                    }
-                }
-            }
-            #endif
-            .sheet(isPresented: $showServicePicker) {
-                StreamingServicePickerView(viewModel: viewModel)
-            }
-            .mediaDetailPresentation(item: $selectedItem)
-            .task {
-                await viewModel.loadContent()
-            }
-            .onChange(of: viewModel.selectedServiceIds) { _, _ in
-                Task { await viewModel.loadContent() }
-            }
+        }
+        #endif
+        .sheet(isPresented: $showServicePicker) {
+            StreamingServicePickerView(viewModel: viewModel)
+        }
+        .mediaDetailPresentation(item: $selectedItem)
+        .task {
+            await viewModel.loadContent()
+        }
+        .onChange(of: viewModel.selectedServiceIds) { _, _ in
+            Task { await viewModel.loadContent() }
         }
     }
 
     // MARK: - Empty State
 
     private var emptyStateView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: tvSpacing) {
             Spacer()
 
             Image(systemName: "tv.and.mediabox")
-                .font(.system(size: 64))
+                .font(.system(size: emptyStateIconSize))
                 .foregroundStyle(.secondary)
 
             Text("Pick Your Services")
-                .font(.title2)
+                .font(emptyStateTitleFont)
                 .fontWeight(.bold)
+                .foregroundStyle(tvTextColor)
 
             Text("Select the streaming services you subscribe to\nand we'll show you what's available to watch.")
-                .font(.subheadline)
+                .font(emptyStateBodyFont)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
@@ -272,13 +272,94 @@ struct MyStreamingView: View {
         }
     }
 
+    // MARK: - Platform Sizing Helpers
+
+    private var tvSpacing: CGFloat {
+        #if os(tvOS)
+        32
+        #else
+        20
+        #endif
+    }
+
+    private var emptyStateIconSize: CGFloat {
+        #if os(tvOS)
+        96
+        #else
+        64
+        #endif
+    }
+
+    private var emptyStateTitleFont: Font {
+        #if os(tvOS)
+        .title
+        #else
+        .title2
+        #endif
+    }
+
+    private var emptyStateBodyFont: Font {
+        #if os(tvOS)
+        .body
+        #else
+        .subheadline
+        #endif
+    }
+
+    private var tvTextColor: Color {
+        #if os(tvOS)
+        .white
+        #else
+        .primary
+        #endif
+    }
+
+    private var serviceBarLogoSize: CGFloat {
+        #if os(tvOS)
+        36
+        #else
+        22
+        #endif
+    }
+
+    private var serviceBarCornerRadius: CGFloat {
+        #if os(tvOS)
+        8
+        #else
+        5
+        #endif
+    }
+
+    private var serviceBarFont: Font {
+        #if os(tvOS)
+        .callout
+        #else
+        .caption
+        #endif
+    }
+
+    private var contentSpacing: CGFloat {
+        #if os(tvOS)
+        40
+        #else
+        24
+        #endif
+    }
+
+    private var horizontalInset: CGFloat {
+        #if os(tvOS)
+        60
+        #else
+        16
+        #endif
+    }
+
     // MARK: - Streaming Content
 
     private var streamingContentView: some View {
-        PopcornRefreshableScrollView {
-            await viewModel.refresh()
-        } content: {
-            LazyVStack(spacing: 24) {
+        #if os(tvOS)
+        ScrollView {
+            VStack(spacing: 40) {
                 // Selected services bar
                 selectedServicesBar
 
@@ -286,73 +367,107 @@ struct MyStreamingView: View {
                     ProgressView()
                         .padding(.top, 40)
                 } else {
-                    // Hero carousel
-                    if !viewModel.heroItems.isEmpty {
-                        ResizableHeroCarousel(
-                            items: viewModel.heroItems,
-                            onItemTap: { item in
-                                selectedItem = item
-                            }
-                        )
-                    }
+                    streamingRows
+                }
+            }
+            .padding(.top, 20)
+            .padding(.bottom)
+        }
+        #else
+        PopcornRefreshableScrollView {
+            await viewModel.refresh()
+        } content: {
+            LazyVStack(spacing: contentSpacing) {
+                // Selected services bar
+                selectedServicesBar
 
-                    // Content rows
-                    if !viewModel.popularMovies.isEmpty {
-                        MediaRowView(
-                            title: "Popular Movies",
-                            items: viewModel.popularMovies,
-                            onItemTap: { item in selectedItem = item },
-                            onSeeAll: nil
-                        )
-                    }
-
-                    if !viewModel.popularTV.isEmpty {
-                        MediaRowView(
-                            title: "Popular Shows",
-                            items: viewModel.popularTV,
-                            onItemTap: { item in selectedItem = item },
-                            onSeeAll: nil
-                        )
-                    }
-
-                    if !viewModel.trendingMovies.isEmpty {
-                        MediaRowView(
-                            title: "More Movies",
-                            items: viewModel.trendingMovies,
-                            onItemTap: { item in selectedItem = item },
-                            onSeeAll: nil
-                        )
-                    }
-
-                    if !viewModel.trendingTV.isEmpty {
-                        MediaRowView(
-                            title: "More Shows",
-                            items: viewModel.trendingTV,
-                            onItemTap: { item in selectedItem = item },
-                            onSeeAll: nil
-                        )
-                    }
-
-                    if !viewModel.topRatedMovies.isEmpty {
-                        MediaRowView(
-                            title: "Hidden Gems",
-                            items: viewModel.topRatedMovies,
-                            onItemTap: { item in selectedItem = item },
-                            onSeeAll: nil
-                        )
-                    }
-
-                    if !viewModel.topRatedTV.isEmpty {
-                        MediaRowView(
-                            title: "Shows to Discover",
-                            items: viewModel.topRatedTV,
-                            onItemTap: { item in selectedItem = item },
-                            onSeeAll: nil
-                        )
-                    }
+                if viewModel.isLoading && viewModel.heroItems.isEmpty {
+                    ProgressView()
+                        .padding(.top, 40)
+                } else {
+                    streamingRows
                 }
             }
             .padding(.vertical)
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var streamingRows: some View {
+        // Hero carousel
+        if !viewModel.heroItems.isEmpty {
+            ResizableHeroCarousel(
+                items: viewModel.heroItems,
+                onItemTap: { item in
+                    selectedItem = item
+                },
+                tabID: "8"
+            )
+            #if os(tvOS)
+            .focusSection()
+            #endif
+        }
+
+        if !leavingSoon.entries.isEmpty {
+            LeavingSoonRow(entries: leavingSoon.entries) { item in
+                selectedItem = item
+            }
+        }
+
+        // Content rows
+        if !viewModel.popularMovies.isEmpty {
+            MediaRowView(
+                title: "Popular Movies",
+                items: viewModel.popularMovies,
+                onItemTap: { item in selectedItem = item },
+                onSeeAll: nil
+            )
+        }
+
+        if !viewModel.popularTV.isEmpty {
+            MediaRowView(
+                title: "Popular Shows",
+                items: viewModel.popularTV,
+                onItemTap: { item in selectedItem = item },
+                onSeeAll: nil
+            )
+        }
+
+        if !viewModel.trendingMovies.isEmpty {
+            MediaRowView(
+                title: "More Movies",
+                items: viewModel.trendingMovies,
+                onItemTap: { item in selectedItem = item },
+                onSeeAll: nil
+            )
+        }
+
+        if !viewModel.trendingTV.isEmpty {
+            MediaRowView(
+                title: "More Shows",
+                items: viewModel.trendingTV,
+                onItemTap: { item in selectedItem = item },
+                onSeeAll: nil
+            )
+        }
+
+        if !viewModel.topRatedMovies.isEmpty {
+            MediaRowView(
+                title: "Hidden Gems",
+                items: viewModel.topRatedMovies,
+                onItemTap: { item in selectedItem = item },
+                onSeeAll: nil
+            )
+        }
+
+        if !viewModel.topRatedTV.isEmpty {
+            MediaRowView(
+                title: "Shows to Discover",
+                items: viewModel.topRatedTV,
+                onItemTap: { item in selectedItem = item },
+                onSeeAll: nil
+            )
         }
     }
 
@@ -360,46 +475,84 @@ struct MyStreamingView: View {
 
     private var selectedServicesBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: serviceBarChipSpacing) {
                 ForEach(viewModel.selectedServices) { service in
-                    HStack(spacing: 6) {
-                        ResilientAsyncImage(
-                            url: TMDBService.shared.imageURL(path: service.logoPath, size: .logo)
-                        ) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 22, height: 22)
-                                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                            default:
-                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                    .fill(Color.gray.opacity(0.3))
-                                    .frame(width: 22, height: 22)
-                            }
+                    ResilientAsyncImage(
+                        url: TMDBService.shared.imageURL(path: service.logoPath, size: .logo)
+                    ) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: serviceBarLogoSize, height: serviceBarLogoSize)
+                                .clipShape(RoundedRectangle(cornerRadius: serviceBarCornerRadius, style: .continuous))
+                        default:
+                            RoundedRectangle(cornerRadius: serviceBarCornerRadius, style: .continuous)
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(width: serviceBarLogoSize, height: serviceBarLogoSize)
                         }
-
-                        Text(service.name)
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, serviceBarHPadding)
+                    .padding(.vertical, serviceBarVPadding)
+                    #if os(tvOS)
+                    .background(.white.opacity(0.08), in: Capsule())
+                    .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 1))
+                    #else
                     .glassEffect(.regular, in: .capsule)
+                    #endif
                 }
 
                 Button {
                     showServicePicker = true
                 } label: {
                     Image(systemName: "pencil.circle.fill")
-                        .font(.title3)
+                        .font(editButtonFont)
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, horizontalInset)
         }
+    }
+
+    private var serviceBarChipSpacing: CGFloat {
+        #if os(tvOS)
+        16
+        #else
+        10
+        #endif
+    }
+
+    private var serviceBarInnerSpacing: CGFloat {
+        #if os(tvOS)
+        10
+        #else
+        6
+        #endif
+    }
+
+    private var serviceBarHPadding: CGFloat {
+        #if os(tvOS)
+        16
+        #else
+        10
+        #endif
+    }
+
+    private var serviceBarVPadding: CGFloat {
+        #if os(tvOS)
+        10
+        #else
+        6
+        #endif
+    }
+
+    private var editButtonFont: Font {
+        #if os(tvOS)
+        .title2
+        #else
+        .title3
+        #endif
     }
 }
 
@@ -409,20 +562,38 @@ struct StreamingServicePickerView: View {
     @ObservedObject var viewModel: MyStreamingViewModel
     @Environment(\.dismiss) private var dismiss
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 90, maximum: 120), spacing: 16)
-    ]
+    private var columns: [GridItem] {
+        #if os(tvOS)
+        [GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 32)]
+        #else
+        [GridItem(.adaptive(minimum: 90, maximum: 120), spacing: 16)]
+        #endif
+    }
+
+    private var gridSpacing: CGFloat {
+        #if os(tvOS)
+        32
+        #else
+        16
+        #endif
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 24) {
                     Text("Select the services you subscribe to. Only content from your services will appear.")
+                        #if os(tvOS)
+                        .font(.body)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .padding(.horizontal, 60)
+                        #else
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
+                        #endif
 
-                    LazyVGrid(columns: columns, spacing: 16) {
+                    LazyVGrid(columns: columns, spacing: gridSpacing) {
                         ForEach(StreamingService.allServices) { service in
                             ServiceToggleCell(
                                 service: service,
@@ -432,7 +603,11 @@ struct StreamingServicePickerView: View {
                             }
                         }
                     }
+                    #if os(tvOS)
+                    .padding(.horizontal, 60)
+                    #else
                     .padding(.horizontal)
+                    #endif
                 }
                 .padding(.vertical)
             }
@@ -452,59 +627,172 @@ struct StreamingServicePickerView: View {
     }
 }
 
-// MARK: - Service Toggle Cell
+// MARK: - Service Toggle Cell (ActionButton style)
 
 struct ServiceToggleCell: View {
     let service: StreamingService
     let isSelected: Bool
     let onToggle: () -> Void
 
-    var body: some View {
-        Button(action: onToggle) {
-            VStack(spacing: 8) {
-                ZStack(alignment: .topTrailing) {
-                    ResilientAsyncImage(
-                        url: TMDBService.shared.imageURL(path: service.logoPath, size: .logo)
-                    ) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 56, height: 56)
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        default:
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color.gray.opacity(0.2))
-                                .frame(width: 56, height: 56)
-                                .overlay {
-                                    Text(String(service.name.prefix(1)))
-                                        .font(.title2)
-                                        .fontWeight(.bold)
-                                }
-                        }
-                    }
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2.5)
-                    )
+    @State private var isPressed = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #if os(tvOS)
+    @FocusState private var isFocused: Bool
+    #endif
 
-                    if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.white, Color.accentColor)
-                            .offset(x: 4, y: -4)
+    private var isCompact: Bool {
+        #if os(tvOS)
+        return false
+        #else
+        return horizontalSizeClass == .compact
+        #endif
+    }
+
+    private var logoSize: CGFloat {
+        #if os(tvOS)
+        48
+        #else
+        isCompact ? 32 : 40
+        #endif
+    }
+
+    private var cellCornerRadius: CGFloat {
+        #if os(tvOS)
+        16
+        #else
+        isCompact ? 12 : 16
+        #endif
+    }
+
+    var body: some View {
+        Button(action: {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                isPressed = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isPressed = false
+                onToggle()
+            }
+        }) {
+            VStack(spacing: isCompact ? 4 : 6) {
+                ResilientAsyncImage(
+                    url: TMDBService.shared.imageURL(path: service.logoPath, size: .logo)
+                ) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: logoSize, height: logoSize)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    default:
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(width: logoSize, height: logoSize)
+                            .overlay {
+                                Text(String(service.name.prefix(1)))
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                            }
                     }
                 }
+                .scaleEffect(isPressed ? 1.15 : 1.0)
 
                 Text(service.name)
                     .font(.caption2)
                     .fontWeight(isSelected ? .semibold : .regular)
+                    .foregroundStyle(labelColor)
                     .lineLimit(1)
-                    .foregroundStyle(isSelected ? .primary : .secondary)
             }
+            .frame(maxWidth: .infinity, minHeight: isCompact ? 60 : 90)
+            .padding(.vertical, isCompact ? 6 : 10)
+            .padding(.horizontal, isCompact ? 6 : 10)
+            .background(
+                RoundedRectangle(cornerRadius: cellCornerRadius, style: .continuous)
+                    .fill(backgroundFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cellCornerRadius, style: .continuous)
+                    .stroke(borderColor, lineWidth: borderWidth)
+            )
+            .shadow(color: shadowColor, radius: shadowRadius, x: 0, y: shadowYOffset)
+            .scaleEffect(cellScaleEffect)
         }
+        #if os(tvOS)
+        .buttonStyle(TVOSTransparentButtonStyle(cornerRadius: cellCornerRadius))
+        .focused($isFocused)
+        #else
         .buttonStyle(.plain)
+        #endif
+    }
+
+    // MARK: - Style Properties
+
+    private var labelColor: Color {
+        isSelected ? .accentColor : .secondary
+    }
+
+    private var backgroundFill: Color {
+        #if os(tvOS)
+        return Color.clear
+        #else
+        return isSelected ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.12)
+        #endif
+    }
+
+    private var borderColor: Color {
+        if isSelected {
+            #if os(tvOS)
+            return Color.accentColor.opacity(isFocused ? 0.95 : 0.72)
+            #else
+            return Color.accentColor.opacity(0.7)
+            #endif
+        }
+        #if os(tvOS)
+        return Color.white.opacity(isFocused ? 0.96 : 0.18)
+        #else
+        return Color.primary.opacity(0.12)
+        #endif
+    }
+
+    private var borderWidth: CGFloat {
+        #if os(tvOS)
+        return isFocused ? 2.6 : (isSelected ? 1.6 : 1.1)
+        #else
+        return isSelected ? 1.4 : 1
+        #endif
+    }
+
+    private var shadowColor: Color {
+        #if os(tvOS)
+        return Color.black.opacity(isFocused ? 0.4 : 0.16)
+        #else
+        return Color.clear
+        #endif
+    }
+
+    private var shadowRadius: CGFloat {
+        #if os(tvOS)
+        return isFocused ? 18 : 6
+        #else
+        return 0
+        #endif
+    }
+
+    private var shadowYOffset: CGFloat {
+        #if os(tvOS)
+        return isFocused ? 10 : 3
+        #else
+        return 0
+        #endif
+    }
+
+    private var cellScaleEffect: CGFloat {
+        #if os(tvOS)
+        return isFocused ? 1.08 : 1
+        #else
+        return 1
+        #endif
     }
 }
 

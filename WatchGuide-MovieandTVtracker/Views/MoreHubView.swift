@@ -55,6 +55,9 @@ struct MoreHubView: View {
                 
                 appInfo
                 
+                RemoteBannerView(placement: .moreHub)
+                    .padding(.horizontal)
+                
                 Spacer(minLength: 40)
             }
             .padding(.top, topPadding)
@@ -65,49 +68,43 @@ struct MoreHubView: View {
     @ViewBuilder
     private var featureCards: some View {
         VStack(spacing: cardSpacing) {
-            // Friends / Social - Hero card
+            // Ask Atlas — full-width AI card
+            #if !os(tvOS)
+            Button {
+                AtlasDockState.shared.engage()
+            } label: {
+                AtlasFeatureCard()
+            }
+            .buttonStyle(.plain)
+            #endif
+
+            // Lists
             NavigationLink {
-                FriendsActivityView()
+                ListsView()
             } label: {
                 MoreFeatureCard(
-                    title: "Friends & Social",
-                    subtitle: "Follow friends, see activity, and host parties",
-                    iconName: "person.2.fill",
-                    accentColor: .blue,
-                    isLarge: true
+                    title: "My Lists",
+                    subtitle: "\(storage.watched.count + storage.wantToWatch.count + storage.liked.count) items",
+                    iconName: "list.bullet.below.rectangle",
+                    accentColor: .green,
+                    isLarge: false
                 )
             }
             .buttonStyle(.plain)
-            
-            HStack(spacing: cardSpacing) {
-                // Lists
-                NavigationLink {
-                    ListsView()
-                } label: {
-                    MoreFeatureCard(
-                        title: "My Lists",
-                        subtitle: "\(storage.watched.count + storage.wantToWatch.count + storage.liked.count) items",
-                        iconName: "list.bullet.below.rectangle",
-                        accentColor: .green,
-                        isLarge: false
-                    )
-                }
-                .buttonStyle(.plain)
-                
-                // Watch Parties
-                NavigationLink {
-                    WatchPartyView()
-                } label: {
-                    MoreFeatureCard(
-                        title: "Watch Parties",
-                        subtitle: "Watch together",
-                        iconName: "popcorn.fill",
-                        accentColor: .orange,
-                        isLarge: false
-                    )
-                }
-                .buttonStyle(.plain)
+
+            // WatchHour
+            NavigationLink {
+                WatchHourView()
+            } label: {
+                MoreFeatureCard(
+                    title: "WatchHour",
+                    subtitle: "Sessions, history & stats",
+                    iconName: "hourglass",
+                    accentColor: Color(hex: "FF375F"),
+                    isLarge: false
+                )
             }
+            .buttonStyle(.plain)
             
             HStack(spacing: cardSpacing) {
                 // Settings
@@ -138,6 +135,20 @@ struct MoreHubView: View {
                 }
                 .buttonStyle(.plain)
             }
+            
+            // Credits
+            NavigationLink {
+                CreditsView()
+            } label: {
+                MoreFeatureCard(
+                    title: "Credits",
+                    subtitle: "Data sources & partnerships",
+                    iconName: "heart.text.clipboard.fill",
+                    accentColor: .pink,
+                    isLarge: false
+                )
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, horizontalInset)
     }
@@ -412,6 +423,67 @@ struct MoreStatPill: View {
         .padding(.vertical, 10)
         .glassEffect(.regular, in: .capsule)
         #endif
+    }
+}
+
+// MARK: - Atlas Feature Card
+struct AtlasFeatureCard: View {
+    var body: some View {
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Color(red: 0.38, green: 0.28, blue: 0.90).opacity(0.5), Color.clear],
+                            center: .center,
+                            startRadius: 2,
+                            endRadius: 26
+                        )
+                    )
+                    .frame(width: 52, height: 52)
+                Image(systemName: "sparkles")
+                    .font(.title3)
+                    .foregroundStyle(
+                        LinearGradient(colors: [.blue, .indigo], startPoint: .top, endPoint: .bottom)
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Ask Atlas")
+                    .font(.headline)
+                    .fontWeight(.bold)
+                    .foregroundStyle(.primary)
+                Text("Your AI movie & TV guide")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.12, green: 0.10, blue: 0.34).opacity(0.85),
+                            Color(red: 0.06, green: 0.05, blue: 0.20).opacity(0.85)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color(red: 0.38, green: 0.28, blue: 0.90).opacity(0.30), lineWidth: 1)
+        )
     }
 }
 

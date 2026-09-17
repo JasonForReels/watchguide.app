@@ -1,5 +1,5 @@
 import SwiftUI
-#if canImport(UIKit) && canImport(SafariServices)
+#if os(iOS) && canImport(SafariServices)
 import SafariServices
 
 /// A SwiftUI wrapper around SFSafariViewController for an in-app browser experience.

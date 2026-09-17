@@ -1,6 +1,6 @@
 import Foundation
 
-#if canImport(FoundationModels)
+#if canImport(FoundationModels) && !os(tvOS)
 import FoundationModels
 #endif
 
@@ -8,6 +8,15 @@ actor AppleIntelligenceSearchService {
     static let shared = AppleIntelligenceSearchService()
 
     private init() {}
+
+    var canUseNaturalResponseFormatting: Bool {
+        #if canImport(FoundationModels) && !os(tvOS)
+        if #available(iOS 18.0, macOS 15.0, *) {
+            return AppleIntelligenceCapabilityService.currentReport().isAppleIntelligenceAvailableNow
+        }
+        #endif
+        return false
+    }
 
     func candidateQueries(for query: String) async -> [String] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -30,7 +39,7 @@ actor AppleIntelligenceSearchService {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else { return query }
 
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !os(tvOS)
         if #available(iOS 18.0, macOS 15.0, *) {
             do {
                 let instructions = """
@@ -55,6 +64,43 @@ actor AppleIntelligenceSearchService {
         #endif
 
         return trimmedQuery
+    }
+
+    func naturalLanguageResponse(for response: String, userQuery: String) async -> String {
+        let trimmedResponse = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedQuery = userQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedResponse.isEmpty else { return response }
+
+        #if canImport(FoundationModels) && !os(tvOS)
+        if #available(iOS 18.0, macOS 15.0, *), canUseNaturalResponseFormatting {
+            do {
+                let instructions = """
+                Rewrite movie and TV assistant responses so they sound natural, clear, and concise.
+                Preserve all factual claims, dates, titles, markdown links, and any [TRAILER:Exact Title] tag exactly.
+                Do not add new facts, do not remove source links, and do not mention Apple Intelligence.
+                Return only the rewritten final answer text.
+                """
+
+                let session = LanguageModelSession(instructions: instructions)
+                let prompt = """
+                User query:
+                \(trimmedQuery)
+
+                Draft answer:
+                \(trimmedResponse)
+                """
+                let response = try await session.respond(to: prompt)
+                let rewritten = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !rewritten.isEmpty {
+                    return rewritten
+                }
+            } catch {
+                return trimmedResponse
+            }
+        }
+        #endif
+
+        return trimmedResponse
     }
 
     private func heuristicQuery(from query: String) -> String {

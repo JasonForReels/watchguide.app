@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-#if canImport(PhotosUI)
+#if os(iOS) && canImport(PhotosUI)
 import PhotosUI
 #endif
 #if canImport(ImagePlayground)
@@ -21,7 +21,7 @@ import AppKit
 
 private extension Color {
     static var platformGray6: Color {
-        #if canImport(UIKit)
+        #if os(iOS) && canImport(UIKit)
         return Color(UIColor.systemGray6)
         #elseif canImport(AppKit)
         return Color(nsColor: .windowBackgroundColor)
@@ -31,7 +31,7 @@ private extension Color {
     }
 
     static var platformGray5: Color {
-        #if canImport(UIKit)
+        #if os(iOS) && canImport(UIKit)
         return Color(UIColor.systemGray5)
         #elseif canImport(AppKit)
         return Color(nsColor: .controlBackgroundColor)
@@ -41,7 +41,7 @@ private extension Color {
     }
 
     static var platformGray4: Color {
-        #if canImport(UIKit)
+        #if os(iOS) && canImport(UIKit)
         return Color(UIColor.systemGray4)
         #elseif canImport(AppKit)
         return Color(nsColor: .separatorColor)
@@ -63,7 +63,7 @@ struct AvatarPickerView: View {
     
     @State private var selectedURL: String?
     @State private var searchText = ""
-    #if canImport(PhotosUI)
+    #if os(iOS) && canImport(PhotosUI)
     @State private var selectedPhotoItem: PhotosPickerItem?
     #endif
     @State private var photoPickerError: String?
@@ -139,7 +139,7 @@ struct AvatarPickerView: View {
                 }
             }
             .navigationTitle("Avatars")
-            #if !os(macOS)
+            #if !os(macOS) && !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .searchable(text: $searchText, prompt: "Search avatars")
@@ -163,7 +163,7 @@ struct AvatarPickerView: View {
                 // Pre-select current avatar
                 selectedURL = currentAvatarURL
             }
-            #if canImport(PhotosUI)
+            #if os(iOS) && canImport(PhotosUI)
             .onChange(of: selectedPhotoItem) { _, newItem in
                 guard let newItem else { return }
                 Task { await importPhotoAvatar(from: newItem) }
@@ -295,7 +295,7 @@ struct AvatarPickerView: View {
                     .help("Create an avatar with Image Playground")
                 }
 
-                #if canImport(PhotosUI)
+                #if os(iOS) && canImport(PhotosUI)
                 PhotosPicker(selection: $selectedPhotoItem, matching: .images, photoLibrary: .shared()) {
                     customPhotoTile
                 }
@@ -385,7 +385,7 @@ struct AvatarPickerView: View {
         VStack(spacing: 6) {
             Group {
                 if let selectedURL, let url = URL(string: selectedURL) {
-                    AsyncImage(url: url) { phase in
+                    ResilientAsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let image):
                             image
@@ -429,7 +429,7 @@ struct AvatarPickerView: View {
         }
     }
     
-    #if canImport(PhotosUI)
+    #if os(iOS) && canImport(PhotosUI)
     @MainActor
     private func importPhotoAvatar(from item: PhotosPickerItem) async {
         do {
@@ -581,7 +581,7 @@ private struct AvatarGridItem: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 6) {
-                AsyncImage(url: URL(string: avatar.url)) { phase in
+                ResilientAsyncImage(url: URL(string: avatar.url)) { phase in
                     switch phase {
                     case .success(let image):
                         image
@@ -648,7 +648,7 @@ struct ProfileAvatarImageView: View {
                 )
             } else if let url = URL(string: avatarURL) {
             // Custom avatar image
-                AsyncImage(url: url) { phase in
+                ResilientAsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
                         image

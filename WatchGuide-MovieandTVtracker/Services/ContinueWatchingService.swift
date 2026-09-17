@@ -66,6 +66,14 @@ final class ContinueWatchingService: ObservableObject {
 
         StorageService.shared.upsertContinueWatchingItem(item)
         await scheduleWatchedReminder(for: item)
+
+        // Start a WatchHour tracking session for this title.
+        await WatchHourService.shared.startSession(
+            for: show,
+            episode: episode,
+            providerName: nil,
+            deepLinkURL: deepLinkURL
+        )
     }
 
     func recordMovieDeepLinkTap(
@@ -91,20 +99,63 @@ final class ContinueWatchingService: ObservableObject {
 
         StorageService.shared.upsertContinueWatchingItem(item)
         await scheduleWatchedReminder(for: item)
+
+        // Start a WatchHour tracking session for this movie.
+        await WatchHourService.shared.startSession(
+            for: movie,
+            episode: nil,
+            providerName: nil,
+            deepLinkURL: deepLinkURL
+        )
     }
 
     // MARK: - Mark as Watched / Remove
 
-    func markAsWatched(_ item: ContinueWatchingItem) {
-        var updated = item
-        updated.status = .watched
-        StorageService.shared.upsertContinueWatchingItem(updated)
-
+    func markAsWatched(_ item: ContinueWatchingItem) async {
         #if !os(tvOS)
         notificationCenter.removePendingNotificationRequests(
             withIdentifiers: ["continue_watching_reminder_\(item.id)"]
         )
         #endif
+
+        // For TV shows with a next episode, advance to the next episode
+        // instead of marking the entire show as watched.
+        if item.show.mediaType == .tv, let next = item.nextEpisode {
+            let advancedItem = ContinueWatchingItem(
+                show: item.show,
+                progress: -1,
+                status: .inProgress,
+                lastEpisode: next,
+                nextEpisode: nil,
+                upcomingEpisode: nil,
+                providers: item.providers,
+                providersLink: item.providersLink,
+                lastUpdated: Date(),
+                source: item.source,
+                deepLinkURL: item.deepLinkURL,
+                reminderScheduled: false
+            )
+
+            // Fetch the episode after the new current one
+            if let newNext = await fetchNextEpisode(
+                tvId: item.show.mediaId,
+                afterSeason: next.seasonNumber,
+                afterEpisode: next.episodeNumber
+            ) {
+                StorageService.shared.upsertContinueWatchingItem(
+                    advancedItem.withNextEpisode(newNext)
+                )
+            } else {
+                // No more episodes — this is the last one
+                StorageService.shared.upsertContinueWatchingItem(advancedItem)
+            }
+            return
+        }
+
+        // Movie or final episode — mark as fully watched
+        var updated = item
+        updated.status = .watched
+        StorageService.shared.upsertContinueWatchingItem(updated)
     }
 
     func removeItem(_ item: ContinueWatchingItem) {

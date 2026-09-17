@@ -12,11 +12,15 @@ class StorageService: ObservableObject {
 
     private static let remoteStudioHubsURLString = "https://raw.githubusercontent.com/WatchGuide-app/Studios-hubs/refs/heads/main/studios.json"
     private static let remoteStudioAssetsBaseURLString = "https://raw.githubusercontent.com/WatchGuide-app/Studios-hubs/refs/heads/main/"
+    private static let marvelMDBListPath = "dualipafan01/marvel-studios"
     
     // MARK: - Published Properties
     @Published private(set) var wantToWatch: [SavedMediaItem] = []
     @Published private(set) var watched: [SavedMediaItem] = []
     @Published private(set) var liked: [SavedMediaItem] = []
+    @Published private(set) var continueWatching: [ContinueWatchingItem] = []
+    @Published private(set) var watchSessions: [WatchSession] = []
+    @Published private(set) var watchHistory: [WatchHistoryEntry] = []
     @Published private(set) var customLists: [CustomList] = []
     @Published private(set) var companyHubs: [CompanyHub] = []
     @Published private(set) var networkHubs: [NetworkHub] = []
@@ -42,7 +46,7 @@ class StorageService: ObservableObject {
     }
 
     var isCloudConfigured: Bool {
-        isSupabaseConfigured || AuthService.shared.isAppleAuthActive
+        isSupabaseConfigured
     }
     
     /// Whether Supabase is configured
@@ -53,7 +57,7 @@ class StorageService: ObservableObject {
     }
 
     var cloudProviderDisplayName: String {
-        isSupabaseConfigured ? "Supabase" : "CloudKit"
+        "Supabase"
     }
 
     private var isApplyingCloudSnapshot = false
@@ -63,6 +67,9 @@ class StorageService: ObservableObject {
     private let wantToWatchURL: URL
     private let watchedURL: URL
     private let likedURL: URL
+    private let continueWatchingURL: URL
+    private let watchSessionsURL: URL
+    private let watchHistoryURL: URL
     private let customListsURL: URL
     private let companyHubsURL: URL
     private let networkHubsURL: URL
@@ -80,6 +87,9 @@ class StorageService: ObservableObject {
         wantToWatchURL = documentsDirectory.appendingPathComponent("want_to_watch.json")
         watchedURL = documentsDirectory.appendingPathComponent("watched.json")
         likedURL = documentsDirectory.appendingPathComponent("liked.json")
+        continueWatchingURL = documentsDirectory.appendingPathComponent("continue_watching.json")
+        watchSessionsURL = documentsDirectory.appendingPathComponent("watch_sessions.json")
+        watchHistoryURL = documentsDirectory.appendingPathComponent("watch_history.json")
         customListsURL = documentsDirectory.appendingPathComponent("custom_lists.json")
         companyHubsURL = documentsDirectory.appendingPathComponent("company_hubs.json")
         networkHubsURL = documentsDirectory.appendingPathComponent("network_hubs.json")
@@ -94,7 +104,9 @@ class StorageService: ObservableObject {
         
         loadAll()
         migrateBrowseRowsIfNeeded()
+        Task { await migrateMarvelCustomHubIfNeeded() }
         initializeDefaultHubs()
+        migrateCompanyHubsIfNeeded()
         initializeNetworkHubs()
         Task { await refreshCompanyHubsFromRemote() }
         
@@ -107,6 +119,9 @@ class StorageService: ObservableObject {
         wantToWatch = load(from: wantToWatchURL) ?? []
         watched = load(from: watchedURL) ?? []
         liked = load(from: likedURL) ?? []
+        continueWatching = load(from: continueWatchingURL) ?? []
+        watchSessions = load(from: watchSessionsURL) ?? []
+        watchHistory = load(from: watchHistoryURL) ?? []
         customLists = load(from: customListsURL) ?? []
         companyHubs = load(from: companyHubsURL) ?? []
         networkHubs = load(from: networkHubsURL) ?? []
@@ -119,6 +134,12 @@ class StorageService: ObservableObject {
         hiddenSections = load(from: hiddenSectionsURL) ?? .default
         browseSections = load(from: browseSectionsURL) ?? BrowseSectionItem.defaultSections
         migrateBrowseSectionsIfNeeded()
+        migrateTrailerAddonSettingsIfNeeded()
+
+        // Index all saved content into Spotlight for system-wide search
+        #if canImport(CoreSpotlight) && !os(tvOS)
+        SpotlightIndexingService.shared.indexAllContent()
+        #endif
     }
     
     private func load<T: Decodable>(from url: URL) -> T? {
@@ -142,27 +163,74 @@ class StorageService: ObservableObject {
     }
 
     private func migrateBrowseRowsIfNeeded() {
-        guard !browseRows.contains(where: { $0.endpoint == .trendingPeople }) else { return }
-        
         var updated = browseRows
-        let newRow = BrowseRowConfig(
-            id: "trending_people",
-            title: "Trending Actors",
-            endpoint: .trendingPeople,
-            isEnabled: true,
-            sortOrder: 0
-        )
-        
-        if let trendingTVIndex = updated.firstIndex(where: { $0.endpoint == .trendingTV }) {
-            updated.insert(newRow, at: trendingTVIndex + 1)
-        } else {
-            updated.append(newRow)
+        var didChange = false
+
+        if !updated.contains(where: { $0.endpoint == .trendingPeople }) {
+            let newRow = BrowseRowConfig(
+                id: "trending_people",
+                title: "Trending Actors",
+                endpoint: .trendingPeople,
+                isEnabled: true,
+                sortOrder: 0
+            )
+
+            if let trendingTVIndex = updated.firstIndex(where: { $0.endpoint == .trendingTV }) {
+                updated.insert(newRow, at: trendingTVIndex + 1)
+            } else {
+                updated.append(newRow)
+            }
+            didChange = true
         }
-        
+
+        if !updated.contains(where: { $0.endpoint == .latestCertifiedFresh }) {
+            let newRow = BrowseRowConfig(
+                id: "latest_certified_fresh",
+                title: BrowseRowConfig.latestHighRatedTitle,
+                endpoint: .latestCertifiedFresh,
+                isEnabled: true,
+                sortOrder: 0
+            )
+
+            if let topRatedTVIndex = updated.firstIndex(where: { $0.endpoint == .topRatedTV }) {
+                updated.insert(newRow, at: topRatedTVIndex + 1)
+            } else if let comingSoonIndex = updated.firstIndex(where: { $0.endpoint == .upcomingMovies }) {
+                updated.insert(newRow, at: comingSoonIndex)
+            } else {
+                updated.append(newRow)
+            }
+            didChange = true
+        }
+
+        for index in updated.indices
+        where updated[index].endpoint == .latestCertifiedFresh && updated[index].title != BrowseRowConfig.latestHighRatedTitle {
+            updated[index] = BrowseRowConfig(
+                id: updated[index].id,
+                title: BrowseRowConfig.latestHighRatedTitle,
+                endpoint: updated[index].endpoint,
+                isEnabled: updated[index].isEnabled,
+                sortOrder: updated[index].sortOrder
+            )
+            didChange = true
+        }
+
+        for index in updated.indices where updated[index].endpoint == .upcomingMovies && updated[index].title != "Coming Soon" {
+            updated[index] = BrowseRowConfig(
+                id: updated[index].id,
+                title: "Coming Soon",
+                endpoint: updated[index].endpoint,
+                isEnabled: updated[index].isEnabled,
+                sortOrder: updated[index].sortOrder
+            )
+            didChange = true
+        }
+
+        guard didChange else { return }
+
         for (index, _) in updated.enumerated() {
             updated[index].sortOrder = index
         }
-        
+
         browseRows = updated
         save(browseRows, to: browseRowsURL)
     }
@@ -171,12 +239,28 @@ class StorageService: ObservableObject {
     private func migrateBrowseSectionsIfNeeded() {
         let existing = Set(browseSections.map { $0.sectionType })
         var updated = browseSections
-        for def in BrowseSectionItem.defaultSections where !existing.contains(def.sectionType) {
+
+        // Insert Continue Watching at the top for existing users
+        if !existing.contains(.continueWatching) {
+            let newSection = BrowseSectionItem(
+                id: "sec_continue_watching",
+                sectionType: .continueWatching,
+                isEnabled: true,
+                sortOrder: -1
+            )
+            updated.insert(newSection, at: 0)
+        }
+
+        for def in BrowseSectionItem.defaultSections where !existing.contains(def.sectionType) && def.sectionType != .continueWatching {
             var newSec = def
             newSec.sortOrder = updated.count
             updated.append(newSec)
         }
         if updated.count != browseSections.count {
+            // Renumber sort orders
+            for i in updated.indices {
+                updated[i].sortOrder = i
+            }
             browseSections = updated
             save(browseSections, to: browseSectionsURL)
         }
@@ -190,13 +274,64 @@ class StorageService: ObservableObject {
             CompanyHub(name: "Warner Bros.", logoPath: nil, companyIds: [174, 17, 429, 76043], networkIds: []),
             CompanyHub(name: "Walt Disney Pictures", logoPath: nil, companyIds: [2, 3, 420, 7505, 7521], networkIds: [2739]),
             CompanyHub(name: "Marvel Studios", logoPath: nil, companyIds: [420], networkIds: []),
-            CompanyHub(name: "DC Studios", logoPath: nil, companyIds: [128064, 174], networkIds: []),
+            CompanyHub(name: "DC", logoPath: nil, companyIds: [429, 184898], networkIds: []),
             CompanyHub(name: "Pixar", logoPath: nil, companyIds: [3], networkIds: []),
             CompanyHub(name: "Universal Pictures", logoPath: nil, companyIds: [33], networkIds: []),
+            CompanyHub(name: "Searchlight Pictures", logoPath: nil, companyIds: [127929], networkIds: []),
+            CompanyHub(name: "Dreamworks", logoPath: nil, companyIds: [521], networkIds: []),
+            CompanyHub(name: "Illumination", logoPath: nil, companyIds: [6704], networkIds: []),
         ]
         
         companyHubs = defaultHubs
         save(companyHubs, to: companyHubsURL)
+    }
+
+    private func migrateCompanyHubsIfNeeded() {
+        let requiredHubs: [(name: String, companyIds: [Int])] = [
+            ("DC", [429, 184898]),
+            ("Searchlight Pictures", [127929]),
+            ("Dreamworks", [521]),
+            ("Illumination", [6704])
+        ]
+
+        var updated = companyHubs
+        var didChange = false
+
+        if let dcIndex = updated.firstIndex(where: {
+            $0.name.caseInsensitiveCompare("DC Studios") == .orderedSame ||
+            $0.name.caseInsensitiveCompare("DC") == .orderedSame
+        }) {
+            let existing = updated[dcIndex]
+            let mergedCompanyIds = Array(Set(existing.companyIds + [429, 184898])).sorted()
+            let renamed = CompanyHub(
+                id: existing.id,
+                name: "DC",
+                logoPath: existing.logoPath,
+                companyIds: mergedCompanyIds,
+                networkIds: existing.networkIds,
+                isEnabled: existing.isEnabled,
+                buttonShape: existing.buttonShape,
+                backgroundStyle: existing.backgroundStyle,
+                createdAt: existing.createdAt
+            )
+            if existing.name != renamed.name || existing.companyIds != renamed.companyIds {
+                updated[dcIndex] = renamed
+                didChange = true
+            }
+        }
+
+        for required in requiredHubs {
+            guard !updated.contains(where: { $0.name.caseInsensitiveCompare(required.name) == .orderedSame }) else {
+                continue
+            }
+            updated.append(CompanyHub(name: required.name, logoPath: nil, companyIds: required.companyIds, networkIds: []))
+            didChange = true
+        }
+
+        if didChange {
+            companyHubs = updated
+            save(companyHubs, to: companyHubsURL)
+        }
     }
 
     private struct RemoteStudioHub: Decodable {
@@ -380,12 +515,24 @@ class StorageService: ObservableObject {
         wantToWatch.insert(item, at: 0)
         save(wantToWatch, to: wantToWatchURL)
         syncAddToCloud(item, listType: .wantToWatch)
+        #if canImport(CoreSpotlight) && !os(tvOS)
+        SpotlightIndexingService.shared.indexItem(item, listType: .wantToWatch)
+        #endif
+        Task {
+            await TraktService.shared.addToWatchlist(item)
+        }
     }
     
     func removeFromWantToWatch(_ item: SavedMediaItem) {
         wantToWatch.removeAll { $0.id == item.id }
         save(wantToWatch, to: wantToWatchURL)
         syncRemoveFromCloud(mediaId: item.mediaId, mediaType: item.mediaType, listType: .wantToWatch)
+        #if canImport(CoreSpotlight) && !os(tvOS)
+        SpotlightIndexingService.shared.removeItem(item)
+        #endif
+        Task {
+            await TraktService.shared.removeFromWatchlist(item)
+        }
     }
     
     func isInWantToWatch(_ mediaId: Int, mediaType: MediaType) -> Bool {
@@ -399,12 +546,18 @@ class StorageService: ObservableObject {
         watched.insert(item, at: 0)
         save(watched, to: watchedURL)
         syncAddToCloud(item, listType: .watched)
+        #if canImport(CoreSpotlight) && !os(tvOS)
+        SpotlightIndexingService.shared.indexItem(item, listType: .watched)
+        #endif
     }
     
     func removeFromWatched(_ item: SavedMediaItem) {
         watched.removeAll { $0.id == item.id }
         save(watched, to: watchedURL)
         syncRemoveFromCloud(mediaId: item.mediaId, mediaType: item.mediaType, listType: .watched)
+        #if canImport(CoreSpotlight) && !os(tvOS)
+        SpotlightIndexingService.shared.removeItem(item)
+        #endif
     }
     
     func isInWatched(_ mediaId: Int, mediaType: MediaType) -> Bool {
@@ -418,12 +571,24 @@ class StorageService: ObservableObject {
         liked.insert(item, at: 0)
         save(liked, to: likedURL)
         syncAddToCloud(item, listType: .liked)
+        #if canImport(CoreSpotlight) && !os(tvOS)
+        SpotlightIndexingService.shared.indexItem(item, listType: .liked)
+        #endif
+        Task {
+            await TraktService.shared.addLike(item)
+        }
     }
     
     func removeFromLiked(_ item: SavedMediaItem) {
         liked.removeAll { $0.id == item.id }
         save(liked, to: likedURL)
         syncRemoveFromCloud(mediaId: item.mediaId, mediaType: item.mediaType, listType: .liked)
+        #if canImport(CoreSpotlight) && !os(tvOS)
+        SpotlightIndexingService.shared.removeItem(item)
+        #endif
+        Task {
+            await TraktService.shared.removeLike(item)
+        }
     }
     
     func isInLiked(_ mediaId: Int, mediaType: MediaType) -> Bool {
@@ -454,6 +619,110 @@ class StorageService: ObservableObject {
         } else {
             addToLiked(item)
         }
+    }
+
+    // MARK: - Trakt Merge
+
+    func mergeTraktWatchlist(_ items: [SavedMediaItem]) {
+        wantToWatch = mergedItems(prioritizing: items, existing: wantToWatch)
+        save(wantToWatch, to: wantToWatchURL)
+    }
+
+    func mergeTraktWatched(_ items: [SavedMediaItem]) {
+        watched = mergedItems(prioritizing: items, existing: watched)
+        save(watched, to: watchedURL)
+    }
+
+    func mergeTraktLiked(_ items: [SavedMediaItem]) {
+        liked = mergedItems(prioritizing: items, existing: liked)
+        save(liked, to: likedURL)
+    }
+
+    func updateContinueWatching(_ items: [ContinueWatchingItem]) {
+        continueWatching = items.sorted { $0.lastUpdated > $1.lastUpdated }
+        save(continueWatching, to: continueWatchingURL)
+    }
+
+    func clearContinueWatching() {
+        continueWatching = []
+        save(continueWatching, to: continueWatchingURL)
+    }
+
+    func upsertContinueWatchingItem(_ item: ContinueWatchingItem) {
+        if let index = continueWatching.firstIndex(where: { $0.id == item.id }) {
+            continueWatching[index] = item
+        } else {
+            continueWatching.insert(item, at: 0)
+        }
+        continueWatching.sort { $0.lastUpdated > $1.lastUpdated }
+        save(continueWatching, to: continueWatchingURL)
+    }
+
+    func removeContinueWatchingItem(id: String) {
+        continueWatching.removeAll { $0.id == id }
+        save(continueWatching, to: continueWatchingURL)
+    }
+
+    // MARK: - WatchHour Sessions & History
+
+    func upsertWatchSession(_ session: WatchSession) {
+        if let index = watchSessions.firstIndex(where: { $0.id == session.id }) {
+            watchSessions[index] = session
+        } else {
+            watchSessions.insert(session, at: 0)
+        }
+        save(watchSessions, to: watchSessionsURL)
+        syncWatchHourToCloud()
+    }
+
+    func removeWatchSession(id: String) {
+        watchSessions.removeAll { $0.id == id }
+        save(watchSessions, to: watchSessionsURL)
+        syncWatchHourToCloud()
+    }
+
+    func appendWatchHistory(_ entry: WatchHistoryEntry) {
+        watchHistory.insert(entry, at: 0)
+        // Keep history bounded to a sensible size.
+        if watchHistory.count > 500 {
+            watchHistory = Array(watchHistory.prefix(500))
+        }
+        save(watchHistory, to: watchHistoryURL)
+        syncWatchHourToCloud()
+    }
+
+    func updateWatchHistoryRating(entryId: String, rating: Int) {
+        guard let index = watchHistory.firstIndex(where: { $0.id == entryId }) else { return }
+        watchHistory[index].rating = rating
+        save(watchHistory, to: watchHistoryURL)
+        syncWatchHourToCloud()
+    }
+
+    func clearWatchHistory() {
+        watchHistory = []
+        save(watchHistory, to: watchHistoryURL)
+        syncWatchHourToCloud()
+    }
+
+    /// Best-effort background sync of WatchHour data via the cloud snapshot.
+    private func syncWatchHourToCloud() {
+        guard !isApplyingCloudSnapshot, cloudSyncEnabled else { return }
+        syncICloudSnapshotInBackground()
+    }
+
+    private func mergedItems(prioritizing incoming: [SavedMediaItem], existing: [SavedMediaItem]) -> [SavedMediaItem] {
+        var seen = Set<String>()
+        var merged: [SavedMediaItem] = []
+
+        for item in incoming where seen.insert(item.id).inserted {
+            merged.append(item)
+        }
+
+        for item in existing where seen.insert(item.id).inserted {
+            merged.append(item)
+        }
+
+        return merged
     }
     
     // MARK: - Cloud Sync Methods
@@ -543,7 +812,7 @@ class StorageService: ObservableObject {
 
             applyDownloadedMediaItems(data.wantToWatch, data.watched, data.liked)
             if let cloudSettings = cloudSettings {
-                settings = cloudSettings
+                settings = normalizedSettings(cloudSettings)
                 save(settings, to: settingsURL)
             }
             if !cloudCustomLists.isEmpty {
@@ -574,7 +843,36 @@ class StorageService: ObservableObject {
     
     /// Applies home screen config downloaded from Supabase
     private func applyHomeScreenConfig(_ homeConfig: HomeScreenConfig) {
-        var mergedBrowseRows = homeConfig.browseRows
+        var mergedBrowseRows = homeConfig.browseRows.map { row in
+            switch row.endpoint {
+            case .latestCertifiedFresh:
+                guard row.title != BrowseRowConfig.latestHighRatedTitle else {
+                    return row
+                }
+
+                return BrowseRowConfig(
+                    id: row.id,
+                    title: BrowseRowConfig.latestHighRatedTitle,
+                    endpoint: row.endpoint,
+                    isEnabled: row.isEnabled,
+                    sortOrder: row.sortOrder
+                )
+            case .upcomingMovies:
+                guard row.title != "Coming Soon" else {
+                    return row
+                }
+
+                return BrowseRowConfig(
+                    id: row.id,
+                    title: "Coming Soon",
+                    endpoint: row.endpoint,
+                    isEnabled: row.isEnabled,
+                    sortOrder: row.sortOrder
+                )
+            default:
+                return row
+            }
+        }
         let cloudEndpoints = Set(mergedBrowseRows.map { $0.endpoint })
         for defaultRow in BrowseRowConfig.defaultRows where !cloudEndpoints.contains(defaultRow.endpoint) {
             var newRow = defaultRow
@@ -775,11 +1073,23 @@ class StorageService: ObservableObject {
     }
     
     // MARK: - Custom Lists
-    func createCustomList(name: String, description: String? = nil, iconName: String = "folder.fill", displayStyle: CustomList.DisplayStyle = .row) {
+    @discardableResult
+    func createCustomList(name: String, description: String? = nil, iconName: String = "folder.fill", displayStyle: CustomList.DisplayStyle = .row) -> Bool {
+        guard AIMessageQuota.canCreateCustomList(currentCount: customLists.count) else { return false }
         let list = CustomList(name: name, description: description, iconName: iconName, displayStyle: displayStyle)
         customLists.append(list)
         save(customLists, to: customListsURL)
         syncCustomListsToCloud()
+        return true
+    }
+
+    func createCustomListAndReturn(name: String, description: String? = nil, iconName: String = "folder.fill", displayStyle: CustomList.DisplayStyle = .row) -> CustomList? {
+        guard AIMessageQuota.canCreateCustomList(currentCount: customLists.count) else { return nil }
+        let list = CustomList(name: name, description: description, iconName: iconName, displayStyle: displayStyle)
+        customLists.append(list)
+        save(customLists, to: customListsURL)
+        syncCustomListsToCloud()
+        return list
     }
     
     func updateCustomList(_ list: CustomList) {
@@ -971,7 +1281,7 @@ class StorageService: ObservableObject {
     
     // MARK: - Settings
     func updateSettings(_ newSettings: UserSettings) {
-        settings = newSettings
+        settings = normalizedSettings(newSettings)
         save(settings, to: settingsURL)
         syncSettingsToCloud()
     }
@@ -991,6 +1301,153 @@ class StorageService: ObservableObject {
         } else {
             syncICloudSnapshotInBackground()
         }
+    }
+
+    private func migrateTrailerAddonSettingsIfNeeded() {
+        // v2: remove Trailerio from the list entirely so users must manually add it.
+        // Supersedes v1 (which only disabled it). Syncs the change to cloud.
+        let migrationKey = "trailerAddonDefaultDisableMigration_v2"
+        if !UserDefaults.standard.bool(forKey: migrationKey) {
+            let before = settings.trailerAddons
+            settings.trailerAddons = before.filter { addon in
+                !addon.baseURL
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                    .contains("trailerio.cc")
+            }
+            if settings.trailerAddons != before {
+                save(settings, to: settingsURL)
+                syncSettingsToCloud()
+            }
+            UserDefaults.standard.set(true, forKey: migrationKey)
+        }
+
+        if ensureDefaultTrailerAddons() {
+            save(settings, to: settingsURL)
+            syncSettingsToCloud()
+        }
+
+        let normalized = normalizedSettings(settings)
+        guard normalized != settings else { return }
+        settings = normalized
+        save(settings, to: settingsURL)
+    }
+
+    /// Ensures every default addon is present in settings. Returns true if any were added.
+    /// Called both on startup and after cloud sync, so a cloud snapshot that deleted an addon
+    /// never permanently removes it.
+    @discardableResult
+    private func ensureDefaultTrailerAddons() -> Bool {
+        var modified = false
+        for defaultAddon in TrailerAddon.defaultAddons {
+            let exists = settings.trailerAddons.contains {
+                $0.baseURL
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                    .contains(defaultAddon.baseURL.lowercased())
+            }
+            if !exists {
+                settings.trailerAddons.insert(defaultAddon, at: 0)
+                modified = true
+            }
+        }
+        return modified
+    }
+
+    private func migrateMarvelCustomHubIfNeeded() async {
+        let targetPath = Self.marvelMDBListPath
+        let targetJSONURL = "mdblist://\(targetPath)"
+
+        var updatedHubs = customJSONHubs
+        var didMutate = false
+
+        for index in updatedHubs.indices {
+            let hub = updatedHubs[index]
+            let normalizedName = hub.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let normalizedRowName = hub.rowName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let isMarvelHub = normalizedName == "marvel" || normalizedName == "marvel studios" || normalizedRowName == "marvel" || normalizedRowName == "marvel studios"
+
+            guard isMarvelHub else { continue }
+
+            if hub.mdblistId == targetPath,
+               hub.mdblistIds == [targetPath],
+               hub.jsonURL == targetJSONURL {
+                continue
+            }
+
+            updatedHubs[index].source = .mdblist
+            updatedHubs[index].jsonURL = targetJSONURL
+            updatedHubs[index].mdblistId = targetPath
+            updatedHubs[index].mdblistIds = [targetPath]
+            updatedHubs[index].lastSynced = nil
+            didMutate = true
+        }
+
+        guard didMutate else { return }
+
+        customJSONHubs = updatedHubs
+        save(customJSONHubs, to: customJSONHubsURL)
+        syncCustomJSONHubsToCloud()
+
+        for index in customJSONHubs.indices {
+            let hub = customJSONHubs[index]
+            let normalizedName = hub.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let normalizedRowName = hub.rowName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let isMarvelHub = normalizedName == "marvel" || normalizedName == "marvel studios" || normalizedRowName == "marvel" || normalizedRowName == "marvel studios"
+
+            guard isMarvelHub else { continue }
+
+            do {
+                let items = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: targetPath)
+                customJSONHubs[index].items = items
+                customJSONHubs[index].lastSynced = Date()
+            } catch {
+                print("Marvel custom hub migration refresh failed: \(error)")
+            }
+        }
+
+        save(customJSONHubs, to: customJSONHubsURL)
+        syncCustomJSONHubsToCloud()
+    }
+
+    private func normalizedSettings(_ value: UserSettings) -> UserSettings {
+        var normalized = value
+
+        // Migrate old trailio.cc URLs to trailerio.cc
+        normalized.trailerAddons = normalized.trailerAddons.map { addon in
+            let lower = addon.baseURL.lowercased()
+            if lower.contains("trailio.cc") && !lower.contains("trailerio.cc") {
+                var migrated = addon
+                migrated.baseURL = addon.baseURL.replacingOccurrences(
+                    of: "trailio.cc",
+                    with: "trailerio.cc",
+                    options: .caseInsensitive
+                )
+                if migrated.name == "Trailio" {
+                    migrated.name = "Trailerio"
+                }
+                return migrated
+            }
+            return addon
+        }
+
+        var seenURLs = Set<String>()
+        normalized.trailerAddons = normalized.trailerAddons.filter { addon in
+            let key = normalizedTrailerAddonURL(addon.baseURL)
+            if seenURLs.contains(key) {
+                return false
+            }
+            seenURLs.insert(key)
+            return true
+        }
+
+        return normalized
+    }
+
+    private func normalizedTrailerAddonURL(_ url: String) -> String {
+        url
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
     
     // MARK: - Search History
@@ -1174,6 +1631,8 @@ class StorageService: ObservableObject {
             browseSections: browseSections,
             profiles: profileService.profiles,
             activeProfileId: profileService.activeProfile?.id,
+            watchSessions: watchSessions,
+            watchHistory: watchHistory,
             syncedAt: Date()
         )
     }
@@ -1194,7 +1653,8 @@ class StorageService: ObservableObject {
         save(customHomeRows, to: customHomeRowsURL)
         customJSONHubs = snapshot.customJSONHubs
         save(customJSONHubs, to: customJSONHubsURL)
-        settings = snapshot.settings
+        settings = normalizedSettings(snapshot.settings)
+        ensureDefaultTrailerAddons()
         save(settings, to: settingsURL)
         searchHistory = snapshot.searchHistory
         save(searchHistory, to: searchHistoryURL)
@@ -1204,6 +1664,11 @@ class StorageService: ObservableObject {
         save(hiddenSections, to: hiddenSectionsURL)
         browseSections = snapshot.browseSections
         save(browseSections, to: browseSectionsURL)
+
+        watchSessions = snapshot.watchSessions ?? []
+        save(watchSessions, to: watchSessionsURL)
+        watchHistory = snapshot.watchHistory ?? []
+        save(watchHistory, to: watchHistoryURL)
 
         ProfileService.shared.applyCloudProfiles(
             snapshot.profiles,
@@ -1228,5 +1693,7 @@ private struct CloudSyncSnapshot: Codable {
     let browseSections: [BrowseSectionItem]
     let profiles: [UserProfile]
     let activeProfileId: String?
+    let watchSessions: [WatchSession]?
+    let watchHistory: [WatchHistoryEntry]?
     let syncedAt: Date
 }

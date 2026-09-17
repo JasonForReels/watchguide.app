@@ -161,7 +161,7 @@ struct FirstProfileSetupView: View {
             // Preview
             ZStack(alignment: .bottomTrailing) {
                 if let urlStr = avatarImageURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
-                    AsyncImage(url: url) { phase in
+                    ResilientAsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let image):
                             image
@@ -336,18 +336,7 @@ struct FirstProfileSetupView: View {
                     .font(.subheadline)
                     .fontWeight(.medium)
                 
-                DatePicker(
-                    "Date of Birth",
-                    selection: $dateOfBirth,
-                    in: ...Date(),
-                    displayedComponents: .date
-                )
-                #if os(macOS)
-                .datePickerStyle(.graphical)
-                #else
-                .datePickerStyle(.wheel)
-                #endif
-                .labelsHidden()
+                BirthDateInputView(date: $dateOfBirth)
                 .onChange(of: dateOfBirth) { _, newValue in
                     withAnimation {
                         ageGroup = ProfileService.ageGroupFromDateOfBirth(newValue)
@@ -442,7 +431,7 @@ struct FirstProfileSetupView: View {
                     Text("Ages 6-12 only")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text("Content is restricted and Scout AI is hidden")
+                    Text("Content is restricted and Ask Atlas is hidden")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }

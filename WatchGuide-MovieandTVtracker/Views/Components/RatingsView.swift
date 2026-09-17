@@ -9,6 +9,19 @@ struct RatingsView: View {
     let ratings: RatingsSummary?
     let tmdbRating: Double?
     
+    /// Ratings arrive from several services at different times. Keying the
+    /// animation on the combined set lets each badge animate in as it lands,
+    /// instead of the row snapping wider on every response.
+    private var ratingsFingerprint: String {
+        [
+            tmdbRating.map { String(format: "%.1f", $0) },
+            ratings?.imdbRating,
+            ratings?.rottenTomatoesScore,
+            ratings?.rottenTomatoesAudienceScore,
+            ratings?.metacriticScore
+        ].map { $0 ?? "-" }.joined(separator: "|")
+    }
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
@@ -19,6 +32,7 @@ struct RatingsView: View {
                         value: String(format: "%.1f", rating),
                         label: "TMDB"
                     )
+                    .transition(.wgBadgeArrival)
                 }
                 
                 // IMDb Rating
@@ -28,6 +42,7 @@ struct RatingsView: View {
                         value: imdb,
                         label: "IMDb"
                     )
+                    .transition(.wgBadgeArrival)
                 }
                 
                 // Rotten Tomatoes (Dropdown with Critics + Audience)
@@ -36,14 +51,17 @@ struct RatingsView: View {
                         criticsScore: ratings?.rottenTomatoesScore,
                         audienceScore: ratings?.rottenTomatoesAudienceScore
                     )
+                    .transition(.wgBadgeArrival)
                 }
                 
                 // Metacritic
                 if let meta = ratings?.metacriticScore {
                     let score = metaScore(meta)
                     MetacriticBadge(value: meta, score: score)
+                        .transition(.wgBadgeArrival)
                 }
             }
+            .animation(WGMotion.smooth, value: ratingsFingerprint)
         }
     }
     
@@ -70,6 +88,7 @@ struct LogoRatingBadge: View {
                 .font(.subheadline)
                 .fontWeight(.bold)
                 .foregroundColor(.primary)
+                .contentTransition(.numericText())
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -94,7 +113,7 @@ struct RTDropdownBadge: View {
         VStack(spacing: 0) {
             // Main badge (tappable)
             Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                withAnimation(WGMotion.snappy) {
                     isExpanded.toggle()
                 }
             } label: {
@@ -109,6 +128,7 @@ struct RTDropdownBadge: View {
                             .font(.subheadline)
                             .fontWeight(.bold)
                             .foregroundColor(.primary)
+                            .contentTransition(.numericText())
                         
                         Image(systemName: "chevron.down")
                             .font(.system(size: 8, weight: .bold))
@@ -121,7 +141,11 @@ struct RTDropdownBadge: View {
                 .background(Color.gray.opacity(0.12))
                 .cornerRadius(10)
             }
-            .buttonStyle(.plain)
+            #if os(tvOS)
+            .buttonStyle(TVOSTransparentButtonStyle(cornerRadius: 10))
+            #else
+            .buttonStyle(.wgPress)
+            #endif
             
             // Expanded dropdown
             if isExpanded {
@@ -183,7 +207,7 @@ struct RTDropdownBadge: View {
                 .background(Color.gray.opacity(0.12))
                 .cornerRadius(10)
                 .padding(.top, 4)
-                .transition(.opacity.combined(with: .move(edge: .top)).combined(with: .scale(scale: 0.95, anchor: .top)))
+                .transition(.blurReplace.combined(with: .move(edge: .top)))
             }
         }
     }

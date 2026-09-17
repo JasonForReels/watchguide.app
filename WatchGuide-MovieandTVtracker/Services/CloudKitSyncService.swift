@@ -3,6 +3,7 @@ import CloudKit
 
 actor CloudKitSyncService {
     static let shared = CloudKitSyncService()
+    static let containerIdentifier = "iCloud.com.JasonSmith.WatchGuide-MovieandTVtracker"
 
     private let container: CKContainer
     private let database: CKDatabase
@@ -12,7 +13,7 @@ actor CloudKitSyncService {
     private let updatedAtField = "updatedAt"
     private let userIdField = "userId"
 
-    private init(container: CKContainer = .default()) {
+    private init(container: CKContainer = CKContainer(identifier: CloudKitSyncService.containerIdentifier)) {
         self.container = container
         self.database = container.privateCloudDatabase
     }

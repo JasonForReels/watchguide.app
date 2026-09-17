@@ -13,7 +13,10 @@ import Foundation
 struct StreamingDeepLink: Sendable {
     let serviceId: String   // MOTN service id, e.g. "netflix", "disney"
     let type: String        // "subscription", "rent", "buy", "free", "addon"
-    let link: URL           // Direct deep link URL
+    let addonId: String?    // For addon type: the add-on identifier, e.g. "hulu" under "disney"
+    let link: URL           // Deep link to title page
+    let videoLink: URL?     // Deep link that starts playback (available for some services)
+    let expiresOn: Date?    // When the title leaves this service, if announced
 }
 
 // MARK: - Service
@@ -44,7 +47,7 @@ actor StreamingDeepLinkService {
     private let baseURL = "https://api.movieofthenight.com/v4"
 
     private var apiKey: String? {
-        ApiKeyManager.shared.get(key: "MOTN_API_KEY")
+        ApiKeyManager.shared.get(key: "MOTN_API_KEY") ?? "motn-key-v4-NPc1rsKqfO2CDkFol4n29R0IM45GyMhj"
     }
 
     // MARK: - Public API
@@ -55,7 +58,7 @@ actor StreamingDeepLinkService {
         let mediaPath = mediaType == .movie ? "movie" : "tv"
         let cacheKey = "\(mediaPath)/\(tmdbId)/\(normalizedCountry)"
 
-        // Check cache
+        // L1: in-memory cache
         if let entry = cache[cacheKey], Date().timeIntervalSince(entry.timestamp) < cacheTTL {
             return entry.links
         }
@@ -64,6 +67,16 @@ actor StreamingDeepLinkService {
         if cache.count > 200 {
             let now = Date()
             cache = cache.filter { now.timeIntervalSince($0.value.timestamp) < cacheTTL }
+        }
+        
+        // L2: Supabase shared cache
+        let supabaseKey = SupabaseCacheService.deepLinkCacheKey(mediaType: mediaPath, tmdbId: tmdbId, country: normalizedCountry)
+        if let cachedData = await SupabaseCacheService.shared.get(key: supabaseKey) {
+            let links = parseDeepLinks(from: cachedData, country: normalizedCountry)
+            if !links.isEmpty {
+                cache[cacheKey] = CacheEntry(links: links, timestamp: Date())
+                return links
+            }
         }
 
         guard let key = apiKey, !key.isEmpty else {
@@ -88,6 +101,18 @@ actor StreamingDeepLinkService {
 
             let links = parseDeepLinks(from: data, country: normalizedCountry)
             cache[cacheKey] = CacheEntry(links: links, timestamp: Date())
+            
+            // Fire-and-forget L2 write
+            let capturedData = data
+            Task.detached {
+                await SupabaseCacheService.shared.set(
+                    key: supabaseKey,
+                    source: .deeplink,
+                    responseData: capturedData,
+                    ttlSeconds: SupabaseCacheService.CacheTTL.deepLinks
+                )
+            }
+            
             return links
         } catch {
             return []
@@ -96,16 +121,52 @@ actor StreamingDeepLinkService {
 
     /// Look up the best deep link for a given TMDB provider ID from previously fetched links.
     /// Prefers "subscription" > "free" > "ads" > "addon" > "rent" > "buy".
+    /// For streamable types (subscription/free/ads/addon), prefers `videoLink` (auto-play) over `link` (title page).
+    ///
+    /// Hulu is fully merged into Disney+. The MOTN API returns both a standalone
+    /// "hulu" entry (hulu.com links) and a "disney" entry (disneyplus.com links)
+    /// for Hulu content. For Hulu lookups we prefer the Disney+ entry so the user
+    /// lands in the Disney+ app, falling back to the Hulu entry only if no Disney+
+    /// entry exists.
     func deepLink(forTMDBProviderId providerId: Int, from links: [StreamingDeepLink]) -> URL? {
         guard let motnId = Self.tmdbToMOTN[providerId] else { return nil }
 
-        let matching = links.filter { $0.serviceId == motnId }
+        // For Hulu, try Disney+ links first, then fall back to standalone Hulu links.
+        if providerId == 15 {
+            if let disneyURL = bestLink(from: links, serviceId: "disney") {
+                return disneyURL
+            }
+        }
+
+        return bestLink(from: links, serviceId: motnId)
+    }
+
+    /// The date a title leaves the given TMDB provider's streaming catalog, if
+    /// MOTN has one. Only streamable options count — a rental "expiring" is noise.
+    nonisolated static func leavingDate(forTMDBProviderId providerId: Int, from links: [StreamingDeepLink]) -> Date? {
+        guard let motnId = tmdbToMOTN[providerId] else { return nil }
+        let serviceIds: Set<String> = providerId == 15 ? [motnId, "disney"] : [motnId]
+        let streamableTypes: Set<String> = ["subscription", "free", "ads", "addon"]
+        return links
+            .filter { serviceIds.contains($0.serviceId) && streamableTypes.contains($0.type) }
+            .compactMap(\.expiresOn)
+            .min()
+    }
+
+    /// Finds the best URL from `links` filtered to the given MOTN service ID.
+    private func bestLink(from links: [StreamingDeepLink], serviceId: String) -> URL? {
+        let matching = links.filter { $0.serviceId == serviceId }
         guard !matching.isEmpty else { return nil }
 
+        let streamableTypes: Set<String> = ["subscription", "free", "ads", "addon"]
         let priority = ["subscription", "free", "ads", "addon", "rent", "buy"]
         for type in priority {
-            if let link = matching.first(where: { $0.type == type }) {
-                return link.link
+            if let match = matching.first(where: { $0.type == type }) {
+                // For streamable content, prefer videoLink (auto-play) if available
+                if streamableTypes.contains(type), let videoLink = match.videoLink {
+                    return videoLink
+                }
+                return match.link
             }
         }
         return matching.first?.link
@@ -129,9 +190,64 @@ actor StreamingDeepLinkService {
                   let link = URL(string: linkString) else {
                 continue
             }
-            results.append(StreamingDeepLink(serviceId: serviceId, type: type, link: link))
+            let videoLink: URL? = {
+                guard let videoLinkString = option["videoLink"] as? String else { return nil }
+                return URL(string: videoLinkString)
+            }()
+            let addonId = (option["addon"] as? [String: Any])?["id"] as? String
+            let expiresOn = (option["expiresOn"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
+            results.append(StreamingDeepLink(serviceId: serviceId, type: type, addonId: addonId, link: link, videoLink: videoLink, expiresOn: expiresOn))
         }
         return results
+    }
+
+    // MARK: - Daily Cache Warm-Up
+
+    private static let lastWarmUpKey = "motn_last_warmup_date"
+    private static let warmUpInterval: TimeInterval = 86400 // 24 hours
+
+    /// Call once on app launch. Requires a WatchGuide Pro subscription.
+    /// Checks if 24h have passed since the last warm-up, and if so,
+    /// prefetches deep links for all items in the user's lists
+    /// (Want to Watch, Watched, Liked). Runs in the background without blocking UI.
+    func warmCacheIfNeeded() async {
+        // Only available for WatchGuide Pro subscribers
+        let isUnlimited = await MainActor.run { ScoutSubscriptionService.shared.isUnlimitedActive }
+        guard isUnlimited else { return }
+
+        let now = Date()
+        let lastWarmUp = UserDefaults.standard.double(forKey: Self.lastWarmUpKey)
+        guard lastWarmUp == 0 || now.timeIntervalSince1970 - lastWarmUp >= Self.warmUpInterval else {
+            return
+        }
+
+        // Mark immediately so concurrent launches don't duplicate work
+        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: Self.lastWarmUpKey)
+
+        let region = await MainActor.run { StorageService.shared.settings.region }
+
+        // Gather unique (mediaId, mediaType) pairs from all user lists
+        let allItems: [(id: Int, type: MediaType)] = await MainActor.run {
+            let storage = StorageService.shared
+            var seen = Set<String>()
+            var items: [(id: Int, type: MediaType)] = []
+            for saved in storage.wantToWatch + storage.watched + storage.liked {
+                guard saved.mediaType != .person else { continue }
+                let key = "\(saved.mediaType.rawValue)_\(saved.mediaId)"
+                if seen.insert(key).inserted {
+                    items.append((id: saved.mediaId, type: saved.mediaType))
+                }
+            }
+            return items
+        }
+
+        guard !allItems.isEmpty else { return }
+
+        // Fetch sequentially with a small delay to respect rate limits
+        for item in allItems {
+            _ = await fetchDeepLinks(tmdbId: item.id, mediaType: item.type, country: region)
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms between requests
+        }
     }
 
     // MARK: - TMDB Provider ID → MOTN Service ID Mapping

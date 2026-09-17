@@ -43,24 +43,7 @@ class AuthService: ObservableObject {
     }
     
     private let sessionKey = "supabase_session"
-    private let icloudSessionKey = "icloud_auth_session"
-    private let backendKey = "auth_backend"
     private let lastUserIdKey = "last_user_id"
-
-    private enum AuthBackend: String {
-        case supabase
-        case apple
-    }
-
-    private var authBackend: AuthBackend? {
-        get {
-            guard let value = UserDefaults.standard.string(forKey: backendKey) else { return nil }
-            return AuthBackend(rawValue: value)
-        }
-        set {
-            UserDefaults.standard.set(newValue?.rawValue, forKey: backendKey)
-        }
-    }
     
     var isConfigured: Bool {
         !supabaseURL.isEmpty && !supabaseAnonKey.isEmpty
@@ -81,10 +64,6 @@ class AuthService: ObservableObject {
         currentUser?.id
     }
 
-    var isAppleAuthActive: Bool {
-        isAuthenticated && authBackend == .apple
-    }
-    
     private init() {
         loadSession()
     }
@@ -94,7 +73,6 @@ class AuthService: ObservableObject {
     private func loadSession() {
         guard let data = UserDefaults.standard.data(forKey: sessionKey),
               let session = try? JSONDecoder().decode(AuthSession.self, from: data) else {
-            loadAppleSession()
             return
         }
         
@@ -115,8 +93,6 @@ class AuthService: ObservableObject {
         if let data = try? JSONEncoder().encode(session) {
             UserDefaults.standard.set(data, forKey: sessionKey)
         }
-        UserDefaults.standard.removeObject(forKey: icloudSessionKey)
-        authBackend = .supabase
         
         let previousUserId = UserDefaults.standard.string(forKey: lastUserIdKey)
         if let previousUserId = previousUserId, previousUserId != session.user.id {
@@ -127,8 +103,6 @@ class AuthService: ObservableObject {
     
     private func clearSession() {
         UserDefaults.standard.removeObject(forKey: sessionKey)
-        UserDefaults.standard.removeObject(forKey: icloudSessionKey)
-        UserDefaults.standard.removeObject(forKey: backendKey)
         UserDefaults.standard.removeObject(forKey: lastUserIdKey)
         currentUser = nil
         isAuthenticated = false
@@ -252,88 +226,6 @@ class AuthService: ObservableObject {
         }
     }
 
-    // MARK: - Sign In with Apple
-
-    func signInWithApple(idToken: String, nonce: String?) async -> Bool {
-        await signInWithApple(idToken: idToken, nonce: nonce, appleUserID: nil, email: nil)
-    }
-
-    func signInWithApple(idToken: String, nonce: String?, appleUserID: String?, email: String?) async -> Bool {
-        if !isConfigured {
-            let userId = appleUserID?.isEmpty == false ? appleUserID! : "apple-\(UUID().uuidString)"
-            let user = AuthUser(
-                id: userId,
-                email: email,
-                createdAt: ISO8601DateFormatter().string(from: Date()),
-                accessToken: nil
-            )
-            saveAppleSession(user)
-            currentUser = user
-            isAuthenticated = true
-            lastAuthFlow = .signIn
-            requiresPostSignInSyncDecision = true
-            errorMessage = nil
-            return true
-        }
-
-        guard isConfigured else {
-            errorMessage = "Supabase not configured. Please link a Supabase project first."
-            return false
-        }
-
-        isLoading = true
-        errorMessage = nil
-
-        do {
-            let url = URL(string: "\(supabaseURL)/auth/v1/token?grant_type=id_token")!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.addValue(supabaseAnonKey, forHTTPHeaderField: "apikey")
-
-            var body: [String: Any] = [
-                "provider": "apple",
-                "id_token": idToken
-            ]
-            if let nonce = nonce {
-                body["nonce"] = nonce
-            }
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw AuthError.invalidResponse
-            }
-
-            if (200...299).contains(httpResponse.statusCode) {
-                let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-
-                if let session = authResponse.toSession() {
-                    saveSession(session)
-                    currentUser = session.user
-                    currentUser?.accessToken = session.accessToken
-                    isAuthenticated = true
-                    lastAuthFlow = .signIn
-                    authBackend = .supabase
-                    requiresPostSignInSyncDecision = true
-                    isLoading = false
-                    return true
-                }
-                throw AuthError.noSession
-            } else {
-                let errorResponse = try? JSONDecoder().decode(AuthErrorResponse.self, from: data)
-                errorMessage = errorResponse?.message ?? errorResponse?.msg ?? "Sign in with Apple failed"
-                isLoading = false
-                return false
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-            isLoading = false
-            return false
-        }
-    }
-
     // MARK: - Sign Out
     
     func signOut() async {
@@ -360,6 +252,7 @@ class AuthService: ObservableObject {
         clearSession()
         resetProfileState()
         requiresPostSignInSyncDecision = false
+        
         
         // Reset kids profile setting when signing out
         var settings = StorageService.shared.settings
@@ -429,17 +322,9 @@ class AuthService: ObservableObject {
         
         // Supabase backend
         guard isConfigured, let token = accessToken else {
-            if authBackend == .apple {
-                StorageService.shared.clearAllData()
-                clearSession()
-                resetProfileState()
-                isLoading = false
-                return true
-            } else {
-                errorMessage = "Supabase not configured."
-                isLoading = false
-                return false
-            }
+            errorMessage = "Supabase not configured."
+            isLoading = false
+            return false
         }
         
         // Hard-delete account via Edge Function (must delete auth user, not just local data).
@@ -572,37 +457,6 @@ class AuthService: ObservableObject {
         }
     }
 
-    private func loadAppleSession() {
-        guard let data = UserDefaults.standard.data(forKey: icloudSessionKey),
-              let session = try? JSONDecoder().decode(AppleAuthSession.self, from: data) else {
-            return
-        }
-
-        currentUser = AuthUser(
-            id: session.userId,
-            email: session.email,
-            createdAt: session.createdAt,
-            accessToken: nil
-        )
-        isAuthenticated = true
-        requiresPostSignInSyncDecision = false
-        authBackend = .apple
-    }
-
-    private func saveAppleSession(_ user: AuthUser) {
-        let session = AppleAuthSession(
-            userId: user.id,
-            email: user.email,
-            createdAt: user.createdAt ?? ISO8601DateFormatter().string(from: Date())
-        )
-        if let data = try? JSONEncoder().encode(session) {
-            UserDefaults.standard.set(data, forKey: icloudSessionKey)
-        }
-        UserDefaults.standard.removeObject(forKey: sessionKey)
-        authBackend = .apple
-        UserDefaults.standard.set(user.id, forKey: lastUserIdKey)
-    }
-
     func completePostSignInSyncDecision() {
         requiresPostSignInSyncDecision = false
         lastAuthFlow = .unknown
@@ -684,12 +538,6 @@ struct AuthErrorResponse: Codable {
         case msg
         case errorDescription = "error_description"
     }
-}
-
-struct AppleAuthSession: Codable {
-    let userId: String
-    let email: String?
-    let createdAt: String
 }
 
 // MARK: - Auth Errors

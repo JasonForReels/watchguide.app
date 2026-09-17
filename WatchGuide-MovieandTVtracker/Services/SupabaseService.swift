@@ -198,6 +198,7 @@ actor SupabaseService {
             posterPath: item.posterPath,
             backdropPath: item.backdropPath,
             year: item.year,
+            releaseDate: item.releaseDate,
             voteAverage: item.voteAverage,
             overview: item.overview,
             addedAt: item.addedAt
@@ -264,6 +265,7 @@ actor SupabaseService {
                 posterPath: item.posterPath,
                 backdropPath: item.backdropPath,
                 year: item.year,
+                releaseDate: item.releaseDate,
                 voteAverage: item.voteAverage,
                 overview: item.overview,
                 addedAt: item.addedAt
@@ -285,6 +287,7 @@ actor SupabaseService {
                 posterPath: item.posterPath,
                 backdropPath: item.backdropPath,
                 year: item.year,
+                releaseDate: item.releaseDate,
                 voteAverage: item.voteAverage,
                 overview: item.overview,
                 addedAt: item.addedAt
@@ -306,6 +309,7 @@ actor SupabaseService {
                 posterPath: item.posterPath,
                 backdropPath: item.backdropPath,
                 year: item.year,
+                releaseDate: item.releaseDate,
                 voteAverage: item.voteAverage,
                 overview: item.overview,
                 addedAt: item.addedAt
@@ -369,6 +373,8 @@ actor SupabaseService {
             includeAdult: settings.includeAdult,
             autoPlayTrailers: settings.autoPlayTrailers,
             autoPlayTrailersMuted: settings.autoPlayTrailersMuted,
+            showTrailersInMediaDetail: settings.showTrailersInMediaDetail,
+            trailerAddons: settings.trailerAddons,
             compactMode: settings.compactMode,
             ambientModeEnabled: settings.ambientModeEnabled,
             heroCarouselSource: settings.heroCarouselSource.rawValue,
@@ -378,6 +384,7 @@ actor SupabaseService {
             heroCarouselMDBListShowId: settings.heroCarouselMDBListShowId,
             isKidsProfile: settings.isKidsProfile,
             parentPasscode: settings.parentPasscode,
+            streamqServiceIds: settings.streamqServiceIds,
             updatedAt: Date()
         )
         
@@ -428,8 +435,10 @@ actor SupabaseService {
         settings.region = synced.region ?? settings.region
         settings.preferredLanguage = synced.preferredLanguage ?? settings.preferredLanguage
         settings.includeAdult = synced.includeAdult ?? false
-        settings.autoPlayTrailers = synced.autoPlayTrailers ?? false
+        settings.autoPlayTrailers = synced.autoPlayTrailers ?? true
         settings.autoPlayTrailersMuted = synced.autoPlayTrailersMuted ?? true
+        settings.showTrailersInMediaDetail = synced.showTrailersInMediaDetail ?? true
+        settings.trailerAddons = synced.trailerAddons ?? settings.trailerAddons
         settings.compactMode = synced.compactMode ?? false
         settings.ambientModeEnabled = synced.ambientModeEnabled ?? false
         if let source = synced.heroCarouselSource, let heroSource = HeroCarouselSource(rawValue: source) {
@@ -441,6 +450,7 @@ actor SupabaseService {
         settings.heroCarouselMDBListShowId = synced.heroCarouselMDBListShowId
         settings.isKidsProfile = synced.isKidsProfile ?? false
         settings.parentPasscode = synced.parentPasscode
+        settings.streamqServiceIds = synced.streamqServiceIds ?? []
         return settings
     }
     
@@ -492,6 +502,7 @@ actor SupabaseService {
                         posterPath: item.posterPath,
                         backdropPath: item.backdropPath,
                         year: item.year,
+                        releaseDate: item.releaseDate,
                         voteAverage: item.voteAverage,
                         overview: item.overview,
                         sortOrder: index,
@@ -542,6 +553,7 @@ actor SupabaseService {
                         posterPath: item.posterPath,
                         backdropPath: item.backdropPath,
                         year: item.year,
+                        releaseDate: item.releaseDate,
                         voteAverage: item.voteAverage,
                         overview: item.overview,
                         addedAt: item.addedAt ?? Date()
@@ -588,6 +600,7 @@ struct SyncedMediaItem: Codable {
     let posterPath: String?
     let backdropPath: String?
     let year: String?
+    let releaseDate: String?
     let voteAverage: Double?
     let overview: String?
     let addedAt: Date
@@ -602,6 +615,7 @@ struct SyncedMediaItem: Codable {
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
         case year
+        case releaseDate = "release_date"
         case voteAverage = "vote_average"
         case overview
         case addedAt = "added_at"
@@ -619,6 +633,7 @@ struct SyncedMediaItem: Codable {
         try container.encode(posterPath, forKey: .posterPath)
         try container.encode(backdropPath, forKey: .backdropPath)
         try container.encode(year, forKey: .year)
+        try container.encode(releaseDate, forKey: .releaseDate)
         try container.encode(voteAverage, forKey: .voteAverage)
         try container.encode(overview, forKey: .overview)
         try container.encode(addedAt, forKey: .addedAt)
@@ -635,6 +650,7 @@ struct SyncedMediaItem: Codable {
             posterPath: posterPath,
             backdropPath: backdropPath,
             year: year,
+            releaseDate: releaseDate,
             voteAverage: voteAverage,
             overview: overview,
             addedAt: addedAt
@@ -674,6 +690,8 @@ struct SyncedUserSettings: Codable {
     let includeAdult: Bool?
     let autoPlayTrailers: Bool?
     let autoPlayTrailersMuted: Bool?
+    let showTrailersInMediaDetail: Bool?
+    let trailerAddons: [TrailerAddon]?
     let compactMode: Bool?
     let ambientModeEnabled: Bool?
     let heroCarouselSource: String?
@@ -683,6 +701,7 @@ struct SyncedUserSettings: Codable {
     let heroCarouselMDBListShowId: String?
     let isKidsProfile: Bool?
     let parentPasscode: String?
+    let streamqServiceIds: [Int]?
     let updatedAt: Date?
     
     enum CodingKeys: String, CodingKey {
@@ -692,6 +711,8 @@ struct SyncedUserSettings: Codable {
         case includeAdult = "include_adult"
         case autoPlayTrailers = "auto_play_trailers"
         case autoPlayTrailersMuted = "auto_play_trailers_muted"
+        case showTrailersInMediaDetail = "show_trailers_in_media_detail"
+        case trailerAddons = "trailer_addons"
         case compactMode = "compact_mode"
         case ambientModeEnabled = "ambient_mode_enabled"
         case heroCarouselSource = "hero_carousel_source"
@@ -701,6 +722,7 @@ struct SyncedUserSettings: Codable {
         case heroCarouselMDBListShowId = "hero_carousel_mdblist_show_id"
         case isKidsProfile = "is_kids_profile"
         case parentPasscode = "parent_passcode"
+        case streamqServiceIds = "streamq_service_ids"
         case updatedAt = "updated_at"
     }
     
@@ -713,6 +735,8 @@ struct SyncedUserSettings: Codable {
         try container.encode(includeAdult, forKey: .includeAdult)
         try container.encode(autoPlayTrailers, forKey: .autoPlayTrailers)
         try container.encode(autoPlayTrailersMuted, forKey: .autoPlayTrailersMuted)
+        try container.encode(showTrailersInMediaDetail, forKey: .showTrailersInMediaDetail)
+        try container.encode(trailerAddons, forKey: .trailerAddons)
         try container.encode(compactMode, forKey: .compactMode)
         try container.encode(ambientModeEnabled, forKey: .ambientModeEnabled)
         try container.encode(heroCarouselSource, forKey: .heroCarouselSource)
@@ -722,6 +746,7 @@ struct SyncedUserSettings: Codable {
         try container.encode(heroCarouselMDBListShowId, forKey: .heroCarouselMDBListShowId)
         try container.encode(isKidsProfile, forKey: .isKidsProfile)
         try container.encode(parentPasscode, forKey: .parentPasscode)
+        try container.encode(streamqServiceIds, forKey: .streamqServiceIds)
         try container.encode(updatedAt, forKey: .updatedAt)
     }
 }
@@ -771,6 +796,7 @@ struct SyncedCustomListItem: Codable {
     let posterPath: String?
     let backdropPath: String?
     let year: String?
+    let releaseDate: String?
     let voteAverage: Double?
     let overview: String?
     let sortOrder: Int
@@ -785,6 +811,7 @@ struct SyncedCustomListItem: Codable {
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
         case year
+        case releaseDate = "release_date"
         case voteAverage = "vote_average"
         case overview
         case sortOrder = "sort_order"
@@ -802,26 +829,11 @@ struct SyncedCustomListItem: Codable {
         try container.encode(posterPath, forKey: .posterPath)
         try container.encode(backdropPath, forKey: .backdropPath)
         try container.encode(year, forKey: .year)
+        try container.encode(releaseDate, forKey: .releaseDate)
         try container.encode(voteAverage, forKey: .voteAverage)
         try container.encode(overview, forKey: .overview)
         try container.encode(sortOrder, forKey: .sortOrder)
         try container.encode(addedAt, forKey: .addedAt)
-    }
-}
-
-// MARK: - Extension to SavedMediaItem for Supabase compatibility
-extension SavedMediaItem {
-    init(id: String, mediaId: Int, mediaType: MediaType, title: String, posterPath: String?, backdropPath: String?, year: String?, voteAverage: Double?, overview: String?, addedAt: Date) {
-        self.id = id
-        self.mediaId = mediaId
-        self.mediaType = mediaType
-        self.title = title
-        self.posterPath = posterPath
-        self.backdropPath = backdropPath
-        self.year = year
-        self.voteAverage = voteAverage
-        self.overview = overview
-        self.addedAt = addedAt
     }
 }
 

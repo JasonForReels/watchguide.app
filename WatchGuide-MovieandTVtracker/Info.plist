@@ -29,9 +29,24 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>3.1</string>
+	<string>5.2</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.watchguide.trakt</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>watchguide</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
-	<string>3</string>
+	<string>6</string>
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-2982328834637681~2898016290</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.entertainment</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>chatgpt</string>
@@ -54,13 +69,29 @@
 		<string>vudu</string>
 		<string>shudder</string>
 		<string>starz</string>
+		<string>infuse</string>
+		<string>vlc</string>
+		<string>vlc-x-callback</string>
 	</array>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
-	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.entertainment</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Watch Guide uses the camera to scan posters and identify titles in the app.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Watch Guide uses your location to show nearby cinemas and distances in kilometers.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>WatchGuide uses your microphone for voice conversations with Ask Atlas and, in Watch-Along, to hear a few lines of TV dialogue on-device so it can find your place without spoilers.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Watch Guide uses speech recognition to transcribe your voice mode requests, control the app hands-free, and match TV dialogue to your place in Watch-Along.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>TVTopShelfImage</key>
+	<dict>
+		<key>TVTopShelfPrimaryImage</key>
+		<string>Top Shelf Image</string>
+		<key>TVTopShelfPrimaryImageWide</key>
+		<string>Top Shelf Image Wide</string>
+	</dict>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Fonts/ABCGintoDiscordNord-Bold.otf</string>

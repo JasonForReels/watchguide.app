@@ -25,6 +25,9 @@ class ProfileService: ObservableObject {
     
     private let profilesKey = "user_profiles"
     private let activeProfileKey = "active_profile_id"
+    /// Marks that the cinematic-by-default rollout has already been applied, so a
+    /// viewer who deliberately switches back to Classic afterwards keeps that choice.
+    private let cinematicDefaultMigrationKey = "hero_carousel_cinematic_default_v1"
     private let documentsDirectory: URL
     private let profilesURL: URL
     
@@ -43,6 +46,7 @@ class ProfileService: ObservableObject {
         documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         profilesURL = documentsDirectory.appendingPathComponent("profiles.json")
         loadProfiles()
+        migrateToCinematicHeroDefaultIfNeeded()
         // Automatically sync profiles from cloud on launch if authenticated
         syncFromCloudOnLaunchIfNeeded()
     }
@@ -75,6 +79,31 @@ class ProfileService: ObservableObject {
         }
     }
     
+    /// Rolls the cinematic hero carousel out as the default for every profile.
+    ///
+    /// New and untouched profiles already resolve to cinematic because the stored
+    /// style is `nil`, but profiles that were saved while Classic was selected hold
+    /// an explicit `.classic` value. This clears those once so everyone lands on the
+    /// new default; the Classic option stays available in Customize Home, and any
+    /// choice made after this runs is preserved because the flag is never reset.
+    private func migrateToCinematicHeroDefaultIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: cinematicDefaultMigrationKey) else { return }
+        defaults.set(true, forKey: cinematicDefaultMigrationKey)
+
+        guard profiles.contains(where: { $0.heroCarouselStyle != .cinematic }) else { return }
+
+        for index in profiles.indices where profiles[index].heroCarouselStyle != .cinematic {
+            profiles[index].heroCarouselStyle = .cinematic
+        }
+        saveProfiles()
+
+        if let activeID = activeProfile?.id,
+           let migrated = profiles.first(where: { $0.id == activeID }) {
+            activeProfile = migrated
+        }
+    }
+
     private func saveProfiles() {
         do {
             let encoder = JSONEncoder()
@@ -138,10 +167,15 @@ class ProfileService: ObservableObject {
         needsProfileSelection = true
     }
 
-    func updateHeroCarouselLayout(widthRatio: Double, aspect: HeroCarouselAspect) {
+    func updateHeroCarouselLayout(
+        widthRatio: Double,
+        aspect: HeroCarouselAspect,
+        style: HeroCarouselStyle = .cinematic
+    ) {
         guard var profile = activeProfile else { return }
         profile.heroCarouselWidthRatio = widthRatio
         profile.heroCarouselAspect = aspect
+        profile.heroCarouselStyle = style
         updateProfile(profile)
     }
     
@@ -471,6 +505,7 @@ class ProfileService: ObservableObject {
                 avatarImageURL: synced.avatarImageUrl ?? existingLocal?.avatarImageURL,
                 heroCarouselWidthRatio: existingLocal?.heroCarouselWidthRatio,
                 heroCarouselAspect: existingLocal?.heroCarouselAspect,
+                heroCarouselStyle: existingLocal?.heroCarouselStyle,
                 createdAt: synced.createdAt ?? Date(),
                 updatedAt: synced.updatedAt ?? Date()
             )
@@ -514,6 +549,7 @@ extension UserProfile {
         avatarImageURL: String? = nil,
         heroCarouselWidthRatio: Double? = nil,
         heroCarouselAspect: HeroCarouselAspect? = nil,
+        heroCarouselStyle: HeroCarouselStyle? = nil,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -527,6 +563,7 @@ extension UserProfile {
         self.avatarImageURL = avatarImageURL
         self.heroCarouselWidthRatio = heroCarouselWidthRatio
         self.heroCarouselAspect = heroCarouselAspect
+        self.heroCarouselStyle = heroCarouselStyle
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

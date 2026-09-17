@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Watch Guide</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>5.2</string>
+	<key>CFBundleVersion</key>
+	<string>6</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>nflx</string>
+		<string>disneyplus</string>
+		<string>hbomax</string>
+		<string>hulu</string>
+		<string>paramountplus</string>
+		<string>peacocktv</string>
+		<string>appletv</string>
+		<string>crunchyroll</string>
+		<string>discoveryplus</string>
+		<string>mubi</string>
+		<string>showmax</string>
+		<string>britbox</string>
+		<string>tubi</string>
+		<string>plutotv</string>
+		<string>vudu</string>
+		<string>shudder</string>
+		<string>starz</string>
+		<string>infuse</string>
+		<string>vlc</string>
+		<string>vlc-x-callback</string>
+	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Watch Guide uses your location to show nearby cinemas and distances in kilometers.</string>
+	<key>TVTopShelfImage</key>
+	<dict>
+		<key>TVTopShelfPrimaryImage</key>
+		<string>Top Shelf Image</string>
+		<key>TVTopShelfPrimaryImageWide</key>
+		<string>Top Shelf Image Wide</string>
+	</dict>
+</dict>
+</plist>

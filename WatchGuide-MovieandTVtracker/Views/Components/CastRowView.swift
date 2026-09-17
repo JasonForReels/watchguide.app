@@ -24,10 +24,16 @@ struct CastRowView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 16) {
                     ForEach(cast.prefix(20)) { member in
-                        CastMemberCard(member: member)
-                            .onTapGesture {
-                                onPersonTap?(member)
-                            }
+                        Button {
+                            onPersonTap?(member)
+                        } label: {
+                            CastMemberCard(member: member)
+                        }
+                        #if os(tvOS)
+                        .buttonStyle(TVOSTransparentButtonStyle())
+                        #else
+                        .buttonStyle(.plain)
+                        #endif
                     }
                 }
                 .padding(.horizontal)
@@ -40,15 +46,21 @@ struct CastMemberCard: View {
     let member: CastMember
     @State private var isHovered = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.isFocused) private var isFocused
     
     var body: some View {
         let avatarSize = ResponsiveSizing.avatarSize(horizontalSizeClass: horizontalSizeClass, base: 80)
         let textWidth = ResponsiveSizing.avatarSize(horizontalSizeClass: horizontalSizeClass, base: 80)
+        let isEngaged = isHovered || isFocused
         VStack(spacing: 8) {
             ProfileImageView(profilePath: member.profilePath, size: avatarSize)
-                .shadow(color: .black.opacity(0.15), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
-                .scaleEffect(isHovered ? 1.05 : 1.0)
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+                .overlay {
+                    Circle()
+                        .stroke(Color.white.opacity(isFocused ? 0.9 : 0), lineWidth: 3)
+                }
+                .shadow(color: .black.opacity(0.15), radius: isEngaged ? 8 : 4, y: isEngaged ? 4 : 2)
+                .scaleEffect(isEngaged ? 1.08 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isEngaged)
             
             VStack(spacing: 2) {
                 Text(member.name)
@@ -119,15 +131,21 @@ struct CrewMemberCard: View {
     let member: CrewMember
     @State private var isHovered = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.isFocused) private var isFocused
     
     var body: some View {
         let avatarSize = ResponsiveSizing.avatarSize(horizontalSizeClass: horizontalSizeClass, base: 70)
         let textWidth = ResponsiveSizing.avatarSize(horizontalSizeClass: horizontalSizeClass, base: 70)
+        let isEngaged = isHovered || isFocused
         VStack(spacing: 8) {
             ProfileImageView(profilePath: member.profilePath, size: avatarSize)
-                .shadow(color: .black.opacity(0.15), radius: isHovered ? 8 : 4, y: isHovered ? 4 : 2)
-                .scaleEffect(isHovered ? 1.05 : 1.0)
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+                .overlay {
+                    Circle()
+                        .stroke(Color.white.opacity(isFocused ? 0.9 : 0), lineWidth: 3)
+                }
+                .shadow(color: .black.opacity(0.15), radius: isEngaged ? 8 : 4, y: isEngaged ? 4 : 2)
+                .scaleEffect(isEngaged ? 1.08 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isEngaged)
             
             VStack(spacing: 2) {
                 Text(member.name)

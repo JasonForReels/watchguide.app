@@ -43,6 +43,7 @@ struct CreditsView: View {
                     fanArtCard
                     movieOfTheNightCard
                     theMovieDBCard
+                    theTVDBCard
                     omdbCard
                 }
                 .padding(.horizontal, horizontalInset)
@@ -123,6 +124,23 @@ struct CreditsView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(height: 20)
+        }
+    }
+    
+    // MARK: - TheTVDB
+    
+    private var theTVDBCard: some View {
+        CreditCard(cornerRadius: cardCornerRadius) {
+            HStack(spacing: 12) {
+                Image("TheTVDB")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 24)
+                
+                Text("TheTVDB")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+            }
         }
     }
     

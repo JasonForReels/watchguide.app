@@ -24,8 +24,12 @@ struct ProfilePickerView: View {
 
     var body: some View {
         ZStack {
+            #if os(tvOS)
+            TVOSAmbientBackdrop()
+            #else
             Color.primary.opacity(0.02)
                 .ignoresSafeArea()
+            #endif
             
             VStack(spacing: 28) {
                 Spacer()
@@ -89,10 +93,11 @@ struct ProfilePickerView: View {
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 10)
-                        .background(
+                        .background(Capsule().fill(Color.white.opacity(0.05)))
+                        .overlay {
                             Capsule()
-                                .stroke(Color.gray.opacity(0.35), lineWidth: 1)
-                        )
+                                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                        }
                 }
                 .padding(.bottom, 40)
                 .opacity(animateIn ? 1 : 0)
@@ -130,6 +135,7 @@ struct ProfileAvatarCard: View {
     let onTap: () -> Void
     
     @State private var isPressed = false
+    @Environment(\.isFocused) private var isFocused
     
     var body: some View {
         Button {
@@ -184,6 +190,11 @@ struct ProfileAvatarCard: View {
                         .foregroundColor(.secondary)
                 }
             }
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            #if os(tvOS)
+            .tvOSPanelStyle(cornerRadius: 24, fillOpacity: isFocused ? 0.12 : 0.08, strokeOpacity: isFocused ? 0.26 : 0.12)
+            #endif
         }
         .buttonStyle(ScaleButtonStyle())
     }
@@ -192,6 +203,7 @@ struct ProfileAvatarCard: View {
 // MARK: - Add Profile Card
 struct AddProfileCard: View {
     let onTap: () -> Void
+    @Environment(\.isFocused) private var isFocused
     
     var body: some View {
         Button {
@@ -221,6 +233,11 @@ struct AddProfileCard: View {
                 Text(" ")
                     .font(.caption2)
             }
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            #if os(tvOS)
+            .tvOSPanelStyle(cornerRadius: 24, fillOpacity: isFocused ? 0.11 : 0.07, strokeOpacity: isFocused ? 0.24 : 0.12)
+            #endif
         }
         .buttonStyle(ScaleButtonStyle())
     }
@@ -393,7 +410,7 @@ struct ProfileSwitcherSheet: View {
                 }
             }
             .navigationTitle("Profiles")
-#if !os(macOS)
+#if !os(macOS) && !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
 #endif
             .toolbar {
@@ -478,7 +495,7 @@ struct ProfileSetupView: View {
                 .padding(24)
             }
             .navigationTitle(isEditing ? "Edit Profile" : "New Profile")
-#if !os(macOS)
+#if !os(macOS) && !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
 #endif
             .toolbar {
@@ -533,7 +550,7 @@ struct ProfileSetupView: View {
             // Avatar Preview
             ZStack(alignment: .bottomTrailing) {
                 if let urlStr = avatarImageURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
-                    AsyncImage(url: url) { phase in
+                    ResilientAsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let image):
                             image
@@ -737,16 +754,7 @@ struct ProfileSetupView: View {
                     .font(.subheadline)
                     .fontWeight(.medium)
                 
-                DatePicker(
-                    "Date of Birth",
-                    selection: $dateOfBirth,
-                    in: ...Date(),
-                    displayedComponents: .date
-                )
-#if !os(macOS)
-                .datePickerStyle(.wheel)
-#endif
-                .labelsHidden()
+                BirthDateInputView(date: $dateOfBirth)
                 .onChange(of: dateOfBirth) { _, newValue in
                     ageGroup = ProfileService.ageGroupFromDateOfBirth(newValue)
                 }

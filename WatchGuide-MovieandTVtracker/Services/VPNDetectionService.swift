@@ -4,8 +4,27 @@
 //
 
 import Foundation
+import Darwin
 
 actor VPNDetectionService {
+
+    // MARK: - Synchronous local VPN check (no network call)
+
+    /// Returns true synchronously if any VPN tunnel interface (utun*) is present.
+    /// Uses getifaddrs — works offline, instant, no API key required.
+    static var isVPNConnectionPresent: Bool {
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        defer { freeifaddrs(ifaddr) }
+        guard getifaddrs(&ifaddr) == 0 else { return false }
+        var ptr = ifaddr
+        while let interface = ptr {
+            let name = String(cString: interface.pointee.ifa_name)
+            if name.hasPrefix("utun") { return true }
+            ptr = interface.pointee.ifa_next
+        }
+        return false
+    }
+
     static let shared = VPNDetectionService()
 
     // MARK: - Configuration

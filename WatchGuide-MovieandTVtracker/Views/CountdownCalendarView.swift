@@ -7,6 +7,231 @@
 
 import SwiftUI
 
+enum CountdownDataLoader {
+    static func loadUpcomingItems(limit: Int? = nil) async -> [CountdownItem] {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+
+        let now = Date()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: now)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today
+        let currentYear = calendar.component(.year, from: now)
+        let endOfYearString = "\(currentYear)-12-31"
+        guard let endOfYear = dateFormatter.date(from: endOfYearString) else {
+            return []
+        }
+
+        var items: [CountdownItem] = []
+
+        do {
+            async let p1 = TMDBService.shared.getUpcomingMovies(page: 1, endDate: endOfYearString)
+            async let p2 = TMDBService.shared.getUpcomingMovies(page: 2, endDate: endOfYearString)
+            async let p3 = TMDBService.shared.getUpcomingMovies(page: 3, endDate: endOfYearString)
+            async let p4 = TMDBService.shared.getUpcomingMovies(page: 4, endDate: endOfYearString)
+            async let p5 = TMDBService.shared.getUpcomingMovies(page: 5, endDate: endOfYearString)
+
+            let allResults = try await (p1.results + p2.results + p3.results + p4.results + p5.results)
+
+            for movie in allResults {
+                guard let dateString = movie.releaseDate,
+                      let date = dateFormatter.date(from: dateString),
+                      date >= tomorrow,
+                      date <= endOfYear else {
+                    continue
+                }
+
+                items.append(
+                    CountdownItem(
+                        id: "movie-\(movie.id)",
+                        title: movie.displayTitle,
+                        subtitle: nil,
+                        mediaItem: MediaItem(
+                            id: movie.id,
+                            title: movie.title,
+                            name: movie.name,
+                            originalTitle: movie.originalTitle,
+                            originalName: movie.originalName,
+                            overview: movie.overview,
+                            posterPath: movie.posterPath,
+                            backdropPath: movie.backdropPath,
+                            releaseDate: movie.releaseDate,
+                            firstAirDate: movie.firstAirDate,
+                            voteAverage: movie.voteAverage,
+                            voteCount: movie.voteCount,
+                            popularity: movie.popularity,
+                            genreIds: movie.genreIds,
+                            mediaType: "movie",
+                            adult: movie.adult,
+                            originalLanguage: movie.originalLanguage
+                        ),
+                        releaseDate: date,
+                        mediaType: .movie,
+                        originalLanguage: movie.originalLanguage
+                    )
+                )
+            }
+        } catch {
+            print("Error loading upcoming movies: \(error)")
+        }
+
+        do {
+            async let p1 = TMDBService.shared.getUpcomingTV(page: 1, endDate: endOfYearString)
+            async let p2 = TMDBService.shared.getUpcomingTV(page: 2, endDate: endOfYearString)
+            async let p3 = TMDBService.shared.getUpcomingTV(page: 3, endDate: endOfYearString)
+            async let p4 = TMDBService.shared.getUpcomingTV(page: 4, endDate: endOfYearString)
+            async let p5 = TMDBService.shared.getUpcomingTV(page: 5, endDate: endOfYearString)
+
+            let allResults = try await (p1.results + p2.results + p3.results + p4.results + p5.results)
+
+            for show in allResults {
+                let dateString = show.firstAirDate ?? show.releaseDate
+                guard let dateStr = dateString,
+                      let date = dateFormatter.date(from: dateStr),
+                      date >= tomorrow,
+                      date <= endOfYear else {
+                    continue
+                }
+
+                items.append(
+                    CountdownItem(
+                        id: "tv-\(show.id)",
+                        title: show.displayTitle,
+                        subtitle: "New Series",
+                        mediaItem: MediaItem(
+                            id: show.id,
+                            title: show.title,
+                            name: show.name,
+                            originalTitle: show.originalTitle,
+                            originalName: show.originalName,
+                            overview: show.overview,
+                            posterPath: show.posterPath,
+                            backdropPath: show.backdropPath,
+                            releaseDate: show.releaseDate,
+                            firstAirDate: show.firstAirDate,
+                            voteAverage: show.voteAverage,
+                            voteCount: show.voteCount,
+                            popularity: show.popularity,
+                            genreIds: show.genreIds,
+                            mediaType: "tv",
+                            adult: show.adult,
+                            originalLanguage: show.originalLanguage
+                        ),
+                        releaseDate: date,
+                        mediaType: .tv,
+                        originalLanguage: show.originalLanguage
+                    )
+                )
+            }
+        } catch {
+            print("Error loading upcoming TV: \(error)")
+        }
+
+        do {
+            let onAir = try await TMDBService.shared.getOnTheAirTV(page: 1)
+
+            await withTaskGroup(of: CountdownItem?.self) { group in
+                for show in onAir.results.prefix(30) {
+                    group.addTask {
+                        do {
+                            let info = try await TMDBService.shared.getTVShowNextEpisode(id: show.id)
+
+                            if let status = info.status,
+                               status == "Canceled" || status == "Cancelled" {
+                                return nil
+                            }
+
+                            guard let nextEp = info.nextEpisodeToAir,
+                                  let airDateStr = nextEp.airDate,
+                                  let airDate = dateFormatter.date(from: airDateStr),
+                                  airDate >= tomorrow,
+                                  airDate <= endOfYear else {
+                                return nil
+                            }
+
+                            let epLabel: String
+                            if let s = nextEp.seasonNumber, let e = nextEp.episodeNumber {
+                                epLabel = "S\(s)E\(e)"
+                            } else {
+                                epLabel = "New Episode"
+                            }
+
+                            let subtitle = epLabel + (nextEp.name.map { ": \($0)" } ?? "")
+
+                            return CountdownItem(
+                                id: "tv-ep-\(show.id)-\(nextEp.id)",
+                                title: show.displayTitle,
+                                subtitle: subtitle,
+                                mediaItem: MediaItem(
+                                    id: show.id,
+                                    title: show.title,
+                                    name: show.name,
+                                    originalTitle: show.originalTitle,
+                                    originalName: show.originalName,
+                                    overview: nextEp.overview ?? show.overview,
+                                    posterPath: show.posterPath,
+                                    backdropPath: show.backdropPath,
+                                    releaseDate: show.releaseDate,
+                                    firstAirDate: airDateStr,
+                                    voteAverage: show.voteAverage,
+                                    voteCount: show.voteCount,
+                                    popularity: show.popularity,
+                                    genreIds: show.genreIds,
+                                    mediaType: "tv",
+                                    adult: show.adult,
+                                    originalLanguage: show.originalLanguage
+                                ),
+                                releaseDate: airDate,
+                                mediaType: .tv,
+                                originalLanguage: show.originalLanguage ?? info.originalLanguage
+                            )
+                        } catch {
+                            return nil
+                        }
+                    }
+                }
+
+                for await item in group {
+                    if let item {
+                        items.append(item)
+                    }
+                }
+            }
+        } catch {
+            print("Error loading on-the-air TV episodes: \(error)")
+        }
+
+        let sortedForDedup = items.sorted { a, b in
+            if a.id.hasPrefix("tv-ep-") && !b.id.hasPrefix("tv-ep-") { return true }
+            if !a.id.hasPrefix("tv-ep-") && b.id.hasPrefix("tv-ep-") { return false }
+            return a.releaseDate < b.releaseDate
+        }
+
+        var deduped: [CountdownItem] = []
+        var seenIDs = Set<String>()
+        var seenShowIDs = Set<Int>()
+
+        for item in sortedForDedup {
+            if item.mediaType == .tv {
+                if seenShowIDs.contains(item.mediaItem.id) {
+                    continue
+                }
+                seenShowIDs.insert(item.mediaItem.id)
+            }
+
+            if seenIDs.insert(item.id).inserted {
+                deduped.append(item)
+            }
+        }
+
+        let sorted = deduped.sorted { $0.releaseDate < $1.releaseDate }
+        if let limit {
+            return Array(sorted.prefix(limit))
+        }
+        return sorted
+    }
+}
+
 // MARK: - Language Filter
 struct LanguageOption: Identifiable, Hashable {
     let id: String // ISO 639-1 code
@@ -165,9 +390,7 @@ struct CountdownCalendarView: View {
         .task {
             await loadUpcoming()
         }
-        .sheet(item: $selectedItem) { item in
-            MediaDetailView(item: item)
-        }
+        .mediaDetailPresentation(item: $selectedItem)
         .sheet(isPresented: $showLanguageFilter) {
             CountdownLanguageFilterSheet(selectedLanguage: $selectedLanguage)
         }
@@ -222,222 +445,9 @@ struct CountdownCalendarView: View {
     
     private func loadUpcoming() async {
         isLoading = true
-        
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        
-        let now = Date()
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: now)
-        // Strictly future: tomorrow onward
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
-        
-        // End of current calendar year
-        let currentYear = calendar.component(.year, from: now)
-        let endOfYearString = "\(currentYear)-12-31"
-        guard let endOfYear = dateFormatter.date(from: endOfYearString) else {
-            isLoading = false
-            return
-        }
-        
-        var items: [CountdownItem] = []
-        
-        // Load upcoming movies (3 pages for more coverage)
-        do {
-            async let p1 = TMDBService.shared.getUpcomingMovies(page: 1, endDate: endOfYearString)
-            async let p2 = TMDBService.shared.getUpcomingMovies(page: 2, endDate: endOfYearString)
-            async let p3 = TMDBService.shared.getUpcomingMovies(page: 3, endDate: endOfYearString)
-            
-            let allResults = try await (p1.results + p2.results + p3.results)
-            
-            for movie in allResults {
-                guard let dateString = movie.releaseDate,
-                      let date = dateFormatter.date(from: dateString) else { continue }
-                // Only include strictly future dates, up to end of year
-                guard date >= tomorrow && date <= endOfYear else { continue }
-                
-                let item = CountdownItem(
-                    id: "movie-\(movie.id)",
-                    title: movie.displayTitle,
-                    subtitle: nil,
-                    mediaItem: MediaItem(
-                        id: movie.id,
-                        title: movie.title,
-                        name: movie.name,
-                        originalTitle: movie.originalTitle,
-                        originalName: movie.originalName,
-                        overview: movie.overview,
-                        posterPath: movie.posterPath,
-                        backdropPath: movie.backdropPath,
-                        releaseDate: movie.releaseDate,
-                        firstAirDate: movie.firstAirDate,
-                        voteAverage: movie.voteAverage,
-                        voteCount: movie.voteCount,
-                        popularity: movie.popularity,
-                        genreIds: movie.genreIds,
-                        mediaType: "movie",
-                        adult: movie.adult,
-                        originalLanguage: movie.originalLanguage
-                    ),
-                    releaseDate: date,
-                    mediaType: .movie,
-                    originalLanguage: movie.originalLanguage
-                )
-                items.append(item)
-            }
-        } catch {
-            print("Error loading upcoming movies: \(error)")
-        }
-        
-        // Load upcoming new TV shows
-        do {
-            async let p1 = TMDBService.shared.getUpcomingTV(page: 1, endDate: endOfYearString)
-            async let p2 = TMDBService.shared.getUpcomingTV(page: 2, endDate: endOfYearString)
-            async let p3 = TMDBService.shared.getUpcomingTV(page: 3, endDate: endOfYearString)
-            
-            let allResults = try await (p1.results + p2.results + p3.results)
-            
-            for show in allResults {
-                let dateString = show.firstAirDate ?? show.releaseDate
-                guard let dateStr = dateString,
-                      let date = dateFormatter.date(from: dateStr) else { continue }
-                guard date >= tomorrow && date <= endOfYear else { continue }
-                
-                let item = CountdownItem(
-                    id: "tv-\(show.id)",
-                    title: show.displayTitle,
-                    subtitle: "New Series",
-                    mediaItem: MediaItem(
-                        id: show.id,
-                        title: show.title,
-                        name: show.name,
-                        originalTitle: show.originalTitle,
-                        originalName: show.originalName,
-                        overview: show.overview,
-                        posterPath: show.posterPath,
-                        backdropPath: show.backdropPath,
-                        releaseDate: show.releaseDate,
-                        firstAirDate: show.firstAirDate,
-                        voteAverage: show.voteAverage,
-                        voteCount: show.voteCount,
-                        popularity: show.popularity,
-                        genreIds: show.genreIds,
-                        mediaType: "tv",
-                        adult: show.adult,
-                        originalLanguage: show.originalLanguage
-                    ),
-                    releaseDate: date,
-                    mediaType: .tv,
-                    originalLanguage: show.originalLanguage
-                )
-                items.append(item)
-            }
-        } catch {
-            print("Error loading upcoming TV: \(error)")
-        }
-        
-        // Load on-the-air TV shows with next episode (returning episodes for existing shows)
-        do {
-            let onAir = try await TMDBService.shared.getOnTheAirTV(page: 1)
-            
-            // For each on-the-air show, check if it has a next episode to air
-            await withTaskGroup(of: CountdownItem?.self) { group in
-                for show in onAir.results.prefix(30) {
-                    group.addTask {
-                        do {
-                            let info = try await TMDBService.shared.getTVShowNextEpisode(id: show.id)
-                            
-                            // Skip cancelled shows
-                            if let status = info.status,
-                               status == "Canceled" || status == "Cancelled" {
-                                return nil
-                            }
-                            
-                            guard let nextEp = info.nextEpisodeToAir,
-                                  let airDateStr = nextEp.airDate,
-                                  let airDate = dateFormatter.date(from: airDateStr) else { return nil }
-                            
-                            // Only future dates within this year
-                            guard airDate >= tomorrow && airDate <= endOfYear else { return nil }
-                            
-                            let epLabel: String
-                            if let s = nextEp.seasonNumber, let e = nextEp.episodeNumber {
-                                epLabel = "S\(s)E\(e)"
-                            } else {
-                                epLabel = "New Episode"
-                            }
-                            
-                            return CountdownItem(
-                                id: "tv-ep-\(show.id)-\(nextEp.id)",
-                                title: show.displayTitle,
-                                subtitle: epLabel + (nextEp.name != nil ? ": \(nextEp.name!)" : ""),
-                                mediaItem: MediaItem(
-                                    id: show.id,
-                                    title: show.title,
-                                    name: show.name,
-                                    originalTitle: show.originalTitle,
-                                    originalName: show.originalName,
-                                    overview: nextEp.overview ?? show.overview,
-                                    posterPath: show.posterPath,
-                                    backdropPath: show.backdropPath,
-                                    releaseDate: show.releaseDate,
-                                    firstAirDate: airDateStr,
-                                    voteAverage: show.voteAverage,
-                                    voteCount: show.voteCount,
-                                    popularity: show.popularity,
-                                    genreIds: show.genreIds,
-                                    mediaType: "tv",
-                                    adult: show.adult,
-                                    originalLanguage: show.originalLanguage
-                                ),
-                                releaseDate: airDate,
-                                mediaType: .tv,
-                                originalLanguage: show.originalLanguage ?? info.originalLanguage
-                            )
-                        } catch {
-                            return nil
-                        }
-                    }
-                }
-                
-                for await item in group {
-                    if let item = item {
-                        items.append(item)
-                    }
-                }
-            }
-        } catch {
-            print("Error loading on-the-air TV episodes: \(error)")
-        }
-        
-        // Deduplicate: prefer episode-specific entries over generic show entries
-        var seen = Set<String>()
-        // Sort episode items first so they take precedence in dedup
-        let sortedForDedup = items.sorted { a, b in
-            // Episode-specific items come first
-            if a.id.hasPrefix("tv-ep-") && !b.id.hasPrefix("tv-ep-") { return true }
-            if !a.id.hasPrefix("tv-ep-") && b.id.hasPrefix("tv-ep-") { return false }
-            return a.releaseDate < b.releaseDate
-        }
-        
-        var deduped: [CountdownItem] = []
-        var seenShowIds = Set<Int>()
-        
-        for item in sortedForDedup {
-            // For TV items, deduplicate by show ID (keep the episode-specific one)
-            if item.mediaType == .tv {
-                if seenShowIds.contains(item.mediaItem.id) {
-                    continue
-                }
-                seenShowIds.insert(item.mediaItem.id)
-            }
-            if seen.insert(item.id).inserted {
-                deduped.append(item)
-            }
-        }
-        
-        upcomingItems = deduped.sorted { $0.releaseDate < $1.releaseDate }
+        upcomingItems = await CountdownDataLoader.loadUpcomingItems()
         isLoading = false
+        WidgetDataService.shared.syncComingSoonItems(upcomingItems)
     }
 }
 
@@ -501,7 +511,7 @@ struct CountdownFeaturedCard: View {
     var body: some View {
         Button(action: onTap) {
             ZStack(alignment: .bottomLeading) {
-                AsyncImage(url: TMDBService.shared.imageURL(path: item.mediaItem.backdropPath, size: .backdrop)) { phase in
+                ResilientAsyncImage(url: TMDBService.shared.imageURL(path: item.mediaItem.backdropPath, size: .backdrop)) { phase in
                     switch phase {
                     case .success(let image):
                         image
@@ -706,7 +716,7 @@ struct CountdownLanguageFilterSheet: View {
             }
             .searchable(text: $searchText, prompt: "Search languages")
             .navigationTitle("Language")
-            #if !os(macOS)
+            #if !os(macOS) && !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {

@@ -23,99 +23,19 @@ struct AuthView: View {
     @State private var showEmailForm = false
     
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Header
-                    VStack(spacing: 12) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.accentColor.opacity(0.15))
-                                .frame(width: 80, height: 80)
-
-                            if let profile = profileService.activeProfile {
-                                ProfileAvatarImageView(
-                                    profile: profile,
-                                    size: 56,
-                                    showBorder: false
-                                )
-                                .frame(width: 56, height: 56)
-                                .clipShape(Circle())
-                            } else {
-                                Image(systemName: "person.fill")
-                                    .font(.system(size: 28, weight: .semibold))
-                                    .foregroundColor(.accentColor)
-                                    .frame(width: 56, height: 56)
-                                    .background(
-                                        Circle()
-                                            .fill(Color.accentColor.opacity(0.12))
-                                    )
-                                    .clipShape(Circle())
-                            }
-                        }
-                        
-                        Text("Sign In")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        
-                        Text("Sync your lists and profiles across all your devices")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 16)
-                    }
-                    .padding(.top, 20)
-
-                    // Email option
-                    if showEmailForm {
-                        emailFormSection
-                    } else {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                showEmailForm = true
-                            }
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: "envelope.fill")
-                                Text("Continue with Email")
-                                    .fontWeight(.medium)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.gray.opacity(0.12))
-                            .foregroundColor(.primary)
-                            .cornerRadius(12)
-                        }
-                        .disabled(!authService.isSupabaseAvailable)
-                        .opacity(authService.isSupabaseAvailable ? 1.0 : 0.55)
-                        
-                        if !authService.isSupabaseAvailable {
-                            Text("Email sign-in requires Supabase. Link Supabase in Settings.")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-                .frame(maxWidth: 560)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
-            }
-            #if !os(macOS)
-            .scrollDismissesKeyboard(.interactively)
-            #endif
+        authContent
             .navigationTitle("Sign In")
-            #if !os(macOS)
+            #if !os(macOS) && !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
+                #if !os(tvOS)
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
                     }
                 }
+                #endif
             }
             .alert("Reset Password", isPresented: $showForgotPassword) {
                 TextField("Email", text: $email)
@@ -154,6 +74,117 @@ struct AuthView: View {
                 }
             }
             #endif
+    }
+
+    @ViewBuilder
+    private var authContent: some View {
+        authScrollView
+    }
+
+    private var authScrollView: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                // Header
+                VStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            #if os(tvOS)
+                            .fill(Color.white.opacity(0.1))
+                            #else
+                            .fill(Color.accentColor.opacity(0.15))
+                            #endif
+                            .frame(width: 80, height: 80)
+
+                        if let profile = profileService.activeProfile {
+                            ProfileAvatarImageView(
+                                profile: profile,
+                                size: 56,
+                                showBorder: false
+                            )
+                            .frame(width: 56, height: 56)
+                            .clipShape(Circle())
+                        } else {
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 28, weight: .semibold))
+                                #if os(tvOS)
+                                .foregroundColor(.white)
+                                #else
+                                .foregroundColor(.accentColor)
+                                #endif
+                                .frame(width: 56, height: 56)
+                                .background(
+                                    Circle()
+                                        #if os(tvOS)
+                                        .fill(Color.white.opacity(0.08))
+                                        #else
+                                        .fill(Color.accentColor.opacity(0.12))
+                                        #endif
+                                )
+                                .clipShape(Circle())
+                        }
+                    }
+
+                    Text("Sign In")
+                        .font(.title2)
+                        .fontWeight(.bold)
+
+                    Text("Sync your lists and profiles across all your devices")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                }
+                .padding(.top, 20)
+
+                // Email option
+                if showEmailForm {
+                    emailFormSection
+                } else {
+                    emailOptionButton
+                }
+            }
+            .frame(maxWidth: 560)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+        #if !os(macOS)
+        .scrollDismissesKeyboard(.interactively)
+        #endif
+    }
+
+    @ViewBuilder
+    private var emailOptionButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showEmailForm = true
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "envelope.fill")
+                Text("Continue with Email")
+                    .fontWeight(.medium)
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            #if os(tvOS)
+            .background(Color.white.opacity(0.12))
+            .foregroundColor(.white)
+            #else
+            .background(Color.gray.opacity(0.12))
+            .foregroundColor(.primary)
+            #endif
+            .cornerRadius(12)
+        }
+        .disabled(!authService.isSupabaseAvailable)
+        .opacity(authService.isSupabaseAvailable ? 1.0 : 0.55)
+
+        if !authService.isSupabaseAvailable {
+            Text("Email sign-in requires Supabase. Link Supabase in Settings.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
     
@@ -180,7 +211,11 @@ struct AuthView: View {
                         .autocorrectionDisabled()
                 }
                 .padding()
+                #if os(tvOS)
+                .background(Color.white.opacity(0.08))
+                #else
                 .background(Color.gray.opacity(0.12))
+                #endif
                 .cornerRadius(12)
             }
             
@@ -197,7 +232,11 @@ struct AuthView: View {
                         .textContentType(isSignUp ? .newPassword : .password)
                 }
                 .padding()
+                #if os(tvOS)
+                .background(Color.white.opacity(0.08))
+                #else
                 .background(Color.gray.opacity(0.12))
+                #endif
                 .cornerRadius(12)
             }
             
@@ -215,7 +254,11 @@ struct AuthView: View {
                             .textContentType(.newPassword)
                     }
                     .padding()
+                    #if os(tvOS)
+                    .background(Color.white.opacity(0.08))
+                    #else
                     .background(Color.gray.opacity(0.12))
+                    #endif
                     .cornerRadius(12)
                 }
             }
@@ -228,7 +271,11 @@ struct AuthView: View {
                         showForgotPassword = true
                     }
                     .font(.subheadline)
+                    #if os(tvOS)
+                    .foregroundColor(Color.white.opacity(0.7))
+                    #else
                     .foregroundColor(.accentColor)
+                    #endif
                 }
             }
             
@@ -242,7 +289,11 @@ struct AuthView: View {
                         .foregroundColor(.secondary)
                 }
                 .padding()
+                #if os(tvOS)
+                .background(Color.orange.opacity(0.15))
+                #else
                 .background(Color.orange.opacity(0.1))
+                #endif
                 .cornerRadius(10)
             }
             
@@ -263,8 +314,13 @@ struct AuthView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding()
+                #if os(tvOS)
+                .background(isFormValid ? Color.white.opacity(0.22) : Color.white.opacity(0.06))
+                .foregroundColor(isFormValid ? .white : Color.white.opacity(0.5))
+                #else
                 .background(isFormValid ? Color.accentColor : Color.gray)
                 .foregroundColor(.white)
+                #endif
                 .cornerRadius(12)
             }
             .disabled(!isFormValid || authService.isLoading)
@@ -282,7 +338,11 @@ struct AuthView: View {
                     }
                 }
                 .fontWeight(.medium)
+                #if os(tvOS)
+                .foregroundColor(.white)
+                #else
                 .foregroundColor(.accentColor)
+                #endif
             }
             .font(.subheadline)
         }
@@ -331,7 +391,10 @@ struct AuthView: View {
 
 struct AccountView: View {
     @ObservedObject var authService = AuthService.shared
+    @ObservedObject private var storage = StorageService.shared
     @State private var deleteAccountError: String?
+    @State private var isManualUpload = false
+    @State private var isManualDownload = false
 
     var body: some View {
         if let user = authService.currentUser {
@@ -363,6 +426,75 @@ struct AccountView: View {
                     }
 
                     Spacer()
+                }
+                .padding()
+                .background(Color.gray.opacity(0.12))
+                .cornerRadius(12)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Sync")
+                            .font(.headline)
+                        Spacer()
+                        Text(storage.cloudProviderDisplayName)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("Last Sync")
+                            .font(.subheadline)
+                        Spacer()
+                        if let lastSync = storage.lastSyncTime {
+                            Text(lastSync.formatted(.relative(presentation: .named)))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Never")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    if let error = storage.lastSyncError, !error.isEmpty {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button {
+                            guard !isManualUpload && !isManualDownload else { return }
+                            isManualUpload = true
+                            Task {
+                                await storage.uploadToCloud()
+                                await MainActor.run {
+                                    isManualUpload = false
+                                }
+                            }
+                        } label: {
+                            Label(isManualUpload ? "Syncing Changes..." : "Sync Changes", systemImage: "arrow.up.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .disabled(isManualUpload || isManualDownload)
+                        .buttonStyle(.borderedProminent)
+
+                        Button {
+                            guard !isManualUpload && !isManualDownload else { return }
+                            isManualDownload = true
+                            Task {
+                                await storage.downloadFromCloud()
+                                await MainActor.run {
+                                    isManualDownload = false
+                                }
+                            }
+                        } label: {
+                            Label(isManualDownload ? "Fetching Additions..." : "Get Additions", systemImage: "arrow.down.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .disabled(isManualUpload || isManualDownload)
+                        .buttonStyle(.bordered)
+                    }
                 }
                 .padding()
                 .background(Color.gray.opacity(0.12))

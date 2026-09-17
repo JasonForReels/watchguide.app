@@ -13,9 +13,11 @@ struct PersonDetailView: View {
     let profilePath: String?
     
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var viewModel: PersonDetailViewModel
     @State private var selectedItem: MediaItem?
     @State private var selectedTab = 0
+    @State private var currentBackdropPath: String?
     
     init(personId: Int, personName: String, profilePath: String?) {
         self.personId = personId
@@ -26,82 +28,25 @@ struct PersonDetailView: View {
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Header
-                    headerSection
-                    
-                    // Biography
-                    if let bio = viewModel.biography, !bio.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Biography")
-                                .font(.title3)
-                                .fontWeight(.bold)
-                            
-                            Text(bio)
-                                .font(.body)
-                                .foregroundColor(.secondary)
-                                .lineLimit(viewModel.showFullBio ? nil : 5)
-                            
-                            if bio.count > 200 {
-                                Button {
-                                    withAnimation {
-                                        viewModel.showFullBio.toggle()
-                                    }
-                                } label: {
-                                    Text(viewModel.showFullBio ? "Show Less" : "Read More")
-                                        .font(.subheadline)
-                                        .foregroundColor(.accentColor)
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal)
-                    }
-                    
-                    // Filmography tabs
-                    VStack(spacing: 16) {
-                        Picker("Credits", selection: $selectedTab) {
-                            Text("Movies (\(viewModel.movieCredits.count))").tag(0)
-                            Text("TV Shows (\(viewModel.tvCredits.count))").tag(1)
-                        }
-                        .pickerStyle(.segmented)
-                        .padding(.horizontal)
+            ZStack {
+                // Cinematic Backdrop (Dynamic)
+                PersonCinematicBackdrop(path: currentBackdropPath)
+
+                ScrollView {
+                    VStack(spacing: 24) {
+                        headerSection
+                        biographySection
+                        creditsSection
                         
-                        // Credits grid
-                        let credits = selectedTab == 0 ? viewModel.movieCredits : viewModel.tvCredits
-                        
-                        if credits.isEmpty && !viewModel.isLoading {
-                            VStack(spacing: 12) {
-                                Image(systemName: "film")
-                                    .font(.largeTitle)
-                                    .foregroundColor(.secondary)
-                                Text("No \(selectedTab == 0 ? "movies" : "TV shows") found")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.vertical, 40)
-                        } else {
-                            LazyVGrid(columns: [
-                                GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)
-                            ], spacing: 20) {
-                                ForEach(credits) { item in
-                                    MediaPosterCard(item: item)
-                                        .onTapGesture {
-                                            selectedItem = item
-                                        }
-                                }
-                            }
+                        RemoteBannerView(placement: .personDetail)
                             .padding(.horizontal)
-                        }
                     }
+                    .padding(.vertical)
                 }
-                .padding(.vertical)
             }
+            .colorScheme(.dark)
             .navigationTitle(personName)
-            #if !os(macOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .inlineNavTitleIfSupported()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
@@ -113,20 +58,88 @@ struct PersonDetailView: View {
                     }
                 }
             }
-            .overlay {
-                if viewModel.isLoading {
-                    ProgressView()
-                        .scaleEffect(1.2)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.gray.opacity(0.1))
-                }
-            }
+            .overlay { loadingOverlay }
         }
         .task {
             await viewModel.loadDetails()
         }
-        .sheet(item: $selectedItem) { item in
-            MediaDetailView(item: item)
+        .mediaDetailPresentation(item: $selectedItem)
+    }
+    
+    @ViewBuilder
+    private var biographySection: some View {
+        if let bio = viewModel.biography, !bio.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Biography")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                
+                Text(bio)
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .lineLimit(viewModel.showFullBio ? nil : 5)
+                
+                if bio.count > 200 {
+                    Button {
+                        withAnimation {
+                            viewModel.showFullBio.toggle()
+                        }
+                    } label: {
+                        Text(viewModel.showFullBio ? "Show Less" : "Read More")
+                            .font(.subheadline)
+                            .foregroundColor(.accentColor)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+        }
+    }
+    
+    @ViewBuilder
+    private var creditsSection: some View {
+        let isRegular = horizontalSizeClass == .regular
+        let filmographyPosterWidth = ResponsiveSizing.gridPosterWidth(horizontalSizeClass: horizontalSizeClass)
+        let credits = selectedTab == 0 ? viewModel.movieCredits : viewModel.tvCredits
+
+        VStack(spacing: 16) {
+            Picker("Credits", selection: $selectedTab) {
+                Text("Movies (\(viewModel.movieCredits.count))").tag(0)
+                Text("TV Shows (\(viewModel.tvCredits.count))").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            
+            if credits.isEmpty && !viewModel.isLoading {
+                VStack(spacing: 12) {
+                    Image(systemName: "film")
+                        .font(.largeTitle)
+                        .foregroundColor(.secondary)
+                    Text("No \(selectedTab == 0 ? "movies" : "TV shows") found")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 40)
+            } else {
+                LazyVGrid(columns: [
+                    GridItem(.adaptive(minimum: filmographyPosterWidth, maximum: filmographyPosterWidth), spacing: isRegular ? 28 : 20)
+                ], spacing: isRegular ? 28 : 20) {
+                    ForEach(credits) { item in
+                        CreditGridItem(item: item, currentBackdropPath: $currentBackdropPath, selectedItem: $selectedItem)
+                    }
+                }
+                .padding(.horizontal, isRegular ? 28 : 16)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var loadingOverlay: some View {
+        if viewModel.isLoading {
+            ProgressView()
+                .scaleEffect(1.2)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black.opacity(0.4))
         }
     }
     
@@ -191,6 +204,37 @@ struct PersonDetailView: View {
     }
 }
 
+struct CreditGridItem: View {
+    let item: MediaItem
+    @Binding var currentBackdropPath: String?
+    @Binding var selectedItem: MediaItem?
+    
+    var body: some View {
+        Button {
+            selectedItem = item
+        } label: {
+            MediaPosterCard(item: item)
+                #if os(tvOS)
+                .onAppear {
+                    if currentBackdropPath == nil {
+                        currentBackdropPath = item.backdropPath
+                    }
+                }
+                #endif
+        }
+        .buttonStyle(.plain)
+        #if os(tvOS)
+        .onFocusChange { isFocused in
+            if isFocused {
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    currentBackdropPath = item.backdropPath
+                }
+            }
+        }
+        #endif
+    }
+}
+
 // MARK: - Person Detail View Model
 @MainActor
 class PersonDetailViewModel: ObservableObject {
@@ -237,19 +281,11 @@ class PersonDetailViewModel: ObservableObject {
                     self.placeOfBirth = person.placeOfBirth
                     
                     if let bday = person.birthday {
-                        if let date = self.dateFormatter.date(from: bday) {
-                            self.birthday = self.displayFormatter.string(from: date)
-                        } else {
-                            self.birthday = bday
-                        }
+                        self.birthday = self.dateFormatter.date(from: bday).map { self.displayFormatter.string(from: $0) } ?? bday
                     }
                     
                     if let dday = person.deathday {
-                        if let date = self.dateFormatter.date(from: dday) {
-                            self.deathday = self.displayFormatter.string(from: date)
-                        } else {
-                            self.deathday = dday
-                        }
+                        self.deathday = self.dateFormatter.date(from: dday).map { self.displayFormatter.string(from: $0) } ?? dday
                     }
                 } catch {
                     print("Error loading person details: \(error)")
@@ -260,9 +296,7 @@ class PersonDetailViewModel: ObservableObject {
             group.addTask { @MainActor in
                 do {
                     let credits = try await TMDBService.shared.getPersonMovieCredits(id: pid)
-                    var allMovies: [MediaItem] = []
-                    if let cast = credits.cast { allMovies.append(contentsOf: cast) }
-                    if let crew = credits.crew { allMovies.append(contentsOf: crew) }
+                    var allMovies: [MediaItem] = (credits.cast ?? []) + (credits.crew ?? [])
                     
                     var seen = Set<Int>()
                     self.movieCredits = allMovies
@@ -281,9 +315,7 @@ class PersonDetailViewModel: ObservableObject {
             group.addTask { @MainActor in
                 do {
                     let credits = try await TMDBService.shared.getPersonTVCredits(id: pid)
-                    var allShows: [MediaItem] = []
-                    if let cast = credits.cast { allShows.append(contentsOf: cast) }
-                    if let crew = credits.crew { allShows.append(contentsOf: crew) }
+                    var allShows: [MediaItem] = (credits.cast ?? []) + (credits.crew ?? [])
                     
                     var seen = Set<Int>()
                     self.tvCredits = allShows
@@ -305,4 +337,44 @@ class PersonDetailViewModel: ObservableObject {
 
 #Preview {
     PersonDetailView(personId: 287, personName: "Brad Pitt", profilePath: nil)
+}
+
+struct PersonCinematicBackdrop: View {
+    let path: String?
+    
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            if let path = path {
+                ResilientAsyncImage(url: TMDBService.shared.imageURL(path: path, size: .backdrop)) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .transition(.opacity.combined(with: .scale(scale: 1.1)))
+                    } else {
+                        Color.black
+                    }
+                }
+                .overlay {
+                    #if os(tvOS)
+                    Color.black.opacity(0.4)
+                    #else
+                    Color.black.opacity(0.6)
+                    #endif
+                }
+                .blur(radius: 20)
+                .ignoresSafeArea()
+            }
+            
+            // Bottom gradient for legibility
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.8)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        }
+    }
 }

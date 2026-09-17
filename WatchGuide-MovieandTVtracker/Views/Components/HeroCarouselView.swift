@@ -5,36 +5,247 @@
 
 import SwiftUI
 import Combine
+import AVKit
+import AVFoundation
 #if !os(tvOS)
 import YouTubePlayerKit
 #endif
 
+// MARK: - Ambient Video
+
+/// An `AVPlayer` drawn as nothing but its picture.
+///
+/// `VideoPlayer` was doing this job, and it brings AVKit's whole playback
+/// interface along with it — transport controls, a scrubber, a title bar. On a
+/// hero the footage is scenery: there is no timeline to scrub and nothing to
+/// pause, and the chrome sitting over the artwork was the one thing in the
+/// frame announcing that this is a video element rather than a moving picture.
+/// On tvOS it was worse than cosmetic, because those controls are focusable and
+/// put a second landing spot for the remote inside a stage that is supposed to
+/// have exactly one.
+///
+/// An `AVPlayerLayer` has no interface of its own whatsoever, which is the whole
+/// reason to drop to it. `resizeAspectFill` also does the cropping that callers
+/// were doing by hand — laying the video out oversized and clipping it back —
+/// so a 16:9 trailer fills a 2.2:1 stage without letterboxing.
+struct AmbientVideoView {
+    let player: AVPlayer
+}
+
+#if canImport(UIKit)
+
+extension AmbientVideoView: UIViewRepresentable {
+    func makeUIView(context: Context) -> HeroPlayerLayerView {
+        let view = HeroPlayerLayerView()
+        view.isUserInteractionEnabled = false
+        view.playerLayer.videoGravity = .resizeAspectFill
+        view.playerLayer.player = player
+        return view
+    }
+
+    func updateUIView(_ view: HeroPlayerLayerView, context: Context) {
+        if view.playerLayer.player !== player {
+            view.playerLayer.player = player
+        }
+    }
+}
+
+/// Backing view whose own layer *is* the player layer, so the video tracks the
+/// view's bounds without any manual layout.
+final class HeroPlayerLayerView: UIView {
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+    // swiftlint:disable:next force_cast
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+}
+
+#elseif canImport(AppKit)
+
+extension AmbientVideoView: NSViewRepresentable {
+    func makeNSView(context: Context) -> HeroPlayerLayerView {
+        let view = HeroPlayerLayerView()
+        view.playerLayer.videoGravity = .resizeAspectFill
+        view.playerLayer.player = player
+        return view
+    }
+
+    func updateNSView(_ view: HeroPlayerLayerView, context: Context) {
+        if view.playerLayer.player !== player {
+            view.playerLayer.player = player
+        }
+    }
+}
+
+/// AppKit has no `layerClass` hook, so the player layer is hosted as a sublayer
+/// and resized in `layout`, with implicit animations off — a CALayer would
+/// otherwise animate its own frame changes and the video would visibly slide
+/// into place on every resize.
+final class HeroPlayerLayerView: NSView {
+    let playerLayer = AVPlayerLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer = CALayer()
+        layer?.addSublayer(playerLayer)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        playerLayer.frame = bounds
+        CATransaction.commit()
+    }
+}
+
+#endif
+
 // MARK: - Hero Carousel Mute Manager
 /// Shared manager that allows external views (e.g. detail sheets) to request the hero carousel
-/// to mute/unmute its trailer audio automatically.
+/// to pause/mute its trailer audio automatically.
 @MainActor
 class HeroCarouselMuteManager: ObservableObject {
     static let shared = HeroCarouselMuteManager()
     
-    /// When true, all hero carousel players should be muted (e.g. a detail page is open)
+    /// When true, all hero carousel players should be paused (e.g. a detail page is open)
     @Published var isExternallyMuted = false
+
+    /// When true, the Browse hero carousel has scrolled off-screen and should pause
+    @Published var isScrolledOffScreen = false
+
+    /// When true, an Atlas voice session is live. Trailer audio has to get out of
+    /// the way completely: the voice session owns a `.playAndRecord`/`.voiceChat`
+    /// audio session, and a trailer coming ready mid-call would reconfigure the
+    /// shared session to `.playback` underneath it.
+    @Published var isVoiceModeActive = false
+
+    /// The currently visible tab's raw value. Carousels on other tabs should pause.
+    @Published var activeTabID: String?
+
+    /// The viewer's mute choice, shared by every hero trailer. Muting one title
+    /// mutes them all — the next slide, and every other carousel in the app —
+    /// rather than each trailer starting over from the settings default.
+    /// Nil until the viewer first presses the mute button.
+    @Published private(set) var userMuted: Bool?
+
+    /// Whether a trailer starting now should be muted.
+    var resolvedMuted: Bool {
+        userMuted ?? StorageService.shared.settings.autoPlayTrailersMuted
+    }
+
+    func setUserMuted(_ muted: Bool) {
+        userMuted = muted
+    }
+
+    /// Every input `shouldPause` depends on, as one signal. Players subscribe to
+    /// this rather than to individual flags, so adding a new reason to pause
+    /// doesn't mean finding every `combineLatest` in the file again.
+    var pauseConditionsPublisher: AnyPublisher<Void, Never> {
+        Publishers.CombineLatest3($isExternallyMuted, $isVoiceModeActive, $activeTabID)
+            .map { _, _, _ in () }
+            .eraseToAnyPublisher()
+    }
+
+    /// Returns true if a carousel with the given tabID should be paused
+    func shouldPause(tabID: String?) -> Bool {
+        if isVoiceModeActive { return true }
+        if isExternallyMuted { return true }
+        if isScrolledOffScreen { return true }
+        // If no tabID is set on the carousel, it's always considered active (e.g. hub views)
+        guard let tabID else { return false }
+        // If no active tab is known yet, don't pause
+        guard let activeTabID else { return false }
+        return tabID != activeTabID
+    }
 }
+
+// MARK: - Trailer Lookup Timing
+
+/// How long a carousel will hold a slide open waiting to hear whether it has a
+/// trailer, shared by both hero styles so they behave identically.
+enum HeroTrailerTiming {
+    /// One turn of the hold.
+    static let lookupGrace: TimeInterval = 4.0
+    /// Turns allowed before the carousel gives up and moves on regardless. At
+    /// four turns that is sixteen seconds past the usual grace — enough for a
+    /// cold start on a slow connection, and still bounded, so a dead network
+    /// parks the carousel on one slide instead of freezing it there.
+    static let maxLookupExtensions = 4
+}
+
+#if os(tvOS)
+// MARK: - Hero Layout (tvOS)
+enum HeroCarouselLayout {
+    /// Widest-possible hero shape on tvOS. Anything taller than this fills the
+    /// whole screen and pushes the tab bar out of the focus engine's reach.
+    static let tvMinimumAspectRatio: CGFloat = 2.2
+}
+
+// MARK: - Hero Focus State (tvOS)
+/// Tracks whether a hero carousel currently holds focus.
+///
+/// The hero fills the top of the page as a single focusable region, so once
+/// focus lands on it the tab bar collapses out of reach — there is no row above
+/// it to move to. While the hero is focused we pin the tab bar visible, which
+/// keeps it on screen and gives the focus engine somewhere to go on an up-swipe.
+@MainActor
+final class TVHeroFocusState: ObservableObject {
+    static let shared = TVHeroFocusState()
+
+    @Published var isHeroFocused = false
+
+    private init() {}
+}
+#endif
 
 struct HeroCarouselView: View {
     let items: [MediaItem]
     let onItemTap: (MediaItem) -> Void
     let aspectRatio: CGFloat
     let isPortrait: Bool
+    let isEdgeToEdge: Bool
+    let externalVisibilityOverride: Bool
+    let isImmersiveStyle: Bool
+    /// Identifies which tab this carousel belongs to, so it can be paused when off-screen.
+    let tabID: String?
     @ObservedObject private var storageService = StorageService.shared
     private var showTrailers: Bool { storageService.settings.autoPlayTrailers }
     
     @State private var currentIndex = 0
+    /// How many times the auto-advance has been held open waiting for the
+    /// current slide's trailer lookup. Reset whenever a slide takes the stage.
+    @State private var graceExtensions = 0
     @State private var dragOffset: CGFloat = 0
     @State private var isDragging = false
+    #if os(tvOS)
+    @FocusState private var isCarouselFocused: Bool
+    #endif
     @StateObject private var trailerLoader = HeroTrailerLoader()
     @StateObject private var timerManager = CarouselTimerManager()
     @Environment(\.colorScheme) private var colorScheme
     
+    /// The maximum number of slides rendered in the carousel.
+    private let maxSlides = 10
+
+    #if os(tvOS)
+    /// The hero has to stay shorter than the screen.
+    ///
+    /// A full-width 16:9 hero is exactly the height of a 1080p tvOS screen, so
+    /// focusing it scrolls the page past its top and leaves the focus engine
+    /// with nothing above the carousel — an up-press then has no target and the
+    /// tab bar becomes unreachable for the rest of the session. Capping the
+    /// aspect keeps a strip of the page above the hero, which is where the tab
+    /// bar lives.
+    private var tvOSAspectRatio: CGFloat { max(aspectRatio, HeroCarouselLayout.tvMinimumAspectRatio) }
+    #endif
+
+    /// The actual number of visible slides (capped at maxSlides).
+    private var slideCount: Int { min(items.count, maxSlides) }
+
     // Transition animation — Apple-style spring
     private let slideSpring: Animation = .interpolatingSpring(
         mass: 1.0, stiffness: 170, damping: 24, initialVelocity: 0
@@ -43,13 +254,21 @@ struct HeroCarouselView: View {
     init(
         items: [MediaItem],
         onItemTap: @escaping (MediaItem) -> Void,
-        aspectRatio: CGFloat = 16.0 / 10.0,
-        isPortrait: Bool = false
+        aspectRatio: CGFloat = 16.0 / 9.0,
+        isPortrait: Bool = false,
+        isEdgeToEdge: Bool = false,
+        externalVisibilityOverride: Bool = false,
+        isImmersiveStyle: Bool = false,
+        tabID: String? = nil
     ) {
         self.items = items
         self.onItemTap = onItemTap
         self.aspectRatio = aspectRatio
         self.isPortrait = isPortrait
+        self.isEdgeToEdge = isEdgeToEdge
+        self.externalVisibilityOverride = externalVisibilityOverride
+        self.isImmersiveStyle = isImmersiveStyle
+        self.tabID = tabID
     }
 
     var body: some View {
@@ -60,7 +279,7 @@ struct HeroCarouselView: View {
             ZStack(alignment: .bottom) {
                 // Carousel slides
                 ZStack {
-                    ForEach(Array(items.prefix(10).enumerated()), id: \.element.id) { index, item in
+                    ForEach(Array(items.prefix(maxSlides).enumerated()), id: \.element.id) { index, item in
                         let offset = slideOffset(for: index, containerWidth: width)
                         let scaleVal = slideScale(for: index, containerWidth: width)
                         let opacityVal = slideOpacity(for: index, containerWidth: width)
@@ -68,9 +287,10 @@ struct HeroCarouselView: View {
                         HeroCarouselSlide(
                             item: item,
                             isActive: index == currentIndex && !isDragging,
-                            trailerKey: trailerLoader.trailerKeys[item.id],
+                            preferredTrailer: trailerLoader.preferredTrailers[item.id],
                             logoURL: trailerLoader.logoURLs[item.id],
                             fanartBackdropURL: trailerLoader.fanartBackdropURLs[item.id],
+                            thumbURL: trailerLoader.thumbURLs[item.id],
                             onTap: { onItemTap(item) },
                             slideSize: CGSize(width: width, height: height),
                             colorScheme: colorScheme,
@@ -78,9 +298,15 @@ struct HeroCarouselView: View {
                             backdropTimerExpired: timerManager.backdropTimerExpired,
                             showTrailers: showTrailers,
                             isPortrait: isPortrait,
+                            tabID: tabID,
                             onTrailerDurationKnown: { duration in
                                 if index == currentIndex {
                                     timerManager.beginTrailerPlayback(duration: duration)
+                                }
+                            },
+                            onTrailerEnded: {
+                                if index == currentIndex {
+                                    timerManager.endTrailerPlayback()
                                 }
                             }
                         )
@@ -91,6 +317,7 @@ struct HeroCarouselView: View {
                         .zIndex(index == currentIndex ? 1 : 0)
                     }
                 }
+                #if !os(tvOS)
                 .gesture(
                     DragGesture(minimumDistance: 15)
                         .onChanged { value in
@@ -111,10 +338,10 @@ struct HeroCarouselView: View {
                             
                             if value.translation.width < -threshold || velocity < -150 {
                                 // Swipe left → next
-                                advanceTo(index: (currentIndex + 1) % items.count)
+                                advanceTo(index: (currentIndex + 1) % slideCount)
                             } else if value.translation.width > threshold || velocity > 150 {
                                 // Swipe right → previous
-                                advanceTo(index: (currentIndex - 1 + items.count) % items.count)
+                                advanceTo(index: (currentIndex - 1 + slideCount) % slideCount)
                             } else {
                                 // Snap back
                                 withAnimation(slideSpring) {
@@ -123,17 +350,46 @@ struct HeroCarouselView: View {
                             }
                         }
                 )
+                #endif
                 
                 // Page indicators / progress bar
                 CarouselPageIndicator(
-                    totalPages: min(items.count, 10),
+                    totalPages: slideCount,
                     currentPage: currentIndex,
                     progress: timerManager.progress,
                     isTrailerPlaying: timerManager.isTrailerPlaying
                 )
+                #if os(tvOS)
+                .padding(.bottom, 40)
+                #else
                 .padding(.bottom, 16)
+                #endif
+                
+                #if os(tvOS)
+                // tvOS: single focusable button for select + swipe gestures for L/R
+                tvOSCarouselFocusable(width: width)
+                #endif
             }
         }
+        #if os(tvOS)
+        .aspectRatio(tvOSAspectRatio, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.25),
+                            Color.white.opacity(0.08),
+                            Color.clear
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1.0
+                )
+        )
+        #else
         .aspectRatio(aspectRatio, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
@@ -151,23 +407,69 @@ struct HeroCarouselView: View {
                     lineWidth: 0.75
                 )
         )
-        .padding(.horizontal, 12)
+        #endif
         .onReceive(timerManager.$shouldAdvance) { advance in
-            guard advance, items.count > 1 else { return }
+            guard advance, slideCount > 1 else { return }
             timerManager.shouldAdvance = false
-            advanceTo(index: (currentIndex + 1) % items.count)
+            if shouldWaitForTrailerLookup {
+                graceExtensions += 1
+                timerManager.extendTrailerGrace(by: HeroTrailerTiming.lookupGrace)
+                return
+            }
+            advanceTo(index: (currentIndex + 1) % slideCount)
         }
-        .onChange(of: items.count) { _, newCount in
-            if newCount == 0 { currentIndex = 0 }
-            else if currentIndex >= newCount { currentIndex = 0 }
+        .onChange(of: items.count) { _, _ in
+            if slideCount == 0 { currentIndex = 0 }
+            else if currentIndex >= slideCount { currentIndex = 0 }
         }
         .onAppear {
+            graceExtensions = 0
             timerManager.reset(defaultDuration: CarouselTimerManager.backdropDuration)
         }
         .task {
-            guard showTrailers else { return }
-            await trailerLoader.loadTrailers(for: items, isPortrait: isPortrait)
+            // Run artwork and trailer loading in parallel so trailers can arrive
+            // well before the carousel's backdrop timer + grace period expire.
+            if showTrailers {
+                async let artwork: Void = trailerLoader.loadArtwork(for: items)
+                async let trailers: Void = loadTrailersFirstSlideFirst()
+                _ = await (artwork, trailers)
+            } else {
+                await trailerLoader.loadArtwork(for: items)
+            }
         }
+    }
+
+    /// The slide that is already on screen goes to the front of the queue.
+    ///
+    /// Every slide's lookup used to be launched at once, so the one title with a
+    /// clock running against it shared the connection with nine that had all the
+    /// time in the world. Its own lookup is awaited first; the rest follow, and
+    /// the loader's memo means it isn't fetched twice.
+    private func loadTrailersFirstSlideFirst() async {
+        let visible = Array(items.prefix(maxSlides))
+        guard let first = visible[safe: currentIndex] ?? visible.first else { return }
+        await trailerLoader.loadTrailers(for: [first], isPortrait: isPortrait)
+        await trailerLoader.loadTrailers(for: visible, isPortrait: isPortrait)
+    }
+
+    /// Whether the slide on screen is still waiting to hear whether it has a
+    /// trailer at all. A finished lookup that found nothing is an answer — the
+    /// carousel moves on. Silence is not, and the fallback holds for it, up to
+    /// `HeroTrailerTiming.maxLookupExtensions` turns.
+    private var shouldWaitForTrailerLookup: Bool {
+        guard showTrailers,
+              graceExtensions < HeroTrailerTiming.maxLookupExtensions,
+              let item = Array(items.prefix(maxSlides))[safe: currentIndex] else { return false }
+        // Only ever hold on the way *into* a trailer. Once one has played, the
+        // post-trailer pause is the carousel working as intended and must not
+        // be extended.
+        guard timerManager.trailerPhase == .backdrop else { return false }
+        // Nothing is going to start while playback is suppressed — a carousel on
+        // a tab that isn't showing shouldn't sit on one slide waiting for it.
+        guard !HeroCarouselMuteManager.shared.shouldPause(tabID: tabID) else { return false }
+        // No answer yet, or an answer of yes that the player hasn't acted on.
+        return !trailerLoader.hasResolvedTrailerLookup(for: item.id)
+            || trailerLoader.preferredTrailers[item.id] != nil
     }
     
     // MARK: - Slide Positioning
@@ -205,9 +507,61 @@ struct HeroCarouselView: View {
             currentIndex = index
             dragOffset = 0
         }
+        // Each slide gets the hold budget in full, not what the last one left.
+        graceExtensions = 0
         timerManager.reset(defaultDuration: CarouselTimerManager.backdropDuration)
     }
+    
+    #if os(tvOS)
+    /// Single focusable button for the entire carousel area.
+    /// Select opens detail; Siri Remote left/right change slides.
+    /// Up/down pass through to the focus system for natural vertical navigation.
+    @ViewBuilder
+    private func tvOSCarouselFocusable(width: CGFloat) -> some View {
+        Button {
+            if let item = items[safe: currentIndex] {
+                onItemTap(item)
+            }
+        } label: {
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(TVOSCarouselButtonStyle())
+        .focused($isCarouselFocused)
+        .onChange(of: isCarouselFocused) { _, focused in
+            TVHeroFocusState.shared.isHeroFocused = focused
+        }
+        .onDisappear {
+            if isCarouselFocused { TVHeroFocusState.shared.isHeroFocused = false }
+        }
+        .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+            guard !timerManager.isTrailerPlaying, slideCount > 1 else { return .ignored }
+            if press.key == .leftArrow {
+                advanceTo(index: (currentIndex - 1 + slideCount) % slideCount)
+                return .handled
+            } else if press.key == .rightArrow {
+                advanceTo(index: (currentIndex + 1) % slideCount)
+                return .handled
+            }
+            return .ignored
+        }
+    }
+    #endif
 }
+
+#if os(tvOS)
+/// Button style for tvOS carousel — subtle focus highlight on the full carousel area
+struct TVOSCarouselButtonStyle: ButtonStyle {
+    @Environment(\.isFocused) private var isFocused
+    
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(isFocused ? 1.01 : 1.0)
+            .animation(.easeInOut(duration: 0.25), value: isFocused)
+    }
+}
+#endif
 
 // MARK: - Trailer Phase
 /// Describes the lifecycle of a trailer on a hero slide.
@@ -235,6 +589,7 @@ class CarouselTimerManager: ObservableObject {
     @Published var backdropTimerExpired = false
     
     private var timer: Timer?
+    private var postTrailerTimer: Timer?
     private var isPaused = false
     private var displayLink: CADisplayLink?
     private var progressTimer: Timer?
@@ -249,9 +604,22 @@ class CarouselTimerManager: ObservableObject {
     static let morphGracePeriod: TimeInterval = 1.5
     /// Extra time to allow trailer player to load before auto-advancing
     static let trailerLoadGracePeriod: TimeInterval = 8.0
+    /// Ceiling on a reported trailer length — a sanity guard against bad metadata,
+    /// not a playback budget. Long featurettes should still run to the end.
+    static let maxTrailerDuration: TimeInterval = 600
+    /// Headroom added to the backstop timer so buffering can't cut the final
+    /// seconds off a trailer that is still playing.
+    static let trailerTailGrace: TimeInterval = 4.0
+    /// Length assumed for a trailer that never reports one — streamed trailers
+    /// often read as indefinite, and YouTube's duration call can fail. The
+    /// trailer still has to be revealed, or it plays audibly behind the
+    /// backdrop; the player's own end-of-playback signal ends it on time.
+    static let unknownTrailerDuration: TimeInterval = 180
     
     func reset(defaultDuration: TimeInterval) {
         timer?.invalidate()
+        postTrailerTimer?.invalidate()
+        postTrailerTimer = nil
         stopDisplayLink()
         isPaused = false
         shouldAdvance = false
@@ -268,17 +636,33 @@ class CarouselTimerManager: ObservableObject {
     
     /// Called when the trailer player reports its duration and is ready to play.
     /// Restarts the timer/progress for the trailer playback phase.
+    ///
+    /// The timer is a *backstop*, not the authority on when the trailer ends —
+    /// `endTrailerPlayback()` is called when the player actually finishes. It is
+    /// therefore given headroom: a wall-clock timer set to the exact media length
+    /// will always beat the video, because playback starts a moment after this is
+    /// called and any rebuffering puts it further behind.
     func beginTrailerPlayback(duration trailerDuration: TimeInterval) {
         timer?.invalidate()
         stopDisplayLink()
         isPaused = false
-        let clamped = min(max(trailerDuration, 10), 180)
+        // Upper bound only guards against a bogus duration; it used to be 180s,
+        // which silently truncated any trailer longer than three minutes.
+        let clamped = min(max(trailerDuration, 10), CarouselTimerManager.maxTrailerDuration)
         self.duration = clamped
         isTrailerPlaying = true
         trailerPhase = .playing
         startTime = CACurrentMediaTime()
-        startTrailerTimer(interval: clamped)
+        startTrailerTimer(interval: clamped + CarouselTimerManager.trailerTailGrace)
         startDisplayLink()
+    }
+
+    /// Called when the player reports the trailer genuinely finished. Ends the
+    /// playing phase immediately rather than waiting out the backstop timer.
+    func endTrailerPlayback() {
+        guard isTrailerPlaying else { return }
+        timer?.invalidate()
+        finishTrailerPhase()
     }
     
     /// Called when there is no trailer for this slide — the backdrop timer
@@ -306,24 +690,52 @@ class CarouselTimerManager: ObservableObject {
         }
     }
     
+    /// Re-arms the auto-advance fallback without disturbing the dwell state.
+    ///
+    /// The fallback exists so a slide with no trailer still moves on. It was
+    /// also, though, cutting off slides whose trailer lookup simply hadn't come
+    /// back yet — which on a cold start is every time for the first slide,
+    /// because its clock starts the moment the carousel appears and the
+    /// lookup starts at the same instant. The carousel calls this instead of
+    /// advancing while it is still waiting on an answer.
+    func extendTrailerGrace(by interval: TimeInterval) {
+        guard !isTrailerPlaying else { return }
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self = self, !self.isTrailerPlaying else { return }
+                self.shouldAdvance = true
+            }
+        }
+    }
+
     private func startTrailerTimer(interval: TimeInterval) {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             DispatchQueue.main.async {
-                guard let self = self else { return }
-                // 1. Transition indicator back to dots
-                self.isTrailerPlaying = false
-                self.stopDisplayLink()
-                // 2. Enter post-trailer phase — show backdrop with title
-                withAnimation(.easeInOut(duration: 0.6)) {
-                    self.trailerPhase = .postTrailer
-                }
-                // 3. After backdrop display + morph grace, advance
-                let totalWait = CarouselTimerManager.morphGracePeriod + CarouselTimerManager.postTrailerBackdropDuration
-                DispatchQueue.main.asyncAfter(deadline: .now() + totalWait) {
-                    self.shouldAdvance = true
-                }
+                self?.finishTrailerPhase()
             }
+        }
+    }
+
+    /// Leaves the playing phase: dots return, the backdrop comes back, and the
+    /// slide advances after the usual grace. Shared by the backstop timer and the
+    /// player's own end-of-playback callback, whichever lands first.
+    private func finishTrailerPhase() {
+        guard isTrailerPlaying else { return }
+        // 1. Transition indicator back to dots
+        isTrailerPlaying = false
+        stopDisplayLink()
+        // 2. Enter post-trailer phase — show backdrop with title
+        withAnimation(.easeInOut(duration: 0.6)) {
+            trailerPhase = .postTrailer
+        }
+        // 3. After backdrop display + morph grace, advance.
+        // Use a stored Timer (not asyncAfter) so reset() can cancel it if the user
+        // swipes to a new slide before this fires.
+        let totalWait = CarouselTimerManager.morphGracePeriod + CarouselTimerManager.postTrailerBackdropDuration
+        postTrailerTimer = Timer.scheduledTimer(withTimeInterval: totalWait, repeats: false) { [weak self] _ in
+            DispatchQueue.main.async { self?.shouldAdvance = true }
         }
     }
     
@@ -365,6 +777,7 @@ class CarouselTimerManager: ObservableObject {
     
     deinit {
         timer?.invalidate()
+        postTrailerTimer?.invalidate()
         displayLink?.invalidate()
         progressTimer?.invalidate()
     }
@@ -380,37 +793,93 @@ private class DisplayLinkTarget {
 // MARK: - Trailer Loader
 @MainActor
 class HeroTrailerLoader: ObservableObject {
-    @Published var trailerKeys: [Int: String] = [:]
+    /// item.id → best Video to play (Direct addon URL preferred over YouTube)
+    @Published var preferredTrailers: [Int: Video] = [:]
     /// item.id → full logo URL string (FanArt.tv primary, TMDB fallback path prefixed with scheme)
     @Published var logoURLs: [Int: String] = [:]
     /// item.id → full backdrop URL string from FanArt.tv (nil = use TMDB backdrop)
     @Published var fanartBackdropURLs: [Int: String] = [:]
-    
+    /// item.id → FanArt.tv thumb URL (landscape image with title text overlay)
+    @Published var thumbURLs: [Int: String] = [:]
+    /// Ids whose trailer lookup has come back, whether or not it found anything.
+    ///
+    /// A carousel needs to tell "no trailer for this title" apart from "haven't
+    /// heard yet" — the first means move on, the second means wait. The absence
+    /// of an entry in `preferredTrailers` says both, so completion is recorded
+    /// separately. It doubles as the memo that stops a repeat call re-running
+    /// lookups that are already answered.
+    @Published private(set) var resolvedTrailerLookups: Set<Int> = []
+
+    /// True once this title's trailer lookup has finished, found or not.
+    func hasResolvedTrailerLookup(for id: Int) -> Bool {
+        resolvedTrailerLookups.contains(id)
+    }
+
     func loadTrailers(for items: [MediaItem], isPortrait: Bool) async {
-        // Load trailers, logos (FanArt→TMDB), and backdrops in parallel
+        let addons = StorageService.shared.settings.trailerAddons
+        let pending = items.prefix(10).filter { !resolvedTrailerLookups.contains($0.id) }
+        guard !pending.isEmpty else { return }
+        // Trailers-only: artwork is loaded separately by loadArtwork() which runs in parallel.
+        await withTaskGroup(of: (Int, Video?).self) { group in
+            for item in pending {
+                group.addTask {
+                    var allVideos: [Video] = []
+
+                    // On tvOS, YouTubePlayerKit is unavailable so TMDB YouTube trailers can't play.
+                    // Skip that fetch and go straight to Trailerio so we waste no bandwidth.
+                    // On iOS/macOS, fetch TMDB videos and the IMDB ID (for Trailerio) in parallel.
+                    #if os(tvOS)
+                    let imdbID = await HeroTrailerLoader.fetchIMDBID(for: item)
+                    if let imdbID, !imdbID.isEmpty, !addons.isEmpty {
+                        let addonVideos = await TrailerAddonService.shared.fetchTrailers(
+                            imdbID: imdbID,
+                            mediaType: item.resolvedMediaType,
+                            addons: addons
+                        )
+                        allVideos.append(contentsOf: addonVideos)
+                    }
+                    #else
+                    async let youtubeVideos = HeroTrailerLoader.fetchYouTubeVideos(for: item)
+                    async let imdbIDResult = HeroTrailerLoader.fetchIMDBID(for: item)
+
+                    allVideos.append(contentsOf: await youtubeVideos)
+
+                    if let imdbID = await imdbIDResult, !imdbID.isEmpty, !addons.isEmpty {
+                        let addonVideos = await TrailerAddonService.shared.fetchTrailers(
+                            imdbID: imdbID,
+                            mediaType: item.resolvedMediaType,
+                            addons: addons
+                        )
+                        allVideos.append(contentsOf: addonVideos)
+                    }
+                    #endif
+
+                    let preferred = HeroTrailerLoader.pickPreferredTrailer(from: allVideos, preferPortrait: isPortrait)
+                    return (item.id, preferred)
+                }
+            }
+            for await (id, preferred) in group {
+                if let preferred {
+                    preferredTrailers[id] = preferred
+                }
+                resolvedTrailerLookups.insert(id)
+            }
+        }
+    }
+    
+    /// Loads artwork (logos, backdrops, thumbs) for hero items — always called regardless of trailer setting.
+    func loadArtwork(for items: [MediaItem]) async {
         await withTaskGroup(of: (Int, String?, String?, String?).self) { group in
             for item in items.prefix(10) {
                 group.addTask {
-                    var trailerKey: String?
                     var logoURL: String?
                     var backdropURL: String?
-                    
-                    // Fetch trailer
-                    do {
-                        let videos: VideosResponse
-                        if item.resolvedMediaType == .movie {
-                            videos = try await TMDBService.shared.getMovieVideos(id: item.id)
-                        } else {
-                            videos = try await TMDBService.shared.getTVShowVideos(id: item.id)
-                        }
-                        trailerKey = HeroTrailerLoader.pickTrailerKey(from: videos.results, preferPortrait: isPortrait)
-                    } catch {}
+                    var thumbURL: String?
                     
                     // Fetch logo — FanArt.tv first, TMDB fallback
                     if let fanartLogo = await FanArtService.shared.getBestLogoURL(tmdbId: item.id, mediaType: item.resolvedMediaType) {
                         logoURL = fanartLogo.absoluteString
                     } else {
-                        // TMDB fallback
                         do {
                             let logos = try await TMDBService.shared.getMediaLogos(
                                 mediaType: item.resolvedMediaType,
@@ -431,81 +900,108 @@ class HeroTrailerLoader: ObservableObject {
                         backdropURL = fanartBG.absoluteString
                     }
                     
-                    return (item.id, trailerKey, logoURL, backdropURL)
+                    // Fetch thumb (text backdrop) — FanArt.tv
+                    if let fanartThumb = await FanArtService.shared.getBestThumbURL(tmdbId: item.id, mediaType: item.resolvedMediaType) {
+                        thumbURL = fanartThumb.absoluteString
+                    }
+
+                    // No FanArt thumb — fall back to a TMDB backdrop that has the
+                    // title lettering baked in. TMDB tags those with a language
+                    // code (textless art is tagged null), and `getMediaBackdrops`
+                    // already sorts English-language art first, so the first entry
+                    // tagged "en" is the text version.
+                    if thumbURL == nil {
+                        do {
+                            let backdrops = try await TMDBService.shared.getMediaBackdrops(
+                                mediaType: item.resolvedMediaType,
+                                id: item.id
+                            )
+                            if let textBackdrop = backdrops.first(where: { $0.iso639_1 == "en" }),
+                               let url = TMDBService.shared.imageURL(path: textBackdrop.filePath, size: .backdrop) {
+                                thumbURL = url.absoluteString
+                            }
+                        } catch {}
+                    }
+
+                    return (item.id, logoURL, backdropURL, thumbURL)
                 }
             }
-            for await (id, key, logo, backdrop) in group {
-                if let key = key {
-                    trailerKeys[id] = key
-                }
+            for await (id, logo, backdrop, thumb) in group {
                 if let logo = logo {
                     logoURLs[id] = logo
                 }
                 if let backdrop = backdrop {
                     fanartBackdropURLs[id] = backdrop
                 }
+                if let thumb = thumb {
+                    thumbURLs[id] = thumb
+                }
             }
         }
     }
     
-    /// Picks the best trailer key from a list of videos.
-    /// Broadened logic: accepts official trailers first, then teasers, then any YouTube video.
-    /// In portrait mode, prefer 9:16/vertical trailers or teasers when available.
-    nonisolated static func pickTrailerKey(from videos: [Video], preferPortrait: Bool) -> String? {
+    nonisolated static func fetchYouTubeVideos(for item: MediaItem) async -> [Video] {
+        do {
+            if item.resolvedMediaType == .movie {
+                return try await TMDBService.shared.getMovieVideos(id: item.id).results
+            } else {
+                return try await TMDBService.shared.getTVShowVideos(id: item.id).results
+            }
+        } catch { return [] }
+    }
+
+    nonisolated static func fetchIMDBID(for item: MediaItem) async -> String? {
+        do {
+            if item.resolvedMediaType == .movie {
+                return try await TMDBService.shared.getMovieDetails(id: item.id).imdbId
+            } else {
+                return try await TMDBService.shared.getTVShowDetails(id: item.id).externalIds?.imdbId
+            }
+        } catch { return nil }
+    }
+
+    /// Picks the best trailer Video from a merged list of TMDB + addon videos.
+    /// Mirrors computePreferredTrailer in MediaDetailView:
+    ///   1. Direct addon trailer (Trailerio etc.) — VPN-safe, works on all platforms
+    ///   2. Any other direct addon video
+    ///   3. Best YouTube trailer/teaser using official/non-final priority
+    /// In portrait mode, vertical YouTube trailers are preferred over landscape ones.
+    nonisolated static func pickPreferredTrailer(from videos: [Video], preferPortrait: Bool) -> Video? {
+        // Priority 0: Direct addon trailers (works on all platforms including tvOS)
+        let directTrailers = videos.filter { $0.site.lowercased() == "direct" && $0.type.lowercased() == "trailer" }
+        if let pick = directTrailers.first { return pick }
+        let anyDirect = videos.first { $0.site.lowercased() == "direct" }
+        if let pick = anyDirect { return pick }
+
+        // Priority 1+: YouTube — same priority logic as MediaDetailView
         let yt = videos.filter { $0.site.lowercased() == "youtube" }
         guard !yt.isEmpty else { return nil }
-        
+
         if preferPortrait {
             let verticalKeywords = ["9:16", "9x16", "vertical", "portrait", "shorts", "reel", "tiktok", "instagram"]
-            let isVertical: (Video) -> Bool = { video in
-                let name = video.name.lowercased()
-                return verticalKeywords.contains { name.contains($0) }
+            let verticalTrailers = yt.filter { v in
+                let name = v.name.lowercased()
+                let type = v.type.lowercased()
+                return verticalKeywords.contains { name.contains($0) } && (type == "trailer" || type == "teaser")
             }
-            let isTrailerOrTeaser: (Video) -> Bool = { video in
-                let type = video.type.lowercased()
-                return type == "trailer" || type == "teaser"
-            }
-            
-            let verticalTrailers = yt.filter { isVertical($0) && isTrailerOrTeaser($0) }
-            if let pick = verticalTrailers.first {
-                return pick.key
-            }
+            if let pick = verticalTrailers.first { return pick }
         }
-        
-        // Priority 1: Official trailer (not a "final" one to avoid spoilers)
-        let officialTrailers = yt.filter { v in
-            v.type.lowercased() == "trailer" && v.official == true
-        }
-        let nonFinalOfficialTrailers = officialTrailers.filter { v in
+
+        let filtered = yt.filter { v in
             let name = v.name.lowercased()
-            return !name.contains("final trailer") && !name.contains("final teaser")
+            let type = v.type.lowercased()
+            let isTrailerOrTeaser = type == "trailer" || type == "teaser"
+            let isFinal = name.contains("final trailer") || name.contains("final teaser") || name.contains("final")
+            return isTrailerOrTeaser && !isFinal
         }
-        if let pick = nonFinalOfficialTrailers.first ?? officialTrailers.first {
-            return pick.key
-        }
-        
-        // Priority 2: Any trailer (official or not)
-        let anyTrailers = yt.filter { $0.type.lowercased() == "trailer" }
-        if let pick = anyTrailers.first {
-            return pick.key
-        }
-        
-        // Priority 3: Official teaser
-        let officialTeasers = yt.filter { v in
-            v.type.lowercased() == "teaser" && v.official == true
-        }
-        if let pick = officialTeasers.first {
-            return pick.key
-        }
-        
-        // Priority 4: Any teaser
-        let anyTeasers = yt.filter { $0.type.lowercased() == "teaser" }
-        if let pick = anyTeasers.first {
-            return pick.key
-        }
-        
-        // Priority 5: Any YouTube clip/featurette as last resort
-        return yt.first?.key
+
+        if let pick = filtered.first(where: { $0.type.lowercased() == "trailer" && $0.official == true }) { return pick }
+        if let pick = filtered.first(where: { $0.type.lowercased() == "teaser" && $0.official == true }) { return pick }
+        if let pick = filtered.first(where: { $0.type.lowercased() == "trailer" }) { return pick }
+        if let pick = filtered.first(where: { $0.type.lowercased() == "teaser" }) { return pick }
+
+        // Last resort: any YouTube video
+        return yt.first
     }
 }
 
@@ -513,11 +1009,14 @@ class HeroTrailerLoader: ObservableObject {
 struct HeroCarouselSlide: View {
     let item: MediaItem
     let isActive: Bool
-    let trailerKey: String?
+    /// Best trailer to play — Direct addon URL preferred over YouTube (same logic as MediaDetailView)
+    let preferredTrailer: Video?
     /// Full URL string for the logo (FanArt.tv or TMDB)
     let logoURL: String?
     /// Full URL string for the FanArt.tv backdrop (nil = use TMDB)
     let fanartBackdropURL: String?
+    /// Full URL string for the FanArt.tv thumb (landscape image with title text)
+    let thumbURL: String?
     let onTap: () -> Void
     let slideSize: CGSize
     let colorScheme: ColorScheme
@@ -527,8 +1026,13 @@ struct HeroCarouselSlide: View {
     let showTrailers: Bool
     /// Whether the carousel is in portrait (poster) orientation
     var isPortrait: Bool = false
+    /// Identifies which tab this carousel belongs to (nil = always active)
+    var tabID: String?
     var onTrailerDurationKnown: ((TimeInterval) -> Void)?
-    
+    /// Fired when the player reports the trailer genuinely finished, so the
+    /// carousel can leave the playing phase without waiting out its backstop timer.
+    var onTrailerEnded: (() -> Void)?
+
     @State private var showTrailer = false
     @StateObject private var playerVM = HeroPlayerViewModel()
     
@@ -551,8 +1055,22 @@ struct HeroCarouselSlide: View {
             Color.black
             
             // Layer 1: Trailer video (rendered first / bottom of stack)
-            #if !os(tvOS)
-            if showTrailers, showTrailer, let player = playerVM.player {
+            #if os(tvOS)
+            if showTrailers, showTrailer, let avPlayer = playerVM.avPlayer {
+                AmbientVideoView(player: avPlayer)
+                    .frame(width: slideWidth, height: slideHeight)
+                    .allowsHitTesting(false)
+                    .opacity(isPostTrailer ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.8), value: isPostTrailer)
+            }
+            #else
+            if showTrailers, showTrailer, let avPlayer = playerVM.avPlayer {
+                AmbientVideoView(player: avPlayer)
+                    .frame(width: slideWidth, height: slideHeight)
+                    .allowsHitTesting(false)
+                    .opacity(isPostTrailer ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.8), value: isPostTrailer)
+            } else if showTrailers, showTrailer, let player = playerVM.player {
                 YouTubePlayerKit.YouTubePlayerView(player)
                     .frame(width: slideWidth, height: slideHeight)
                     .allowsHitTesting(false)
@@ -566,6 +1084,16 @@ struct HeroCarouselSlide: View {
                 .opacity(trailerIsVisible ? 0 : 1)
                 .animation(.easeInOut(duration: 0.6), value: trailerIsVisible)
                 .allowsHitTesting(false)
+                .overlay(alignment: .topTrailing) {
+                    #if os(tvOS)
+                    StreamingLogoBadge(mediaId: item.id, mediaType: item.resolvedMediaType)
+                        .scaleEffect(1.5)
+                        .padding(32)
+                    #else
+                    StreamingLogoBadge(mediaId: item.id, mediaType: item.resolvedMediaType, scale: 3.5, studioScale: 1.8)
+                        .padding(16)
+                    #endif
+                }
             
             // Layer 3: Bottom vignette / scrim for text legibility
             VStack(spacing: 0) {
@@ -580,35 +1108,24 @@ struct HeroCarouselSlide: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(height: slideHeight * 0.55)
+                .frame(height: slideHeight * 0.45)
             }
             .allowsHitTesting(false)
             
             // Layer 4: Content overlay — logo/title, meta (shown when NOT playing trailer)
             if !trailerIsVisible {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: tvOSScaled(8, tv: 16)) {
                     Spacer()
                     
-                    // Show logo if available, otherwise fall back to text title
-                    if let logoURLStr = logoURL,
-                       let resolvedLogoURL = URL(string: logoURLStr) {
-                        AsyncImage(url: resolvedLogoURL) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(maxWidth: slideWidth * 0.55, maxHeight: 60)
-                                    .shadow(color: .black.opacity(0.6), radius: 6, y: 3)
-                            default:
-                                backdropTitleText
-                            }
-                        }
-                    } else {
+                    // The backdrop is chosen to carry its own title lettering, so
+                    // nothing is drawn over it. Only when no text backdrop could be
+                    // found does the plain title appear — never the separate logo
+                    // artwork, which reads as an oversized sticker on the image.
+                    if !isThumbBackdrop {
                         backdropTitleText
                     }
                     
-                    HStack(spacing: 12) {
+                    HStack(spacing: tvOSScaled(12, tv: 20)) {
                         if let year = item.year {
                             Text(year)
                                 .foregroundColor(.white.opacity(0.85))
@@ -622,16 +1139,56 @@ struct HeroCarouselSlide: View {
                             }
                         }
                     }
+                    #if os(tvOS)
+                    .font(.title3)
+                    #else
                     .font(.subheadline)
+                    #endif
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 50)
+                .padding(.horizontal, tvOSScaled(20, tv: 80))
+                .padding(.bottom, tvOSScaled(32, tv: 100))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .transition(.opacity.animation(.easeInOut(duration: 0.5)))
             }
             
             // Layer 5: Trailer-playing overlay — mute button + logo + TRAILER badge
             if showTrailers && trailerIsVisible {
+                #if os(tvOS)
+                // tvOS: bottom-left logo + TRAILER badge (no mute button — controlled by remote)
+                VStack(alignment: .leading, spacing: 8) {
+                    Spacer()
+                    HStack(spacing: 14) {
+                        if let logoURLStr = logoURL,
+                           let resolvedLogoURL = URL(string: logoURLStr) {
+                            AsyncImage(url: resolvedLogoURL) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(maxHeight: 56)
+                                        .shadow(color: .black.opacity(0.6), radius: 6, y: 3)
+                                default:
+                                    titleTextFallback
+                                }
+                            }
+                        } else {
+                            titleTextFallback
+                        }
+                        
+                        Text("TRAILER")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.white.opacity(0.85))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Capsule().fill(.black.opacity(0.5)))
+                    }
+                }
+                .padding(.horizontal, 80)
+                .padding(.bottom, 100)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(.opacity)
+                #else
                 // Mute button (top-right)
                 VStack {
                     HStack {
@@ -692,6 +1249,7 @@ struct HeroCarouselSlide: View {
                 .padding(.bottom, 50)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .transition(.opacity)
+                #endif
             }
         }
         .frame(width: slideWidth, height: slideHeight)
@@ -703,6 +1261,8 @@ struct HeroCarouselSlide: View {
             guard showTrailers else { return }
             if expired && isActive {
                 startTrailerIfNeeded()
+            } else if !expired {
+                stopTrailer()
             }
         }
         .onChange(of: isActive) { _, active in
@@ -717,37 +1277,40 @@ struct HeroCarouselSlide: View {
                 stopTrailer()
             }
         }
-        .onChange(of: trailerKey) { _, newKey in
+        // When the preferred trailer arrives (possibly after the backdrop timer already fired), start it.
+        .onChange(of: preferredTrailer?.id) { _, newID in
             guard showTrailers else { return }
-            if newKey != nil && isActive && backdropTimerExpired {
+            if newID != nil && isActive && backdropTimerExpired {
+                #if !os(tvOS)
+                // If a YouTube player is already running but a direct URL just arrived, restart.
+                if showTrailer && playerVM.avPlayer == nil {
+                    stopTrailer()
+                }
+                #endif
                 startTrailerIfNeeded()
             }
         }
-        #if !os(tvOS)
         .onChange(of: trailerPhase) { _, phase in
             guard showTrailers else { return }
-            // When entering post-trailer, pause the YouTube player
-            if phase == .postTrailer, let p = playerVM.player {
-                Task { try? await p.pause() }
+            if phase == .postTrailer {
+                playerVM.pausePlayback()
             }
+        }
+        .onChange(of: playerVM.didFinishPlaying) { _, finished in
+            guard showTrailers, finished, isActive else { return }
+            onTrailerEnded?()
         }
         .onChange(of: playerVM.isReady) { _, ready in
-            guard showTrailers else { return }
-            if ready && isActive {
-                // Player is ready — get the duration and tell the timer to start trailer playback
-                if let p = playerVM.player {
-                    Task {
-                        if let duration = try? await p.getDuration() {
-                            let seconds = duration.converted(to: .seconds).value
-                            if seconds > 0 {
-                                onTrailerDurationKnown?(seconds)
-                            }
-                        }
-                    }
-                }
+            guard showTrailers, ready, isActive else { return }
+            // Always reports a length — the trailer is only revealed once one
+            // arrives, so a stream that never reports its own would otherwise
+            // play unseen behind the backdrop.
+            Task { @MainActor in
+                let seconds = await playerVM.resolveTrailerDuration()
+                guard isActive, showTrailer, playerVM.isReady else { return }
+                onTrailerDurationKnown?(seconds)
             }
         }
-        #endif
         .onDisappear {
             if showTrailers {
                 stopTrailer()
@@ -755,14 +1318,29 @@ struct HeroCarouselSlide: View {
         }
     }
     
+    /// Fallback: show logo if available, otherwise text title
+    @ViewBuilder
     /// Large text fallback for backdrop view when logo isn't available
     private var backdropTitleText: some View {
         Text(item.displayTitle)
+            #if os(tvOS)
+            .font(.system(size: 52, weight: .bold))
+            #else
             .font(.title)
+            #endif
             .fontWeight(.bold)
             .foregroundColor(.white)
             .lineLimit(2)
             .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+    }
+    
+    /// Returns the tvOS value on tvOS, otherwise the default value
+    private func tvOSScaled<T: BinaryFloatingPoint>(_ defaultValue: T, tv tvValue: T) -> T {
+        #if os(tvOS)
+        return tvValue
+        #else
+        return defaultValue
+        #endif
     }
     
     /// Small text fallback for trailer overlay when logo isn't available
@@ -775,11 +1353,23 @@ struct HeroCarouselSlide: View {
             .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
     }
     
-    /// Resolved image URL: In portrait mode, use poster; in landscape, use backdrop (FanArt.tv → TMDB fallback)
+    /// Whether the resolved backdrop already carries the title lettering — either a
+    /// FanArt.tv thumb or a TMDB language-tagged backdrop. When true, no title is
+    /// drawn on top of the image.
+    private var isThumbBackdrop: Bool {
+        if isPortrait { return false }
+        return thumbURL != nil
+    }
+    
+    /// Resolved image URL: In portrait mode, use poster; in landscape, prefer thumb (text backdrop) → fanart backdrop → TMDB fallback
     private var resolvedBackdropURL: URL? {
         if isPortrait {
             // Portrait mode: use poster image (w500) for better visual fit
             return TMDBService.shared.imageURL(path: item.posterPath, size: .large)
+        }
+        // Prefer FanArt.tv thumb (text backdrop) — has title text baked into the image
+        if let thumbStr = thumbURL, let url = URL(string: thumbStr) {
+            return url
         }
         if let fanartStr = fanartBackdropURL, let url = URL(string: fanartStr) {
             return url
@@ -841,9 +1431,23 @@ struct HeroCarouselSlide: View {
     }
     
     private func startTrailerIfNeeded() {
-        guard showTrailers, let key = trailerKey else { return }
+        guard showTrailers else { return }
+        guard !HeroCarouselMuteManager.shared.shouldPause(tabID: tabID) else { return }
+        guard let trailer = preferredTrailer else { return }
+        let isDirect = trailer.site.lowercased() == "direct"
+        #if os(tvOS)
+        // YouTubePlayerKit is unavailable on tvOS — only play direct addon URLs.
+        guard isDirect else { return }
         showTrailer = true
-        playerVM.setup(videoKey: key)
+        playerVM.setup(videoKey: trailer.key, tabID: tabID)
+        #else
+        showTrailer = true
+        if isDirect {
+            playerVM.setupDirect(urlString: trailer.key, tabID: tabID)
+        } else {
+            playerVM.setup(videoKey: trailer.key, tabID: tabID)
+        }
+        #endif
     }
     
     private func stopTrailer() {
@@ -856,22 +1460,39 @@ struct HeroCarouselSlide: View {
 #if !os(tvOS)
 class HeroPlayerViewModel: ObservableObject {
     @Published var player: YouTubePlayer?
+    /// Set when a Trailerio/addon direct URL is used instead of YouTube
+    @Published var avPlayer: AVPlayer?
     @Published var isReady = false
     @Published var isMuted = true
-    
+    /// Flips true when the trailer actually reaches its end. The carousel listens
+    /// for this rather than relying solely on a wall-clock timer, which drifts
+    /// ahead of playback whenever the video buffers.
+    @Published var didFinishPlaying = false
+
+    private var endObserver: NSObjectProtocol?
+    private var playbackStateCancellable: AnyCancellable?
     private var stateCancellable: AnyCancellable?
-    private var externalMuteCancellable: AnyCancellable?
+    private var pauseCancellable: AnyCancellable?
+    private var sharedMuteCancellable: AnyCancellable?
+    /// Owns the direct-URL player: buffering, stall recovery and ordered teardown.
+    private var directSession: TrailerPlaybackSession?
     /// Tracks the user's chosen mute state before external muting was applied
     private var userMutePreference: Bool = true
+    /// Whether the player was actively playing before being externally paused
+    private var wasPlayingBeforePause = false
+    /// The tab this player belongs to (nil = always active)
+    private var tabID: String?
     
     @MainActor
-    func setup(videoKey: String) {
+    func setup(videoKey: String, tabID: String? = nil) {
         guard player == nil else { return }
-        
-        let startMuted = StorageService.shared.settings.autoPlayTrailersMuted
+        self.tabID = tabID
+
+        let startMuted = HeroCarouselMuteManager.shared.resolvedMuted
         isMuted = startMuted
         userMutePreference = startMuted
-        
+        observeSharedMute()
+
         let ytPlayer = YouTubePlayer(
             source: .video(id: videoKey),
             parameters: .init(
@@ -892,7 +1513,15 @@ class HeroPlayerViewModel: ObservableObject {
         )
         
         player = ytPlayer
-        
+        let mgr = HeroCarouselMuteManager.shared
+
+        // `statePublisher` reports load state (ready/error); playback completion
+        // comes from the separate playback-state stream.
+        playbackStateCancellable = ytPlayer.playbackStatePublisher.sink { [weak self] playbackState in
+            guard playbackState == .ended else { return }
+            DispatchQueue.main.async { self?.didFinishPlaying = true }
+        }
+
         stateCancellable = ytPlayer.statePublisher.sink { [weak self] state in
             DispatchQueue.main.async {
                 guard let self = self else { return }
@@ -900,15 +1529,17 @@ class HeroPlayerViewModel: ObservableObject {
                 case .ready:
                     self.isReady = true
                     Task {
-                        // If externally muted, always mute regardless of user preference
-                        let shouldMute = self.isMuted || HeroCarouselMuteManager.shared.isExternallyMuted
+                        let shouldPause = mgr.shouldPause(tabID: self.tabID)
+                        let shouldMute = self.isMuted || shouldPause
                         if shouldMute {
                             try? await ytPlayer.mute()
                         } else {
                             try? await ytPlayer.unmute()
                         }
-                        // Ensure playback starts
-                        try? await ytPlayer.play()
+                        // Only start playback if this tab is active
+                        if !shouldPause {
+                            try? await ytPlayer.play()
+                        }
                     }
                 default:
                     break
@@ -916,18 +1547,22 @@ class HeroPlayerViewModel: ObservableObject {
             }
         }
         
-        // Observe external mute requests (e.g. when a detail page opens)
-        externalMuteCancellable = HeroCarouselMuteManager.shared.$isExternallyMuted
+        // Observe both isExternallyMuted and activeTabID to pause/resume
+        pauseCancellable = mgr.pauseConditionsPublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] externallyMuted in
+            .sink { [weak self] in
                 guard let self = self, let p = self.player, self.isReady else { return }
-                if externallyMuted {
-                    // Save current user preference before forcing mute
+                let shouldPause = mgr.shouldPause(tabID: self.tabID)
+                if shouldPause {
                     self.userMutePreference = self.isMuted
                     self.isMuted = true
-                    Task { try? await p.mute() }
-                } else {
-                    // Restore the user's preference when external mute is lifted
+                    self.wasPlayingBeforePause = true
+                    Task {
+                        try? await p.pause()
+                        try? await p.mute()
+                    }
+                } else if self.wasPlayingBeforePause {
+                    self.wasPlayingBeforePause = false
                     self.isMuted = self.userMutePreference
                     Task {
                         if self.userMutePreference {
@@ -935,29 +1570,189 @@ class HeroPlayerViewModel: ObservableObject {
                         } else {
                             try? await p.unmute()
                         }
+                        try? await p.play()
                     }
                 }
             }
     }
     
-    func teardown() {
-        Task { @MainActor in
-            if let p = player {
-                try? await p.pause()
+    /// Sets up AVPlayer for a direct-play URL (Trailerio / addon). Preferred over YouTube when available.
+    @MainActor
+    func setupDirect(urlString: String, tabID: String? = nil) {
+        guard avPlayer == nil, player == nil else { return }
+        guard let url = URL(string: urlString) else { return }
+        self.tabID = tabID
+
+        let startMuted = HeroCarouselMuteManager.shared.resolvedMuted
+        isMuted = startMuted
+        userMutePreference = startMuted
+        observeSharedMute()
+
+        #if !os(macOS)
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
+
+        let session = TrailerPlaybackSession(url: url, muted: startMuted)
+        directSession = session
+        let av = session.player
+        avPlayer = av
+        observePlaybackEnd(of: av)
+
+        let mgr = HeroCarouselMuteManager.shared
+
+        // Playback waits for a buffer that can actually play through, not just for
+        // the item to report `.readyToPlay`.
+        session.onReadyToPlay = { [weak self] in
+            guard let self else { return }
+            self.isReady = true
+            if !mgr.shouldPause(tabID: self.tabID) {
+                session.play()
             }
-            player = nil
-            isReady = false
-            stateCancellable = nil
-            externalMuteCancellable = nil
+        }
+
+        // An unplayable or repeatedly stalling URL is treated like a finished trailer
+        // so the carousel moves on instead of holding a black slide.
+        session.onFailure = { [weak self] in
+            self?.didFinishPlaying = true
+        }
+
+        pauseCancellable = mgr.pauseConditionsPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                guard let self, let p = self.avPlayer else { return }
+                let shouldPause = mgr.shouldPause(tabID: self.tabID)
+                if shouldPause {
+                    if p.rate > 0 { self.wasPlayingBeforePause = true }
+                    session.pause()
+                } else if self.wasPlayingBeforePause && self.isReady {
+                    self.wasPlayingBeforePause = false
+                    self.isMuted = self.userMutePreference
+                    p.isMuted = self.isMuted
+                    session.play()
+                }
+            }
+    }
+
+    /// Posts `didFinishPlaying` when the item reaches its natural end.
+    private func observePlaybackEnd(of player: AVPlayer) {
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem,
+            queue: .main
+        ) { [weak self] _ in
+            self?.didFinishPlaying = true
         }
     }
-    
+
+    /// Pauses without tearing down — used for the post-trailer backdrop reveal. Goes
+    /// through the session so it also cancels any in-flight stall recovery, which
+    /// would otherwise resume playback behind the fade.
+    @MainActor
+    func pausePlayback() {
+        directSession?.pause()
+        if let p = player {
+            Task { try? await p.pause() }
+        }
+    }
+
+    /// The trailer's length, for the carousel's playing phase. Always returns
+    /// a value: the carousel only reveals the trailer once it has one, so a
+    /// length that can't be read must not leave it hidden behind the backdrop.
+    @MainActor
+    func resolveTrailerDuration() async -> TimeInterval {
+        for attempt in 0..<4 {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
+            if let av = avPlayer, let seconds = await Self.knownDuration(of: av) {
+                return seconds
+            }
+            if avPlayer == nil, let p = player,
+               let duration = try? await p.getDuration() {
+                let seconds = duration.converted(to: .seconds).value
+                if seconds > 0 { return seconds }
+            }
+            if avPlayer == nil && player == nil { break }
+        }
+        return CarouselTimerManager.unknownTrailerDuration
+    }
+
+    /// The item's own duration fills in once playback starts, including for
+    /// streams whose asset reports indefinite; the asset is the fallback.
+    @MainActor
+    static func knownDuration(of player: AVPlayer) async -> TimeInterval? {
+        guard let item = player.currentItem else { return nil }
+        if item.duration.isNumeric {
+            let seconds = CMTimeGetSeconds(item.duration)
+            if seconds > 0 { return seconds }
+        }
+        if let duration = try? await item.asset.load(.duration), duration.isNumeric {
+            let seconds = CMTimeGetSeconds(duration)
+            if seconds > 0 { return seconds }
+        }
+        return nil
+    }
+
+    @MainActor
+    func teardown() {
+        // Close the direct session before dropping the reference: it detaches the item
+        // while the player is still alive, so CoreMedia isn't left reporting a stall
+        // against a session it has already discarded.
+        directSession?.invalidate()
+        directSession = nil
+        avPlayer = nil
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+            self.endObserver = nil
+        }
+        playbackStateCancellable = nil
+        didFinishPlaying = false
+        if let p = player {
+            Task { try? await p.pause() }
+        }
+        player = nil
+        isReady = false
+        stateCancellable = nil
+        pauseCancellable = nil
+        sharedMuteCancellable = nil
+        wasPlayingBeforePause = false
+    }
+
+    /// Publishes the new state to every hero player; this one picks it up
+    /// through `observeSharedMute` like the rest.
+    @MainActor
     func toggleMute() {
-        isMuted.toggle()
-        userMutePreference = isMuted
+        HeroCarouselMuteManager.shared.setUserMuted(!isMuted)
+    }
+
+    /// Follows the shared mute choice, so pressing mute on any hero trailer
+    /// applies to this one too.
+    @MainActor
+    private func observeSharedMute() {
+        sharedMuteCancellable = HeroCarouselMuteManager.shared.$userMuted
+            .compactMap { $0 }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] muted in
+                self?.applyUserMute(muted)
+            }
+    }
+
+    private func applyUserMute(_ muted: Bool) {
+        userMutePreference = muted
+        // While externally paused the player stays silenced; the preference
+        // is restored when it resumes.
+        guard !wasPlayingBeforePause, isMuted != muted else { return }
+        isMuted = muted
+        if let av = avPlayer {
+            av.isMuted = muted
+            return
+        }
         guard let p = player else { return }
         Task {
-            if isMuted {
+            if muted {
                 try? await p.mute()
             } else {
                 try? await p.unmute()
@@ -967,17 +1762,130 @@ class HeroPlayerViewModel: ObservableObject {
 }
 #else
 class HeroPlayerViewModel: ObservableObject {
+    @Published var avPlayer: AVPlayer?
     @Published var isReady = false
     @Published var isMuted = true
+    /// Flips true when the trailer actually reaches its end — see the non-tvOS
+    /// view model for why the wall-clock timer alone isn't trusted.
+    @Published var didFinishPlaying = false
+
+    private var endObserver: NSObjectProtocol?
+    /// Owns the player: buffering, stall recovery and ordered teardown.
+    private var directSession: TrailerPlaybackSession?
+    private var pauseCancellable: AnyCancellable?
+    /// Whether the player was playing before being externally paused
+    private var wasPlayingBeforeExternalPause = false
+    /// The tab this player belongs to (nil = always active)
+    private var tabID: String?
     
     @MainActor
-    func setup(videoKey: String) {
+    func setup(videoKey: String, tabID: String? = nil) {
+        guard avPlayer == nil else { return }
+        guard let url = URL(string: videoKey) else { return }
+        self.tabID = tabID
+
+        let startMuted = HeroCarouselMuteManager.shared.resolvedMuted
+        isMuted = startMuted
+
+        // Configure audio session for media playback
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        
+        let session = TrailerPlaybackSession(url: url, muted: startMuted)
+        directSession = session
+        let player = session.player
+        avPlayer = player
+
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem,
+            queue: .main
+        ) { [weak self] _ in
+            self?.didFinishPlaying = true
+        }
+
+        let mgr = HeroCarouselMuteManager.shared
+
+        // Start on a buffer that can play through, not merely on `.readyToPlay`.
+        session.onReadyToPlay = { [weak self] in
+            guard let self else { return }
+            self.isReady = true
+            // Only start playing if not paused by tab switch or detail page
+            if !mgr.shouldPause(tabID: self.tabID) {
+                session.play()
+            }
+        }
+
+        // An unplayable or repeatedly stalling URL is treated like a finished trailer
+        // so the carousel moves on instead of holding a black slide.
+        session.onFailure = { [weak self] in
+            self?.didFinishPlaying = true
+        }
+
+        // Observe both isExternallyMuted and activeTabID to pause/resume
+        pauseCancellable = mgr.pauseConditionsPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                guard let self = self, let p = self.avPlayer else { return }
+                let shouldPause = mgr.shouldPause(tabID: self.tabID)
+                if shouldPause {
+                    if p.rate > 0 {
+                        self.wasPlayingBeforeExternalPause = true
+                    }
+                    session.pause()
+                } else if self.wasPlayingBeforeExternalPause && self.isReady {
+                    self.wasPlayingBeforeExternalPause = false
+                    session.play()
+                }
+            }
     }
-    
+
+    /// Pauses without tearing down — used for the post-trailer backdrop reveal, and
+    /// routed through the session so in-flight stall recovery is cancelled too.
+    @MainActor
+    func pausePlayback() {
+        directSession?.pause()
+    }
+
+    /// See the non-tvOS view model: always yields a length so the trailer is
+    /// revealed even when the stream never reports one.
+    @MainActor
+    func resolveTrailerDuration() async -> TimeInterval {
+        for attempt in 0..<4 {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
+            guard let av = avPlayer, let item = av.currentItem else { break }
+            if item.duration.isNumeric {
+                let seconds = CMTimeGetSeconds(item.duration)
+                if seconds > 0 { return seconds }
+            }
+            if let duration = try? await item.asset.load(.duration), duration.isNumeric {
+                let seconds = CMTimeGetSeconds(duration)
+                if seconds > 0 { return seconds }
+            }
+        }
+        return CarouselTimerManager.unknownTrailerDuration
+    }
+
+    @MainActor
     func teardown() {
+        // Detach the item while the player is still alive — see the direct session's
+        // `invalidate()` for why the order matters to CoreMedia's stall reporting.
+        directSession?.invalidate()
+        directSession = nil
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+            self.endObserver = nil
+        }
+        pauseCancellable = nil
+        avPlayer = nil
+        isReady = false
+        didFinishPlaying = false
+        wasPlayingBeforeExternalPause = false
     }
     
     func toggleMute() {
+        isMuted.toggle()
+        avPlayer?.isMuted = isMuted
     }
 }
 #endif
@@ -995,11 +1903,19 @@ struct CarouselPageIndicator: View {
     let isTrailerPlaying: Bool
     
     // Layout constants
+    #if os(tvOS)
+    private let dotHeight: CGFloat = 6
+    private let inactiveDotWidth: CGFloat = 28
+    private let activeDotWidth: CGFloat = 52
+    private let trailerActiveDotWidth: CGFloat = 72
+    private let dotSpacing: CGFloat = 10
+    #else
     private let dotHeight: CGFloat = 4
     private let inactiveDotWidth: CGFloat = 16
     private let activeDotWidth: CGFloat = 32
     private let trailerActiveDotWidth: CGFloat = 48
     private let dotSpacing: CGFloat = 6
+    #endif
     
     var body: some View {
         HStack(spacing: dotSpacing) {

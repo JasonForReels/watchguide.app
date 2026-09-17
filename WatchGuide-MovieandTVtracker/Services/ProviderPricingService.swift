@@ -96,7 +96,7 @@ enum ProviderPricingService {
         add(337, "JP", "¥990/月")
         add(337, "KR", "₩9,900/월")
         add(337, "IN", "₹299/mo")
-        add(337, "ZA", "R79/mo")
+        add(337, "ZA", "R49/mo")
         add(337, "SG", "S$9.98/mo")
         add(337, "ID", "Rp39,000/bln")
         add(337, "PH", "₱159/mo")

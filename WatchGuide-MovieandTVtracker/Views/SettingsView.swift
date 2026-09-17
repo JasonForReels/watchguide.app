@@ -5,15 +5,31 @@
 
 import SwiftUI
 import AuthenticationServices
-#if os(iOS)
+#if canImport(UIKit)
 import UIKit
+#endif
+#if os(tvOS)
+import CoreImage.CIFilterBuiltins
 #endif
 
 struct SettingsView: View {
+    /// Read reactively so the Atlas row's subtitle updates when the persona
+    /// changes in the detail screen.
+    @AppStorage(AtlasPersona.storageKey) private var atlasPersonaRaw = AtlasPersona.default.rawValue
+
+    enum DisplayMode {
+        case all
+        case accountOnly
+        case settingsOnly
+    }
+
     @ObservedObject private var storage = StorageService.shared
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var profileService = ProfileService.shared
     @ObservedObject private var scoutSubscription = ScoutSubscriptionService.shared
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var traktService = TraktService.shared
+    private let displayMode: DisplayMode
     @State private var settings: UserSettings
     @State private var showClearDataAlert = false
     @State private var showAuthSheet = false
@@ -23,7 +39,9 @@ struct SettingsView: View {
     @State private var showPasscodeEntry = false
     @State private var passcodeAction: PasscodeAction = .disableKids
     @State private var showEditProfile = false
+    @State private var showProfilePicker = false
     @State private var scoutIAPStatusMessage: String?
+    @State private var traktStatusMessage: String?
     
     private let communityURLString = "https://discord.watchguide.app"
     private let scoutTermsURLString = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
@@ -35,148 +53,375 @@ struct SettingsView: View {
         case changePasscode    // Change the parent passcode
     }
     
-    init() {
+    init(displayMode: DisplayMode = .all) {
+        self.displayMode = displayMode
         _settings = State(initialValue: StorageService.shared.settings)
+    }
+
+    private var showsAccountSections: Bool {
+        displayMode != .settingsOnly
+    }
+
+    private var showsSettingsSections: Bool {
+        displayMode != .accountOnly
+    }
+
+    private var pageTitle: String {
+        switch displayMode {
+        case .all:
+            return "Settings"
+        case .accountOnly:
+            return "Account"
+        case .settingsOnly:
+            return "Settings"
+        }
+    }
+
+    private var autoPlayTrailersBinding: Binding<Bool> {
+        Binding(
+            get: { storage.settings.autoPlayTrailers },
+            set: { newValue in
+                var updated = storage.settings
+                updated.autoPlayTrailers = newValue
+                storage.updateSettings(updated)
+                settings = updated
+            }
+        )
+    }
+
+    private var autoPlayTrailersMutedBinding: Binding<Bool> {
+        Binding(
+            get: { storage.settings.autoPlayTrailersMuted },
+            set: { newValue in
+                var updated = storage.settings
+                updated.autoPlayTrailersMuted = newValue
+                storage.updateSettings(updated)
+                settings = updated
+            }
+        )
+    }
+
+    private var showTrailersInMediaDetailBinding: Binding<Bool> {
+        Binding(
+            get: { storage.settings.showTrailersInMediaDetail },
+            set: { newValue in
+                var updated = storage.settings
+                updated.showTrailersInMediaDetail = newValue
+                storage.updateSettings(updated)
+                settings = updated
+            }
+        )
     }
     
     var body: some View {
-        Form {
-            // Account Section
-            Section {
-                if authService.isAuthenticated {
-                    AccountView()
-                } else {
-                    Button {
-                        showAuthSheet = true
-                    } label: {
-                        HStack(spacing: 16) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.accentColor.opacity(0.15))
-                                    .frame(width: 44, height: 44)
+        Group {
+            #if os(tvOS)
+            tvOSSettingsPage
+            #else
+        List {
+            if showsAccountSections {
+                // Account Section
+                Section {
+                    if authService.isAuthenticated {
+                        AccountView()
+                    } else {
+                        Button {
+                            showAuthSheet = true
+                        } label: {
+                            HStack(spacing: 16) {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.accentColor.opacity(0.15))
+                                        .frame(width: 44, height: 44)
 
-                                if let profile = profileService.activeProfile {
-                                    ProfileAvatarImageView(
-                                        profile: profile,
-                                        size: 32,
-                                        showBorder: false
-                                    )
-                                    .frame(width: 32, height: 32)
-                                    .clipShape(Circle())
-                                } else {
-                                    Image(systemName: "person.circle")
-                                        .font(.title2)
-                                        .foregroundColor(.accentColor)
+                                    if let profile = profileService.activeProfile {
+                                        ProfileAvatarImageView(
+                                            profile: profile,
+                                            size: 32,
+                                            showBorder: false
+                                        )
+                                        .frame(width: 32, height: 32)
+                                        .clipShape(Circle())
+                                    } else {
+                                        Image(systemName: "person.circle")
+                                            .font(.title2)
+                                            .foregroundColor(.accentColor)
+                                    }
                                 }
-                            }
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Sign In")
-                                    .font(.headline)
-                                    .foregroundColor(.primary)
-                                Text("Sync your lists across all devices")
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Sign In")
+                                        .font(.headline)
+                                        .foregroundColor(.primary)
+                                    Text("Sync your lists across all devices")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(2)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
                             }
-                            
-                            Spacer()
-                            
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
                         }
                     }
-                }
-            } header: {
-                Text("Account")
-            } footer: {
-                if !authService.isAuthenticated {
-                    Text("Sign in to sync your watchlist, watched items, and likes across all your devices")
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            
-            Section("Scout Unlimited") {
-                if scoutSubscription.isUnlimitedActive {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.seal.fill")
-                            .foregroundColor(.green)
-                        Text("Unlimited active")
-                            .fontWeight(.semibold)
-                    }
-                } else {
-                    Text("Upgrade Scout for unlimited messages, trip planning, and post-credits checks.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                
-                Button {
-                    Task {
-                        let outcome = await scoutSubscription.purchaseScoutUnlimitedLifetime()
-                        scoutIAPStatusMessage = outcome.message
-                    }
-                } label: {
-                    HStack {
-                        if scoutSubscription.isPurchasing {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        Text("Upgrade to Unlimited (\(scoutSubscription.subscriptionProduct?.displayPrice ?? "$1.99")/month)")
-                            .lineLimit(2)
+                } header: {
+                    Text("Account")
+                } footer: {
+                    if !authService.isAuthenticated {
+                        Text("Sign in to sync your watchlist, watched items, and likes across all your devices")
+                            .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .disabled(scoutSubscription.isUnlimitedActive || scoutSubscription.isPurchasing || scoutSubscription.isLoadingProduct)
-                
-                Button("Restore Purchases") {
-                    Task {
-                        await scoutSubscription.restorePurchases()
-                        scoutIAPStatusMessage = scoutSubscription.isUnlimitedActive
-                            ? "Subscription restored."
-                            : "No active Scout Unlimited subscription found."
-                    }
-                }
-                .disabled(scoutSubscription.isPurchasing)
 
-                if !scoutSubscription.isUnlimitedActive {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Free plan limits:")
-                        Text("• 5 messages/day")
-                        Text("• 1 new trip planner/month")
-                        Text("• 4 post-credits checks/month")
+                #if !os(tvOS)
+                Section {
+                    // Active tier badge
+                    if scoutSubscription.isProActive {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundColor(.yellow)
+                            Text("WatchGuide Pro active")
+                                .fontWeight(.semibold)
+                        }
+                    }
+
+                    // Upgrade navigation — the paywall owns plan selection and pricing.
+                    if !scoutSubscription.isProActive {
+                        NavigationLink {
+                            WGSubscriptionPaywallView()
+                        } label: {
+                            HStack {
+                                Image(systemName: "star.circle.fill")
+                                    .foregroundStyle(.yellow, .orange)
+                                Text(scoutSubscription.isEligibleForIntroOffer
+                                     ? "Try WatchGuide Pro free for 7 days"
+                                     : "Get WatchGuide Pro")
+                                    .fontWeight(.medium)
+                            }
+                        }
+                    }
+
+                    Button("Restore Purchases") {
+                        Task {
+                            await scoutSubscription.restorePurchases()
+                            scoutIAPStatusMessage = scoutSubscription.isProActive
+                                ? "WatchGuide Pro restored."
+                                : "No active subscription found."
+                        }
+                    }
+                    .disabled(scoutSubscription.isPurchasing)
+
+                    // Current plan details
+                    if !scoutSubscription.isProActive {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Free plan includes:")
+                                .fontWeight(.medium)
+                            Text("• 5 Atlas messages per day")
+                            Text("• 3 custom lists")
+                            Text("• 1 cinema trip plan per month")
+                            Text("• 4 post-credits checks per month")
+                        }
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("WatchGuide Pro")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        Text("\(scoutSubscription.monthlyProduct?.displayPrice ?? "$4.99")/month • \(scoutSubscription.annualProduct?.displayPrice ?? "$29.99")/year • \(scoutSubscription.lifetimeProduct?.displayPrice ?? "$79.99") lifetime")
+                        Text("Payment is charged to your Apple Account at confirmation. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period. Lifetime is a one-time purchase and does not renew. Manage or cancel in Apple Account Settings.")
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)
-                }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Scout Unlimited")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                    Text("Auto-renewable monthly subscription")
-                    Text("Price: \(scoutSubscription.subscriptionProduct?.displayPrice ?? "$1.99") per month")
-                    Text("Payment is charged to your Apple Account at confirmation. Subscription renews automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel in Apple Account Settings.")
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
+                    if let privacyURL = URL(string: scoutPrivacyPolicyURLString) {
+                        Link("Privacy Policy", destination: privacyURL)
+                            .font(.caption)
+                    }
 
-                if let privacyURL = URL(string: scoutPrivacyPolicyURLString) {
-                    Link("Privacy Policy", destination: privacyURL)
+                    if let termsURL = URL(string: scoutTermsURLString) {
+                        Link("Terms of Use (EULA)", destination: termsURL)
+                            .font(.caption)
+                    }
+
+                    if let scoutIAPStatusMessage {
+                        Text(scoutIAPStatusMessage)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    #if DEBUG
+                    Toggle(isOn: Binding(
+                        get: { scoutSubscription.isAdminUnlimitedOverride },
+                        set: { newValue in
+                            scoutSubscription.setAdminUnlimitedOverride(newValue)
+                            scoutIAPStatusMessage = newValue
+                                ? "Admin mode ON — WatchGuide Pro simulated."
+                                : "Admin mode OFF — real subscription restored."
+                        }
+                    )) {
+                        Label("Admin: Test WatchGuide Pro", systemImage: "hammer.fill")
+                            .foregroundColor(.orange)
+                    }
+                    #endif
+                } header: {
+                    Text("WatchGuide Subscription")
+                } footer: {
+                    #if DEBUG
+                    Text("Admin mode unlocks WatchGuide Pro features for testing without a purchase. Debug builds only.")
+                    #else
+                    EmptyView()
+                    #endif
+                }
+                #endif
+
+                Section("Trakt") {
+                    if traktService.isConnected {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Connected", systemImage: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            if let username = traktService.username {
+                                Text("@\(username)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        Button {
+                            Task {
+                                do {
+                                    let count = try await traktService.importWatchlist()
+                                    traktStatusMessage = "Imported \(count) Trakt watchlist titles."
+                                } catch {
+                                    traktStatusMessage = error.localizedDescription
+                                }
+                            }
+                        } label: {
+                            Label("Import Watchlist", systemImage: "square.and.arrow.down")
+                        }
+                        .disabled(traktService.isBusy)
+
+                        Button {
+                            Task {
+                                do {
+                                    let count = try await traktService.importWatched()
+                                    traktStatusMessage = "Imported \(count) watched Trakt titles."
+                                } catch {
+                                    traktStatusMessage = error.localizedDescription
+                                }
+                            }
+                        } label: {
+                            Label("Import Watched", systemImage: "clock.arrow.circlepath")
+                        }
+                        .disabled(traktService.isBusy)
+
+                        Button {
+                            Task {
+                                do {
+                                    let count = try await traktService.importLiked()
+                                    traktStatusMessage = "Imported \(count) liked Trakt titles."
+                                } catch {
+                                    traktStatusMessage = error.localizedDescription
+                                }
+                            }
+                        } label: {
+                            Label("Import Likes", systemImage: "heart.text.square")
+                        }
+                        .disabled(traktService.isBusy)
+
+                        Button {
+                            Task {
+                                do {
+                                    let count = try await traktService.syncContinueWatching()
+                                    traktStatusMessage = "Imported \(count) continue watching shows. Open Lists > Continue Watching to see the next episode and where to watch."
+                                } catch {
+                                    traktStatusMessage = error.localizedDescription
+                                }
+                            }
+                        } label: {
+                            Label("Import Continue Watching", systemImage: "play.rectangle.on.rectangle")
+                        }
+                        .disabled(traktService.isBusy)
+
+                    Button {
+                        Task {
+                            do {
+                                let summary = try await traktService.syncFromTraktToWatchGuide()
+                                traktStatusMessage = "Synced from Trakt: \(summary.watchlistCount) watchlist, \(summary.watchedCount) watched, \(summary.likedCount) liked, \(summary.continueWatchingCount) continue watching. Open Lists > Continue Watching for next-up details."
+                            } catch {
+                                traktStatusMessage = error.localizedDescription
+                            }
+                        }
+                    } label: {
+                        Label("Sync Trakt to WatchGuide", systemImage: "arrow.down.left.arrow.up.right")
+                    }
+                    .disabled(traktService.isBusy)
+
+                    Button {
+                        Task {
+                            do {
+                                let summary = try await traktService.syncFromWatchGuideToTrakt()
+                                traktStatusMessage = "Synced to Trakt: \(summary.watchlistCount) watchlist and \(summary.likedCount) liked."
+                            } catch {
+                                traktStatusMessage = error.localizedDescription
+                            }
+                        }
+                    } label: {
+                        Label("Sync WatchGuide to Trakt", systemImage: "arrow.up.right.arrow.down.left")
+                    }
+                    .disabled(traktService.isBusy)
+
+                    Button("Disconnect", role: .destructive) {
+                        traktService.disconnect()
+                        traktStatusMessage = "Disconnected Trakt."
+                    }
+                    .disabled(traktService.isBusy)
+                } else if traktService.isConfigured {
+                    Button {
+                        Task {
+                            do {
+                                try await traktService.connect()
+                                traktStatusMessage = "Connected Trakt."
+                            } catch {
+                                traktStatusMessage = error.localizedDescription
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            if traktService.isBusy {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text(traktService.tvActivation == nil ? "Connect Trakt" : "Waiting for Trakt Approval")
+                        }
+                    }
+                    .disabled(traktService.isBusy)
+
+                    #if os(tvOS)
+                    if let activation = traktService.tvActivation {
+                        TraktTVActivationView(activation: activation)
+                    } else {
+                        Text("Start Trakt connection, then scan the QR code with your phone to approve the sign-in in your web browser.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    #endif
+                } else {
+                    Text("Add `TRAKT_CLIENT_ID` and `TRAKT_CLIENT_SECRET` to your app keys to enable Trakt.")
                         .font(.caption)
+                        .foregroundColor(.secondary)
                 }
 
-                if let termsURL = URL(string: scoutTermsURLString) {
-                    Link("Terms of Use (EULA)", destination: termsURL)
-                        .font(.caption)
-                }
-                
-                if let scoutIAPStatusMessage {
-                    Text(scoutIAPStatusMessage)
+                if let traktStatusMessage {
+                    Text(traktStatusMessage)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -235,52 +480,53 @@ struct SettingsView: View {
                 }
             }
             
-            // Region & Language
-            Section("Region & Language") {
-                Picker("Region", selection: $settings.region) {
-                    ForEach(regionOptions, id: \.code) { region in
-                        Text(region.name).tag(region.code)
+            if showsSettingsSections {
+                // Region & Language
+                Section("Region & Language") {
+                    Picker("Region", selection: $settings.region) {
+                        ForEach(regionOptions, id: \.code) { region in
+                            Text(region.name).tag(region.code)
+                        }
                     }
-                }
-                
-                Picker("Language", selection: $settings.preferredLanguage) {
-                    ForEach(languageOptions, id: \.code) { language in
-                        Text(language.name).tag(language.code)
-                    }
-                }
-            }
 
-            Section {
-                Toggle("Natural Language Search", isOn: $settings.useAppleIntelligenceSearch)
-                Button("View Apple Intelligence Guide") {
-                    AppleIntelligenceGuideManager.shared.presentManually()
+                    Picker("Language", selection: $settings.preferredLanguage) {
+                        ForEach(languageOptions, id: \.code) { language in
+                            Text(language.name).tag(language.code)
+                        }
+                    }
                 }
-                let capability = AppleIntelligenceCapabilityService.currentReport()
-                HStack {
-                    Text("Device Support")
-                    Spacer()
-                    Text(capability.isAppleIntelligenceAvailableNow ? "Ready" : "Limited")
-                        .foregroundColor(capability.isAppleIntelligenceAvailableNow ? .green : .secondary)
+
+                Section {
+                    Toggle("Natural Language Search", isOn: $settings.useAppleIntelligenceSearch)
+                    Button("View Apple Intelligence Guide") {
+                        AppleIntelligenceGuideManager.shared.presentManually()
+                    }
+                    let capability = AppleIntelligenceCapabilityService.currentReport()
+                    HStack {
+                        Text("Device Support")
+                        Spacer()
+                        Text(capability.isAppleIntelligenceAvailableNow ? "Ready" : "Limited")
+                            .foregroundColor(capability.isAppleIntelligenceAvailableNow ? .green : .secondary)
+                    }
+                } header: {
+                    HStack(spacing: 8) {
+                        Text("Apple Intelligence")
+                        Text("BETA")
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(Color.orange.opacity(0.2))
+                            )
+                            .foregroundColor(.orange)
+                    }
+                } footer: {
+                    Text("When enabled, search can use Apple Intelligence on supported devices to rewrite natural-language prompts into stronger movie and TV queries. If unavailable, Watch Guide falls back to standard search.")
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-            } header: {
-                HStack(spacing: 8) {
-                    Text("Apple Intelligence")
-                    Text("BETA")
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(Color.orange.opacity(0.2))
-                        )
-                        .foregroundColor(.orange)
-                }
-            } footer: {
-                Text("When enabled, search can use Apple Intelligence on supported devices to rewrite natural-language prompts into stronger movie and TV queries. If unavailable, Watch Guide falls back to standard search.")
-                    .lineLimit(nil)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
             
             // Kids Profile
             Section {
@@ -333,25 +579,50 @@ struct SettingsView: View {
                 Text("Parental Controls")
                 } footer: {
                     if settings.isKidsProfile {
-                        Text("Scout AI is hidden and content is restricted to ages 13 and under. A parent passcode is required to change these settings.")
+                        Text("Atlas is hidden and content is restricted to ages 13 and under. A parent passcode is required to change these settings.")
                             .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
                     } else {
-                        Text("Enable Kids Profile to restrict content to ages 13 and under and hide Scout AI. A parent passcode protects the setting.")
+                        Text("Enable Kids Profile to restrict content to ages 13 and under and hide Atlas. A parent passcode protects the setting.")
                             .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             
             // Display Options
+            if !settings.isKidsProfile {
+                Section("Assistant") {
+                    NavigationLink(destination: AtlasSettingsView()) {
+                        HStack {
+                            Image(systemName: "sparkles")
+                                .foregroundColor(.accentColor)
+                                .frame(width: 24)
+                            Text("Atlas")
+                            Spacer()
+                            Text((AtlasPersona(rawValue: atlasPersonaRaw) ?? .default).displayName)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+
             Section("Display") {
                 Toggle("Compact Mode", isOn: $settings.compactMode)
                 Toggle("Ambient Mode", isOn: $settings.ambientModeEnabled)
-                Toggle("Auto-play Trailers", isOn: $settings.autoPlayTrailers)
-                Toggle("Mute Trailers on Autoplay", isOn: $settings.autoPlayTrailersMuted)
-                Toggle("Show Trailers in Media Details", isOn: $settings.showTrailersInMediaDetail)
+                Toggle("Auto-play Trailers", isOn: autoPlayTrailersBinding)
+                Toggle("Mute Trailers on Autoplay", isOn: autoPlayTrailersMutedBinding)
+                Toggle("Show Trailers in Media Details", isOn: showTrailersInMediaDetailBinding)
+                NavigationLink(destination: TrailerAddonsSettingsView(addons: $settings.trailerAddons)) {
+                    HStack {
+                        Text("Add-ons")
+                        Spacer()
+                        Text("\(settings.trailerAddons.filter { $0.isEnabled }.count) enabled")
+                            .foregroundColor(.secondary)
+                    }
+                }
                 
-                // Include Adult Content toggle — only affects TMDB browse results, NOT Scout AI
+                // Include Adult Content toggle — only affects TMDB browse results, NOT Atlas
                 Toggle("Include Adult Content (Browse)", isOn: Binding(
                     get: { settings.includeAdult },
                     set: { newValue in
@@ -528,7 +799,7 @@ struct SettingsView: View {
                             NavigationLink(destination: SupabaseSetupGuideView()) {
                                 Label("Setup Guide", systemImage: "cloud.fill")
                             }
-                            Text("Cloud sync not configured. Sign in with Apple for iCloud sync or link Supabase.")
+                            Text("Cloud sync not configured. Link Supabase to enable cloud sync.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -642,45 +913,83 @@ struct SettingsView: View {
                             .font(.caption)
                     }
                 }
-            }
-            
-            // Made with Milq
-            Section {
-                HStack(spacing: 14) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.12))
-                            .frame(width: 44, height: 44)
-                        
-                        Image(systemName: "hammer.fill")
-                            .font(.title3)
-                            .foregroundColor(.accentColor)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Made with Milq")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        Text("Built using the Milq app development platform")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .lineLimit(2)
+                
+                #if os(iOS)
+                Link(destination: URL(string: "https://ko-fi.com/watchguideapp")!) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "cup.and.saucer.fill")
+                            .foregroundColor(.orange)
+                        Text("Support WatchGuide")
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption)
                     }
                 }
-                .padding(.vertical, 4)
+                #endif
+            }
+            
+            // Affiliate banner
+            Section {
+                RemoteBannerView(placement: .settings)
+            }
+            
+                // Made with Milq
+                Section {
+                    HStack(spacing: 14) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color.accentColor.opacity(0.12))
+                                .frame(width: 44, height: 44)
+
+                            Image(systemName: "hammer.fill")
+                                .font(.title3)
+                                .foregroundColor(.accentColor)
+                        }
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Made with Milq")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            Text("Built using the Milq app development platform")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
             }
         }
+            #endif
+        }
         #if os(macOS)
-        .formStyle(.grouped)
+        .listStyle(.insetGrouped)
         .padding(.top, 8)
         #endif
         #if os(macOS)
         .font(.callout)
         .environment(\.defaultMinListRowHeight, 34)
         #endif
-        .navigationTitle("Settings")
+        .navigationTitle(pageTitle)
+        #if os(tvOS)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Label("Browse", systemImage: "chevron.left")
+                }
+            }
+        }
+        #endif
         .onChange(of: settings) { _, newValue in
             storage.updateSettings(newValue)
+        }
+        .onChange(of: storage.settings) { _, newValue in
+            if settings != newValue {
+                settings = newValue
+            }
         }
         .alert("Clear All Data?", isPresented: $showClearDataAlert) {
             Button("Cancel", role: .cancel) { }
@@ -706,14 +1015,12 @@ struct SettingsView: View {
             ParentPasscodeEntrySheet(
                 storedPasscode: settings.parentPasscode ?? ""
             ) {
-                // Passcode verified — perform the action
                 switch passcodeAction {
                 case .disableKids:
                     settings.isKidsProfile = false
                 case .enableAdult:
                     settings.includeAdult = true
                 case .changePasscode:
-                    // After verifying old passcode, show setup for new one
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         showPasscodeSetup = true
                     }
@@ -725,10 +1032,322 @@ struct SettingsView: View {
                 ProfileSetupView(mode: .edit(profile))
             }
         }
+        #if os(tvOS)
+        .fullScreenCover(isPresented: $showProfilePicker) {
+            NavigationStack {
+                ProfilePickerView(dismissOnSelection: true)
+            }
+        }
+        #else
+        .sheet(isPresented: $showProfilePicker) {
+            ProfilePickerView(dismissOnSelection: true)
+        }
+        #endif
         .task {
             await scoutSubscription.prepare()
+            await traktService.prepare()
         }
     }
+
+    #if os(tvOS)
+    private var tvOSSettingsPage: some View {
+        NavigationStack {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                if showsAccountSections {
+                    tvOSSection("Account") {
+                        if authService.isAuthenticated {
+                            AccountView()
+                        } else {
+                            Button {
+                                showAuthSheet = true
+                            } label: {
+                                HStack(spacing: 16) {
+                                    Image(systemName: "person.crop.circle")
+                                        .font(.title2)
+                                        .foregroundColor(.accentColor)
+
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Sign In")
+                                            .font(.headline)
+                                        Text("Sign in to sync your lists and profiles across devices")
+                                            .font(.subheadline)
+                                            .foregroundColor(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .foregroundColor(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(20)
+                                .background(tvOSCardBackground)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    if authService.isAuthenticated && profileService.hasProfiles {
+                        tvOSSection("Active Profile") {
+                            if let profile = profileService.activeProfile {
+                                HStack(spacing: 14) {
+                                    ProfileAvatarImageView(profile: profile, size: 52)
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(profile.name)
+                                            .font(.headline)
+                                        Text(profile.isKids ? "Kids (6-12)" : profile.ageGroup.displayName)
+                                            .font(.subheadline)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    Spacer()
+                                    Button("Switch Profile") {
+                                        showProfilePicker = true
+                                    }
+                                    .buttonStyle(.bordered)
+                                    Button("Edit Profile") {
+                                        showEditProfile = true
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
+                            }
+                        }
+                    }
+
+                    if authService.isAuthenticated {
+                        tvOSSection("Cloud Sync") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Provider: \(storage.cloudProviderDisplayName)")
+                                    .foregroundColor(.secondary)
+                                HStack(spacing: 12) {
+                                    Button {
+                                        guard !isManualUpload && !isManualDownload else { return }
+                                        isManualUpload = true
+                                        Task {
+                                            await storage.uploadToCloud()
+                                            await MainActor.run { isManualUpload = false }
+                                        }
+                                    } label: {
+                                        Text(isManualUpload ? "Uploading..." : "Force Upload")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isManualDownload || isManualUpload)
+
+                                    Button {
+                                        guard !isManualUpload && !isManualDownload else { return }
+                                        isManualDownload = true
+                                        Task {
+                                            await storage.downloadFromCloud()
+                                            await MainActor.run { isManualDownload = false }
+                                        }
+                                    } label: {
+                                        Text(isManualDownload ? "Downloading..." : "Force Download")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isManualDownload || isManualUpload)
+                                }
+                            }
+                        }
+                    }
+
+                    tvOSSection("Trakt") {
+                        if traktService.isConnected {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                    Text("Connected")
+                                        .fontWeight(.semibold)
+                                }
+
+                                if let username = traktService.username {
+                                    Text("@\(username)")
+                                        .foregroundColor(.secondary)
+                                }
+
+                                HStack(spacing: 12) {
+                                    Button {
+                                        Task {
+                                            do {
+                                                let count = try await traktService.syncContinueWatching()
+                                                traktStatusMessage = "Imported \(count) continue watching shows."
+                                            } catch {
+                                                traktStatusMessage = error.localizedDescription
+                                            }
+                                        }
+                                    } label: {
+                                        Text("Sync Continue Watching")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(traktService.isBusy)
+
+                                    Button("Disconnect", role: .destructive) {
+                                        traktService.disconnect()
+                                        traktStatusMessage = "Disconnected Trakt."
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(traktService.isBusy)
+                                }
+                            }
+                        } else if traktService.isConfigured {
+                            VStack(alignment: .leading, spacing: 16) {
+                                Button {
+                                    Task {
+                                        do {
+                                            try await traktService.connect()
+                                            traktStatusMessage = "Connected Trakt."
+                                        } catch {
+                                            traktStatusMessage = error.localizedDescription
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        if traktService.isBusy {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                        }
+                                        Text(traktService.tvActivation == nil ? "Connect Trakt" : "Waiting for Trakt Approval")
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(traktService.isBusy)
+
+                                if let activation = traktService.tvActivation {
+                                    TraktTVActivationView(activation: activation)
+                                } else {
+                                    Text("Start Trakt connection, then scan the QR code or visit the activation link on your phone and enter the code.")
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        } else {
+                            Text("Add `TRAKT_CLIENT_ID` and `TRAKT_CLIENT_SECRET` to your app keys to enable Trakt.")
+                                .foregroundColor(.secondary)
+                        }
+
+                        if let traktStatusMessage {
+                            Text(traktStatusMessage)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                if showsSettingsSections {
+                    tvOSSection("Region & Language") {
+                        Picker("Region", selection: $settings.region) {
+                            ForEach(regionOptions, id: \.code) { region in
+                                Text(region.name).tag(region.code)
+                            }
+                        }
+
+                        Picker("Language", selection: $settings.preferredLanguage) {
+                            ForEach(languageOptions, id: \.code) { language in
+                                Text(language.name).tag(language.code)
+                            }
+                        }
+                    }
+
+                    tvOSSection("Playback & Discovery") {
+                        Toggle("Natural Language Search", isOn: $settings.useAppleIntelligenceSearch)
+                        Toggle("Compact Mode", isOn: $settings.compactMode)
+                        Toggle("Ambient Mode", isOn: $settings.ambientModeEnabled)
+                        let hasEnabledAddon = settings.trailerAddons.contains { $0.isEnabled }
+                        Toggle("Auto-play Trailers", isOn: autoPlayTrailersBinding)
+                            .disabled(!hasEnabledAddon)
+                        Toggle("Mute Trailers on Autoplay", isOn: autoPlayTrailersMutedBinding)
+                            .disabled(!hasEnabledAddon)
+                        Toggle("Show Trailers in Media Details", isOn: showTrailersInMediaDetailBinding)
+                            .disabled(!hasEnabledAddon)
+                        if !hasEnabledAddon {
+                            Text("Enable a trailer add-on in Home Screen › Add-ons to use trailer playback.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Toggle("Kids Profile", isOn: $settings.isKidsProfile)
+                        Toggle("Include Adult Content (Browse)", isOn: $settings.includeAdult)
+                            .disabled(settings.isKidsProfile)
+                    }
+
+                    tvOSSection("Home Screen") {
+                        NavigationLink("Browse Rows") {
+                            BrowseRowsSettingsView()
+                        }
+                        NavigationLink("Networks") {
+                            NetworkHubsSettingsView()
+                        }
+                        NavigationLink("Hub Customisation") {
+                            CustomJSONHubsSettingsView()
+                        }
+                        NavigationLink("Add-ons") {
+                            TrailerAddonsSettingsView(addons: $settings.trailerAddons)
+                        }
+                    }
+
+                    tvOSSection("About") {
+                        HStack {
+                            Text("Version")
+                            Spacer()
+                            Text(appVersionString)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Button("Open Discord Community") {
+                            openCommunity()
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button(role: .destructive) {
+                            showClearDataAlert = true
+                        } label: {
+                            Text("Clear All Data")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    tvOSSection("Support WatchGuide") {
+                        VStack(spacing: 16) {
+                            Text("Scan the QR code below to support WatchGuide")
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+
+                            Image("Ko-fi")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: 220, maxHeight: 220)
+                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                            Text("ko-fi.com/watchguideapp")
+                                .font(.caption.monospaced())
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            .padding(.horizontal, 64)
+            .padding(.vertical, 36)
+        }
+        .background(TVOSAmbientBackdrop())
+        } // NavigationStack
+    }
+
+    private func tvOSSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+            VStack(alignment: .leading, spacing: 16) {
+                content()
+            }
+            .padding(24)
+            .tvOSPanelStyle(cornerRadius: 24, fillOpacity: 0.08, strokeOpacity: 0.12)
+        }
+    }
+
+    private var tvOSCardBackground: some ShapeStyle {
+        Color.white.opacity(0.08)
+    }
+    #endif
     
     private var appVersionString: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
@@ -837,6 +1456,62 @@ struct SettingsView: View {
     }
 }
 
+#if os(tvOS)
+private struct TraktTVActivationView: View {
+    let activation: TraktTVActivation
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let qrImage = qrCodeImage(for: activation.verificationURL.absoluteString) {
+                Image(uiImage: qrImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 220, maxHeight: 220)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Scan with your phone or go to:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Text(activation.verificationURL.absoluteString)
+                    .font(.caption.monospaced())
+
+                Text("Enter code: \(activation.userCode)")
+                    .font(.headline.monospaced())
+
+                Text("This code expires at \(activation.expiresAt.formatted(date: .omitted, time: .shortened)).")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func qrCodeImage(for string: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(string.utf8)
+        filter.correctionLevel = "M"
+
+        guard let outputImage = filter.outputImage else {
+            return nil
+        }
+
+        let transform = CGAffineTransform(scaleX: 12, y: 12)
+        let scaledImage = outputImage.transformed(by: transform)
+        let context = CIContext()
+
+        guard let cgImage = context.createCGImage(scaledImage, from: scaledImage.extent) else {
+            return nil
+        }
+
+        return UIImage(cgImage: cgImage)
+    }
+}
+#endif
+
 // MARK: - Browse Rows Settings
 struct BrowseRowsSettingsView: View {
     @ObservedObject private var storage = StorageService.shared
@@ -884,7 +1559,7 @@ struct NetworkHubsSettingsView: View {
                 ForEach($hubs) { $hub in
                     HStack {
                         if let logoURL = hub.logoURL, let url = URL(string: logoURL) {
-                            AsyncImage(url: url) { phase in
+                            ResilientAsyncImage(url: url) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image
@@ -928,6 +1603,250 @@ struct NetworkHubsSettingsView: View {
         }
         .onDisappear {
             storage.reorderNetworkHubs(hubs)
+        }
+    }
+}
+
+struct TrailerAddonsSettingsView: View {
+    @Binding var addons: [TrailerAddon]
+    @State private var showAddAddon = false
+
+    var body: some View {
+        List {
+            Section {
+                if addons.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("No add-ons added")
+                            .fontWeight(.medium)
+                        Text("Tap + to enter a Stremio-compatible endpoint URL and enable direct trailer playback.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    ForEach($addons) { $addon in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(addon.name)
+                                    .fontWeight(.medium)
+                                Text(addon.baseURL)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(2)
+                            }
+
+                            Spacer()
+
+                            Toggle("", isOn: $addon.isEnabled)
+                                .labelsHidden()
+
+                            Button(role: .destructive) {
+                                if let idx = addons.firstIndex(where: { $0.id == addon.id }) {
+                                    addons.remove(at: idx)
+                                }
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    #if !os(tvOS)
+                    .onDelete { offsets in
+                        addons.remove(atOffsets: offsets)
+                    }
+                    #endif
+                }
+            } header: {
+                Text("Endpoints")
+            } footer: {
+                Text("Each endpoint must expose `/meta/<movie|series>/<ttid>.json` and return direct HTTP or HTTPS media files in `links[].trailers`.")
+            }
+        }
+        .navigationTitle("Add-ons")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showAddAddon = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showAddAddon) {
+            AddTrailerAddonSheet(addons: $addons)
+        }
+    }
+}
+
+private struct AddTrailerAddonSheet: View {
+    @Binding var addons: [TrailerAddon]
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var baseURL = ""
+    @State private var validationError: String?
+    @State private var isValidating = false
+
+    var body: some View {
+        #if os(tvOS)
+        tvOSBody
+        #else
+        NavigationStack {
+            Form {
+                Section("Name") {
+                    TextField("My Add-on", text: $name)
+                }
+
+                Section {
+                    TextField("https://my-addon.example.com", text: $baseURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("Base URL")
+                } footer: {
+                    Text("You can paste either the endpoint base URL or `manifest.json`. Watch Guide validates the manifest, then calls `/meta/movie/<ttid>.json` or `/meta/series/<ttid>.json` on the normalized base URL.")
+                }
+
+                if let validationError {
+                    Section {
+                        Text(validationError)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .navigationTitle("Add Add-on")
+            .inlineNavTitleIfSupported()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isValidating ? "Checking..." : "Add") {
+                        Task { await addValidatedAddon() }
+                    }
+                    .disabled(isValidating || baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        #endif
+    }
+
+    #if os(tvOS)
+    private var tvOSBody: some View {
+        ZStack {
+            TVOSAmbientBackdrop()
+
+            VStack(spacing: 36) {
+                // Header
+                VStack(spacing: 8) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 44))
+                        .foregroundStyle(.white.opacity(0.9))
+                    Text("Add Add-on")
+                        .font(.title2.bold())
+                    Text("Enter a Stremio-compatible endpoint URL")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                }
+
+                // Fields
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("NAME (optional)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 4)
+                        TextField("My Add-on", text: $name)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16)
+                            .tvOSPanelStyle(cornerRadius: 14, fillOpacity: 0.1, strokeOpacity: 0.18)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("BASE URL")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 4)
+                        TextField("https://my-addon.example.com", text: $baseURL)
+                            .autocorrectionDisabled()
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16)
+                            .tvOSPanelStyle(cornerRadius: 14, fillOpacity: 0.1, strokeOpacity: 0.18)
+                        Text("Paste the base URL or manifest.json. Watch Guide validates the manifest before adding.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 4)
+                    }
+
+                    if let validationError {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.red)
+                            Text(validationError)
+                                .foregroundColor(.red)
+                        }
+                        .font(.callout)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 14)
+                        .tvOSPanelStyle(cornerRadius: 12, fillOpacity: 0.06, strokeOpacity: 0.1)
+                    }
+                }
+                .frame(maxWidth: 700)
+
+                // Actions
+                HStack(spacing: 20) {
+                    Button("Cancel") { dismiss() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+
+                    Button {
+                        Task { await addValidatedAddon() }
+                    } label: {
+                        HStack(spacing: 10) {
+                            if isValidating {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text(isValidating ? "Checking..." : "Add Endpoint")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(isValidating || baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .padding(64)
+        }
+    }
+    #endif
+
+    @MainActor
+    private func addValidatedAddon() async {
+        validationError = nil
+        isValidating = true
+        defer { isValidating = false }
+
+        do {
+            let validated = try await TrailerAddonService.shared.validateAddon(
+                baseURLString: baseURL,
+                fallbackName: name
+            )
+
+            let normalizedURL = validated.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !addons.contains(where: {
+                $0.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedURL
+            }) else {
+                validationError = "That endpoint has already been added."
+                return
+            }
+
+            addons.append(TrailerAddon(name: validated.name, baseURL: validated.baseURL))
+            dismiss()
+        } catch {
+            validationError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 }
@@ -1135,6 +2054,10 @@ struct ImportedListRowView: View {
                     .fontWeight(.medium)
                 
                 HStack(spacing: 8) {
+                    Label(list.source.displayName, systemImage: list.source.iconName)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+
                     Text("\(list.items.count) items")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -1531,7 +2454,7 @@ struct AddCustomHomeRowSheet: View {
                     
                     if !imageURL.isEmpty, let url = URL(string: imageURL) {
                         Section("Header Preview") {
-                            AsyncImage(url: url) { phase in
+                            ResilientAsyncImage(url: url) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image
@@ -2492,7 +3415,7 @@ struct CustomJSONHubsSettingsView: View {
                         HStack(spacing: 12) {
                             // Hub image thumbnail
                             if let imageURL = hub.imageURL, !imageURL.isEmpty, let url = URL(string: imageURL) {
-                                AsyncImage(url: url) { phase in
+                                ResilientAsyncImage(url: url) { phase in
                                     switch phase {
                                     case .success(let image):
                                         image
@@ -2554,6 +3477,7 @@ struct CustomJSONHubsSettingsView: View {
                             ))
                             .labelsHidden()
                         }
+                        #if !os(tvOS)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
                                 storage.deleteCustomJSONHub(id: hub.id)
@@ -2580,6 +3504,7 @@ struct CustomJSONHubsSettingsView: View {
                             }
                             .tint(.green)
                         }
+                        #endif
                     }
                     .onMove { from, to in
                         var hubs = storage.customJSONHubs.sorted { $0.sortOrder < $1.sortOrder }
@@ -3000,7 +3925,7 @@ struct AddCustomHubSheet: View {
                         
                         // Image preview
                         if !imageURL.isEmpty, let url = URL(string: imageURL) {
-                            AsyncImage(url: url) { phase in
+                            ResilientAsyncImage(url: url) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image
@@ -3451,7 +4376,7 @@ private struct StepBadge: View {
 
 private struct PlatformEditButton: View {
     var body: some View {
-#if os(macOS)
+#if os(macOS) || os(tvOS)
         EmptyView()
 #else
         EditButton()
@@ -3495,46 +4420,8 @@ private extension View {
         self.autocapitalization(.none)
 #endif
     }
-
-    @ViewBuilder
-    func inlineNavTitleIfSupported() -> some View {
-#if os(macOS)
-        self
-#else
-        self.navigationBarTitleDisplayMode(.inline)
-#endif
-    }
 }
 
-private extension Color {
-    init(hex: String) {
-        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: cleaned).scanHexInt64(&int)
-
-        let r, g, b: UInt64
-        switch cleaned.count {
-        case 6:
-            (r, g, b) = (int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 3:
-            (r, g, b) = (
-                ((int >> 8) & 0xF) * 17,
-                ((int >> 4) & 0xF) * 17,
-                (int & 0xF) * 17
-            )
-        default:
-            (r, g, b) = (128, 128, 128)
-        }
-
-        self.init(
-            .sRGB,
-            red: Double(r) / 255.0,
-            green: Double(g) / 255.0,
-            blue: Double(b) / 255.0,
-            opacity: 1.0
-        )
-    }
-}
 
 #Preview {
     SettingsView()

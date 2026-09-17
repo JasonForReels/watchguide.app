@@ -8,6 +8,46 @@
 
 import Foundation
 
+/// Synchronously readable cache of resolved FanArt.tv artwork URLs.
+///
+/// Views draw on the main thread and cannot await an actor just to pick a URL.
+/// This lets a poster use FanArt art it already knows about without paying for a
+/// lookup, while views that genuinely want the better artwork resolve it through
+/// `FanArtService` and deposit the result here for everyone else.
+final class FanArtURLCache: @unchecked Sendable {
+    static let shared = FanArtURLCache()
+
+    private let lock = NSLock()
+    private var posters: [String: URL] = [:]
+    private var backdrops: [String: URL] = [:]
+
+    private init() {}
+
+    private func key(_ tmdbId: Int, _ mediaType: MediaType) -> String {
+        "\(mediaType.rawValue)-\(tmdbId)"
+    }
+
+    func posterURL(tmdbId: Int, mediaType: MediaType) -> URL? {
+        lock.lock(); defer { lock.unlock() }
+        return posters[key(tmdbId, mediaType)]
+    }
+
+    func setPosterURL(_ url: URL, tmdbId: Int, mediaType: MediaType) {
+        lock.lock(); defer { lock.unlock() }
+        posters[key(tmdbId, mediaType)] = url
+    }
+
+    func backdropURL(tmdbId: Int, mediaType: MediaType) -> URL? {
+        lock.lock(); defer { lock.unlock() }
+        return backdrops[key(tmdbId, mediaType)]
+    }
+
+    func setBackdropURL(_ url: URL, tmdbId: Int, mediaType: MediaType) {
+        lock.lock(); defer { lock.unlock() }
+        backdrops[key(tmdbId, mediaType)] = url
+    }
+}
+
 actor FanArtService {
     static let shared = FanArtService()
     
@@ -36,7 +76,19 @@ actor FanArtService {
     
     func getMovieArt(tmdbId: Int) async throws -> FanArtResponse {
         let cacheKey = "movie-\(tmdbId)"
+        
+        // L1: in-memory
         if let cached = artCache[cacheKey] { return cached }
+        
+        // L2: Supabase shared cache
+        let supabaseKey = SupabaseCacheService.fanartCacheKey(mediaType: "movie", id: tmdbId)
+        if let cachedData = await SupabaseCacheService.shared.get(key: supabaseKey) {
+            if let result = try? JSONDecoder().decode(FanArtResponse.self, from: cachedData) {
+                artCache[cacheKey] = result
+                evictCacheIfNeeded()
+                return result
+            }
+        }
         
         let url = URL(string: "\(baseURL)/movies/\(tmdbId)?api_key=\(apiKey)")!
         let (data, response) = try await session.data(from: url)
@@ -48,6 +100,18 @@ actor FanArtService {
         let result = try JSONDecoder().decode(FanArtResponse.self, from: data)
         artCache[cacheKey] = result
         evictCacheIfNeeded()
+        
+        // Fire-and-forget L2 write
+        let capturedData = data
+        Task.detached {
+            await SupabaseCacheService.shared.set(
+                key: supabaseKey,
+                source: .fanart,
+                responseData: capturedData,
+                ttlSeconds: SupabaseCacheService.CacheTTL.artwork
+            )
+        }
+        
         return result
     }
     
@@ -55,7 +119,19 @@ actor FanArtService {
     
     func getTVArt(tvdbId: Int) async throws -> FanArtResponse {
         let cacheKey = "tv-\(tvdbId)"
+        
+        // L1: in-memory
         if let cached = artCache[cacheKey] { return cached }
+        
+        // L2: Supabase shared cache
+        let supabaseKey = SupabaseCacheService.fanartCacheKey(mediaType: "tv", id: tvdbId)
+        if let cachedData = await SupabaseCacheService.shared.get(key: supabaseKey) {
+            if let result = try? JSONDecoder().decode(FanArtResponse.self, from: cachedData) {
+                artCache[cacheKey] = result
+                evictCacheIfNeeded()
+                return result
+            }
+        }
         
         let url = URL(string: "\(baseURL)/tv/\(tvdbId)?api_key=\(apiKey)")!
         let (data, response) = try await session.data(from: url)
@@ -67,6 +143,18 @@ actor FanArtService {
         let result = try JSONDecoder().decode(FanArtResponse.self, from: data)
         artCache[cacheKey] = result
         evictCacheIfNeeded()
+        
+        // Fire-and-forget L2 write
+        let capturedData = data
+        Task.detached {
+            await SupabaseCacheService.shared.set(
+                key: supabaseKey,
+                source: .fanart,
+                responseData: capturedData,
+                ttlSeconds: SupabaseCacheService.CacheTTL.artwork
+            )
+        }
+        
         return result
     }
     
@@ -112,29 +200,38 @@ actor FanArtService {
     // MARK: - Best Poster URL
     
     func getBestPosterURL(tmdbId: Int, mediaType: MediaType) async -> URL? {
-        guard let art = await getArt(tmdbId: tmdbId, mediaType: mediaType) else { return nil }
-        
-        if mediaType == .movie {
-            if let img = bestEnglishImage(art.movieposter) { return URL(string: img.url) }
-            if let img = art.moviethumb?.first { return URL(string: img.url) }
-        } else {
-            if let img = bestEnglishImage(art.tvposter) { return URL(string: img.url) }
-            if let img = art.tvthumb?.first { return URL(string: img.url) }
+        if let known = FanArtURLCache.shared.posterURL(tmdbId: tmdbId, mediaType: mediaType) {
+            return known
         }
-        return nil
+        guard let art = await getArt(tmdbId: tmdbId, mediaType: mediaType) else { return nil }
+
+        // Only return actual poster artwork (portrait). Do NOT fall back to
+        // thumbs, which are landscape and display incorrectly in poster frames.
+        let image = mediaType == .movie
+            ? bestEnglishImage(art.movieposter)
+            : bestEnglishImage(art.tvposter)
+
+        guard let image, let url = URL(string: image.url) else { return nil }
+        // Publish it so views can pick it up synchronously from now on.
+        FanArtURLCache.shared.setPosterURL(url, tmdbId: tmdbId, mediaType: mediaType)
+        return url
     }
     
     // MARK: - Best Backdrop URL
     
     func getBestBackdropURL(tmdbId: Int, mediaType: MediaType) async -> URL? {
-        guard let art = await getArt(tmdbId: tmdbId, mediaType: mediaType) else { return nil }
-        
-        if mediaType == .movie {
-            if let img = bestEnglishImage(art.moviebackground) { return URL(string: img.url) }
-        } else {
-            if let img = bestEnglishImage(art.showbackground) { return URL(string: img.url) }
+        if let known = FanArtURLCache.shared.backdropURL(tmdbId: tmdbId, mediaType: mediaType) {
+            return known
         }
-        return nil
+        guard let art = await getArt(tmdbId: tmdbId, mediaType: mediaType) else { return nil }
+
+        let image = mediaType == .movie
+            ? bestEnglishImage(art.moviebackground)
+            : bestEnglishImage(art.showbackground)
+
+        guard let image, let url = URL(string: image.url) else { return nil }
+        FanArtURLCache.shared.setBackdropURL(url, tmdbId: tmdbId, mediaType: mediaType)
+        return url
     }
     
     // MARK: - Best Logo URL (HD preferred)
@@ -167,6 +264,22 @@ actor FanArtService {
         return nil
     }
     
+    // MARK: - Best Character Art URL
+
+    /// Alpha-channel subject art, used as the parallax cutout layer of the
+    /// cinematic hero stage. Character art is preferred over clear art because
+    /// clear art normally has the title lettering composited in, which would
+    /// duplicate the hero's own logo layer.
+    func getBestCharacterArtURL(tmdbId: Int, mediaType: MediaType) async -> URL? {
+        guard let art = await getArt(tmdbId: tmdbId, mediaType: mediaType) else { return nil }
+
+        // Character art only. Clear art has the title logo baked in, which put a
+        // second copy of the title in the middle of the hero next to its own
+        // treatment.
+        if let img = bestEnglishImage(art.characterart) { return URL(string: img.url) }
+        return nil
+    }
+
     // MARK: - Best Banner URL
     
     func getBestBannerURL(tmdbId: Int, mediaType: MediaType) async -> URL? {

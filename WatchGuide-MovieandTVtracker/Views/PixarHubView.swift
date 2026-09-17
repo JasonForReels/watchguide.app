@@ -4,7 +4,6 @@ struct PixarHubView: View {
     @State private var movies: [MediaItem] = []
     @State private var loading = true
     @State private var selectedItem: MediaItem?
-    @State private var selectedCollection: HubCollection?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -57,21 +56,6 @@ struct PixarHubView: View {
                                     .padding(.horizontal, 40)
                                     .padding(.bottom, 20)
                                 
-                                // Collections
-                                if !collections.isEmpty {
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 24) {
-                                            ForEach(collections) { collection in
-                                                FranchiseCircleButton(collection: collection) {
-                                                    selectedCollection = collection
-                                                }
-                                            }
-                                        }
-                                        .padding(.horizontal, horizontalSizeClass == .regular ? 40 : 20)
-                                    }
-                                    .padding(.vertical, 20)
-                                }
-                                
                                 VStack(spacing: horizontalSizeClass == .regular ? 64 : 32) {
                                     if !featuredItems.isEmpty {
                                         MediaRowView(
@@ -110,14 +94,12 @@ struct PixarHubView: View {
                     #endif
                 }
                 .mediaDetailPresentation(item: $selectedItem)
-                .fullScreenCover(item: $selectedCollection) { collection in
-                    HubCollectionView(collection: collection)
-                }
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
-    
+
     // MARK: - Sections
     
     private var heroSection: some View {
@@ -220,41 +202,4 @@ struct PixarHubView: View {
         }
     }
     
-    private var collections: [HubCollection] {
-        [
-            HubCollection(
-                id: 3001,
-                name: "Toy Story",
-                logoAssetName: "",
-                backgroundColor: Color(red: 0.1, green: 0.4, blue: 0.8),
-                customItems: [
-                    .init(id: "862", type: .movie),
-                    .init(id: "863", type: .movie),
-                    .init(id: "10193", type: .movie),
-                    .init(id: "301528", type: .movie)
-                ]
-            ),
-            HubCollection(
-                id: 3002,
-                name: "Cars",
-                logoAssetName: "",
-                backgroundColor: Color(red: 0.8, green: 0.1, blue: 0.1),
-                customItems: [
-                    .init(id: "920", type: .movie),
-                    .init(id: "49013", type: .movie),
-                    .init(id: "260514", type: .movie)
-                ]
-            ),
-            HubCollection(
-                id: 3003,
-                name: "The Incredibles",
-                logoAssetName: "",
-                backgroundColor: Color(red: 0.9, green: 0.5, blue: 0.0),
-                customItems: [
-                    .init(id: "9806", type: .movie),
-                    .init(id: "260513", type: .movie)
-                ]
-            )
-        ]
-    }
 }

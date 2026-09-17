@@ -28,11 +28,21 @@ struct MediaDetailView: View {
     @State private var selectedPerson: SelectedPerson?
     @State private var selectedCompanyHub: CompanyHub?
     @State private var selectedCompanyItem: MediaItem?
+    @State private var showWatchAlong = false
     @State private var selectedItem: MediaItem?
 
     @State private var selectedTrailer: Video?
     @State private var safariItem: SafariItem?
     @State private var showInlineTrailer = false
+    @State private var selectedStreamingCountry: StreamingCountry?
+    @State private var showKeepStub = false
+    @State private var overviewExpanded = false
+    @ObservedObject private var stubStore = TicketStubStore.shared
+
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private var isCompactWidth: Bool { horizontalSizeClass == .compact }
+    #endif
 
     init(item: MediaItem) {
         self.item = item
@@ -60,26 +70,35 @@ struct MediaDetailView: View {
 #endif
     
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 0) {
-                    // Hero Header (inline player or static backdrop)
-                    headerSection
-                    
-                    // Content
-                    VStack(spacing: 24) {
-                        // Quick Actions
-                        if let savedItem = viewModel.savedItem {
-                            ListActionsView(
-                                mediaId: item.id,
-                                mediaType: item.resolvedMediaType,
-                                savedItem: savedItem
-                            )
+        ScrollView {
+            VStack(spacing: 0) {
+                // Hero Header (inline player or static backdrop)
+                headerSection
+                    #if os(tvOS)
+                    .focusSection()
+                    #endif
+                
+                // Content
+                VStack(spacing: 24) {
+                    // Quick Actions
+                    if let savedItem = viewModel.savedItem {
+                        ListActionsView(
+                            mediaId: item.id,
+                            mediaType: item.resolvedMediaType,
+                            savedItem: savedItem
+                        )
+                        .padding(.horizontal)
+                    }
+
+                        #if !os(tvOS)
+                        stubSection
                             .padding(.horizontal)
-                        }
+                        #endif
                         
                         #if !os(tvOS)
-                        if shouldShowDetailTrailer, let trailer = viewModel.preferredTrailer {
+                        // Show the inline Play Trailer button only when the header
+                        // is NOT already auto-playing a trailer in the background.
+                        if !shouldShowDetailTrailer, let trailer = viewModel.preferredTrailer {
                             if showInlineTrailer {
                                 // Inline embedded trailer player (autoplay muted)
                                 VStack(alignment: .leading, spacing: 8) {
@@ -147,20 +166,37 @@ struct MediaDetailView: View {
                         // Overview
                         if let overview = viewModel.overview, !overview.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Overview")
-                                    .font(.title3)
+                                Text("About")
+                                    .font(.title2)
                                     .fontWeight(.bold)
                                 
                                 Text(overview)
                                     .font(.body)
                                     .foregroundColor(.secondary)
+                                    .lineLimit(overviewExpanded ? nil : 4)
+                                    .animation(WGMotion.smooth, value: overviewExpanded)
+
+                                if overview.count > 220 {
+                                    Button(overviewExpanded ? "Less" : "More") {
+                                        overviewExpanded.toggle()
+                                    }
+                                    .font(.subheadline.weight(.semibold))
+                                    .tint(Reel.accent)
+                                }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal)
                         }
                         
+                        #if os(iOS)
+                        WatchAlongEntryCard { showWatchAlong = true }
+                            .padding(.horizontal)
+                        #endif
+
+                        #if !os(tvOS)
                         if viewModel.isMovie {
                             PostCreditsScoutSection(
+                                stingers: viewModel.creditsStingers,
                                 summary: viewModel.postCreditsSummary,
                                 isLoading: viewModel.isPostCreditsLoading,
                                 errorMessage: viewModel.postCreditsError,
@@ -169,6 +205,24 @@ struct MediaDetailView: View {
                                 }
                             )
                             .padding(.horizontal)
+                        }
+
+                        DeepDiveSection(
+                            item: item,
+                            crew: viewModel.crew,
+                            budget: viewModel.budget,
+                            revenue: viewModel.revenue,
+                            isWatched: StorageService.shared.watched.contains {
+                                $0.mediaId == item.id && $0.mediaType == item.resolvedMediaType
+                            },
+                            onQuotaReached: { viewModel.showUpgradePaywall = true }
+                        )
+                        .padding(.horizontal)
+                        #endif
+
+                        if let leaving = viewModel.leavingSoon {
+                            LeavingSoonBanner(providerName: leaving.providerName, leavesOn: leaving.date)
+                                .padding(.horizontal)
                         }
 
                         // Where to Watch
@@ -181,7 +235,34 @@ struct MediaDetailView: View {
                                 
                                 WatchProvidersView(
                                     providers: viewModel.watchProviders,
-                                    link: viewModel.watchProvidersLink
+                                    link: viewModel.watchProvidersLink,
+                                    mediaTitle: item.title ?? item.name ?? "",
+                                    alternateTitle: item.originalTitle ?? item.originalName,
+                                    mediaType: item.resolvedMediaType,
+                                    year: String((item.releaseDate ?? item.firstAirDate ?? "").prefix(4)),
+                                    deepLinks: viewModel.deepLinks
+                                )
+                                .padding(.horizontal)
+                            }
+                        }
+                        
+                        // Streaming availability by country (map on iOS/iPadOS, list on tvOS)
+                        if !viewModel.allWatchProviderRegions.isEmpty,
+                           StreamingMapView.hasStreamingAvailability(in: viewModel.allWatchProviderRegions) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Available Around the World")
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                                    .padding(.horizontal)
+                                
+                                StreamingMapView(
+                                    allRegions: viewModel.allWatchProviderRegions,
+                                    mediaTitle: item.title ?? item.name ?? "",
+                                    alternateTitle: item.originalTitle ?? item.originalName,
+                                    mediaType: item.resolvedMediaType,
+                                    year: String((item.releaseDate ?? item.firstAirDate ?? "").prefix(4)),
+                                    deepLinks: viewModel.deepLinks,
+                                    selectedCountry: $selectedStreamingCountry
                                 )
                                 .padding(.horizontal)
                             }
@@ -264,26 +345,25 @@ struct MediaDetailView: View {
                     .padding(.vertical, 24)
                 }
             }
-            .ignoresSafeArea(edges: .top)
-            #if !os(macOS)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar((shouldShowDetailTrailer && viewModel.preferredTrailer != nil) ? .hidden : .visible, for: .navigationBar)
-            .toolbarBackground((shouldShowDetailTrailer && viewModel.preferredTrailer != nil) ? .hidden : .visible, for: .navigationBar)
-            .toolbarColorScheme((shouldShowDetailTrailer && viewModel.preferredTrailer != nil) ? .dark : .light, for: .navigationBar)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundColor(.white)
-                    }
-                }
+        #if os(tvOS)
+        .defaultScrollAnchor(.top)
+        #endif
+        .ignoresSafeArea(edges: .top)
+        .background {
+            // Poster-lit, like Tonight: the page takes its colour from the artwork.
+            ZStack {
+                Color.black
+                AsyncImageView(url: TMDBService.shared.imageURL(path: item.posterPath, size: .small), cornerRadius: 0)
+                    .scaledToFill()
+                    .blur(radius: 90)
+                    .saturation(1.3)
+                    .opacity(0.45)
+                LinearGradient(colors: [.black.opacity(0.2), .black.opacity(0.75)], startPoint: .top, endPoint: .bottom)
             }
+            .ignoresSafeArea()
+            .accessibilityHidden(true)
         }
+        .colorScheme(.dark)
         .task {
             await viewModel.loadDetails()
         }
@@ -306,6 +386,11 @@ struct MediaDetailView: View {
             }
         }
 #endif
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showWatchAlong) {
+            WatchAlongLauncherView(item: item, seasons: viewModel.seasons ?? [])
+        }
+        #endif
         .sheet(item: $selectedSeason) { season in
             SeasonDetailSheet(
                 tvId: item.id,
@@ -329,12 +414,38 @@ struct MediaDetailView: View {
         .sheet(item: $selectedItem) { item in
             MediaDetailView(item: item)
         }
+        #if !os(tvOS)
+        .sheet(item: $selectedStreamingCountry) { country in
+            CountryStreamingDetailView(
+                country: country,
+                mediaTitle: item.title ?? item.name ?? "",
+                alternateTitle: item.originalTitle ?? item.originalName,
+                mediaType: item.resolvedMediaType,
+                year: String((item.releaseDate ?? item.firstAirDate ?? "").prefix(4)),
+                deepLinks: viewModel.deepLinks,
+                savedMediaItem: viewModel.savedItem
+            )
+        }
+        #endif
         #if os(iOS)
         .sheet(item: $safariItem) { item in
             SafariView(url: item.url)
                 .ignoresSafeArea()
         }
         #endif
+        #if !os(tvOS)
+        .sheet(isPresented: $showKeepStub) {
+            NavigationStack {
+                KeepStubSheet(item: item) { verdict, company, note in
+                    stubStore.tear(for: item, verdict: verdict, company: company, note: note)
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
+        #endif
+        .sheet(isPresented: $viewModel.showUpgradePaywall) {
+            WGUnlimitedPaywallView()
+        }
     }
     
     // MARK: - Header Section (Auto-Playing Trailer)
@@ -359,9 +470,13 @@ struct MediaDetailView: View {
                         videoKey: trailerKey,
                         title: viewModel.preferredTrailer?.name ?? item.displayTitle,
                         compact: false,
-                        autoPlay: true
+                        autoPlay: true,
+                        showsControls: false,
+                        contentMode: .fill,
+                        cornerRadius: 0
                     )
                         .frame(width: width, height: height)
+                        .clipped()
                         .allowsHitTesting(false)
                 }
                 
@@ -388,12 +503,26 @@ struct MediaDetailView: View {
                 .animation(.easeInOut(duration: 0.8), value: viewModel.preferredTrailer?.key)
                 
                 // Layer 3: Gradient overlay
+                #if os(tvOS)
+                // tvOS: subtle bottom fade only — keeps the trailer visible
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0.55),
+                        .init(color: .black.opacity(0.6), location: 0.85),
+                        .init(color: .black.opacity(0.95), location: 1.0)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(width: width, height: height)
+                #else
                 LinearGradient(
                     colors: [.clear, .black.opacity(0.7), .black.opacity(0.95)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
                 .frame(width: width, height: height)
+                #endif
                 
                 // Layer 4: Content overlay
                 VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
@@ -407,11 +536,11 @@ struct MediaDetailView: View {
                                         .renderingMode(.original)
                                         .resizable()
                                         .scaledToFit()
-                                        .frame(maxWidth: min(width * 0.55, 280), maxHeight: isCompact ? 50 : 65)
+                                        .frame(maxWidth: min(width * 0.42, 210), maxHeight: isCompact ? 36 : 48)
                                         .shadow(color: .black.opacity(0.45), radius: 6, x: 0, y: 3)
                                 default:
                                     Text(item.displayTitle)
-                                        .font(isCompact ? .title3 : .title2)
+                                        .font(isCompact ? .subheadline : .headline)
                                         .fontWeight(.bold)
                                         .foregroundColor(.white)
                                         .lineLimit(isCompact ? 2 : 3)
@@ -419,7 +548,7 @@ struct MediaDetailView: View {
                             }
                         } else {
                             Text(item.displayTitle)
-                                .font(isCompact ? .title3 : .title2)
+                                .font(isCompact ? .subheadline : .headline)
                                 .fontWeight(.bold)
                                 .foregroundColor(.white)
                                 .lineLimit(isCompact ? 2 : 3)
@@ -434,7 +563,7 @@ struct MediaDetailView: View {
                             .background(Color.accentColor)
                             .foregroundColor(.white)
                             .cornerRadius(4)
-                        
+
                         if let logoURL = resolvedDetailLogoURL(width: width, height: height) {
                             AsyncImage(url: logoURL) { phase in
                                 switch phase {
@@ -443,11 +572,11 @@ struct MediaDetailView: View {
                                         .renderingMode(.original)
                                         .resizable()
                                         .scaledToFit()
-                                        .frame(maxWidth: min(width * 0.55, 280), maxHeight: isCompact ? 50 : 65)
+                                        .frame(maxWidth: min(width * 0.42, 210), maxHeight: isCompact ? 36 : 48)
                                         .shadow(color: .black.opacity(0.45), radius: 6, x: 0, y: 3)
                                 default:
                                     Text(item.displayTitle)
-                                        .font(isCompact ? .title3 : .title2)
+                                        .font(isCompact ? .subheadline : .headline)
                                         .fontWeight(.bold)
                                         .foregroundColor(.white)
                                         .lineLimit(isCompact ? 2 : 3)
@@ -455,7 +584,7 @@ struct MediaDetailView: View {
                             }
                         } else {
                             Text(item.displayTitle)
-                                .font(isCompact ? .title3 : .title2)
+                                .font(isCompact ? .subheadline : .headline)
                                 .fontWeight(.bold)
                                 .foregroundColor(.white)
                                 .lineLimit(isCompact ? 2 : 3)
@@ -492,8 +621,41 @@ struct MediaDetailView: View {
                 .padding(isCompact ? 12 : 16)
                 .padding(.bottom, isCompact ? 4 : 8)
                 
+                #if os(tvOS)
+                // tvOS: transparent focusable button overlay (same pattern as HeroCarouselView)
+                // Makes the header the first focusable element so tvOS doesn't auto-scroll past it.
+                Button {
+                    // No-op — the header is just a cinematic trailer display
+                } label: {
+                    Color.clear
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(TVOSCarouselButtonStyle())
+                #endif
             }
             .frame(width: width, height: height)
+            .overlay(alignment: .topLeading) {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 36, height: 36)
+                }
+                #if os(tvOS)
+                .buttonStyle(.plain)
+                #else
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("Close")
+                #endif
+                #if os(tvOS)
+                .padding(.leading, 60)
+                .padding(.top, 40)
+                #else
+                .padding(.leading, 20)
+                .padding(.top, 50)
+                #endif
+            }
         }
         .aspectRatio(16.0/9.0, contentMode: .fit)
     }
@@ -520,6 +682,40 @@ struct MediaDetailView: View {
         return nil
     }
     
+    // MARK: - Ticket Stubs
+
+    private var stubsForItem: [TicketStub] {
+        stubStore.stubs.filter { $0.mediaId == item.id && $0.mediaType == item.resolvedMediaType }
+    }
+
+    /// "Keep a Ticket Stub" plus any stubs already kept for this title, so a
+    /// rewatch shows its history right where you'd log the next one.
+    @ViewBuilder
+    private var stubSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                showKeepStub = true
+            } label: {
+                Label(stubsForItem.isEmpty ? "I Watched This" : "Watched Again", systemImage: "ticket.fill")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 36)
+            }
+            .buttonStyle(.glassProminent)
+            .tint(Reel.accent)
+
+            if !stubsForItem.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(stubsForItem) { stub in
+                            StubCard(stub: stub).frame(width: 300)
+                        }
+                    }
+                }
+                .scrollClipDisabled()
+            }
+        }
+    }
+
     // MARK: - Seasons Section
     private func seasonsSection(seasons: [Season]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -651,9 +847,11 @@ struct SeasonCard: View {
             }
             .frame(width: 100, alignment: .leading)
         }
+        #if !os(tvOS)
         .onHover { hovering in
             isHovered = hovering
         }
+        #endif
     }
 }
 
@@ -682,7 +880,7 @@ struct SeasonDetailSheet: View {
                 }
             }
             .navigationTitle(season.name ?? "Season \(season.seasonNumber)")
-            #if !os(macOS)
+            #if !os(macOS) && !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
@@ -800,7 +998,7 @@ struct EpisodeRow: View {
         guard !isLoadingSkipMap else { return }
         let aiAvailable = await AIService.shared.isAvailable
         guard aiAvailable else {
-            skipMapError = "Scout AI isn’t configured."
+            skipMapError = "Atlas AI isn’t configured."
             return
         }
 
@@ -820,7 +1018,7 @@ struct EpisodeRow: View {
                 conversationHistory: [],
                 likedItems: [],
                 webSearchEnabled: true,
-                model: .gemini25Flash,
+                model: .geminiFlashLite,
                 restrictedMode: false
             )
             skipMapSummary = response
@@ -940,6 +1138,7 @@ private struct ParentRatingSection: View {
 
 // MARK: - Post-Credits Scout
 private struct PostCreditsScoutSection: View {
+    let stingers: CreditsStingers?
     let summary: String?
     let isLoading: Bool
     let errorMessage: String?
@@ -951,6 +1150,11 @@ private struct PostCreditsScoutSection: View {
                 Text("Post‑Credits Check")
                     .font(.title3)
                     .fontWeight(.bold)
+
+                if !AIMessageQuota.isUnlimited() && !AIMessageQuota.canUsePostCreditsThisMonth() {
+                    WGUnlimitedLockButton()
+                }
+
                 Spacer()
                 if summary != nil || errorMessage != nil {
                     Button("Check again") {
@@ -960,10 +1164,14 @@ private struct PostCreditsScoutSection: View {
                 }
             }
 
+            if let stingers {
+                CreditsStingerBadge(stingers: stingers)
+            }
+
             if isLoading {
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text("Scout is checking the web...")
+                    Text("Atlas is checking the web...")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -977,7 +1185,7 @@ private struct PostCreditsScoutSection: View {
                     .foregroundColor(.secondary)
             } else {
                 Button(action: onCheck) {
-                    Text("Ask Scout if it’s worth staying")
+                    Text("Ask Atlas if it’s worth staying")
                         .font(.callout.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
@@ -987,6 +1195,56 @@ private struct PostCreditsScoutSection: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+}
+
+// MARK: - Credits Stinger Badge
+
+/// Mid/post-credits scenes as tagged by TMDB keywords. Free and instant —
+/// the Atlas check below adds whether the scene is worth waiting for.
+struct CreditsStingers: Equatable {
+    static let duringCreditsKeywordId = 179430
+    static let afterCreditsKeywordId = 179431
+
+    let duringCredits: Bool
+    let afterCredits: Bool
+
+    /// Nil when TMDB has no stinger tags — absence isn't proof there's no scene.
+    init?(keywords: [Keyword]) {
+        let ids = Set(keywords.map(\.id))
+        duringCredits = ids.contains(Self.duringCreditsKeywordId)
+        afterCredits = ids.contains(Self.afterCreditsKeywordId)
+        guard duringCredits || afterCredits else { return nil }
+    }
+
+    var summary: String {
+        switch (duringCredits, afterCredits) {
+        case (true, true): return "Mid-credits and post-credits scenes"
+        case (true, false): return "Mid-credits scene"
+        default: return "Post-credits scene"
+        }
+    }
+}
+
+private struct CreditsStingerBadge: View {
+    let stingers: CreditsStingers
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "sparkles.tv")
+                .font(.title3)
+                .foregroundStyle(.yellow)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Stay for the credits")
+                    .font(.subheadline.weight(.semibold))
+                Text(stingers.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -1020,12 +1278,19 @@ struct TitleProductionCompanyCard: View {
     let company: ProductionCompany
     let onTap: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    #if os(tvOS)
+    @FocusState private var isFocused: Bool
+    #endif
     private var isSearchlight: Bool { company.id == 127929 || company.name == "Searchlight Pictures" }
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(spacing: 10) {
                 ZStack {
+                    #if os(tvOS)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.clear)
+                    #else
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .fill(Color.white)
                         .shadow(
@@ -1034,6 +1299,7 @@ struct TitleProductionCompanyCard: View {
                             x: 0,
                             y: 3
                         )
+                    #endif
 
                     if isSearchlight {
                         Image("SearchlightLogo")
@@ -1063,6 +1329,15 @@ struct TitleProductionCompanyCard: View {
                     }
                 }
                 .frame(width: 180, height: 100)
+                #if os(tvOS)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.white.opacity(isFocused ? 0.96 : 0.18), lineWidth: isFocused ? 2.6 : 1.1)
+                )
+                .shadow(color: Color.black.opacity(isFocused ? 0.4 : 0.16), radius: isFocused ? 18 : 6, x: 0, y: isFocused ? 10 : 3)
+                .scaleEffect(isFocused ? 1.08 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.75), value: isFocused)
+                #endif
 
                 Text(company.name)
                     .font(.caption)
@@ -1071,7 +1346,12 @@ struct TitleProductionCompanyCard: View {
                     .lineLimit(1)
             }
         }
+        #if os(tvOS)
+        .buttonStyle(TVOSTransparentButtonStyle(cornerRadius: 18))
+        .focused($isFocused)
+        #else
         .buttonStyle(.plain)
+        #endif
     }
 
     private var logoURL: URL? {
@@ -1123,6 +1403,8 @@ class MediaDetailViewModel: ObservableObject {
     @Published var recommendations: [MediaItem] = []
     @Published var watchProviders: WatchProviderRegion?
     @Published var watchProvidersLink: String?
+    @Published var deepLinks: [StreamingDeepLink] = []
+    @Published var allWatchProviderRegions: [String: WatchProviderRegion] = [:]
     @Published var seasons: [Season]?
     @Published var savedItem: SavedMediaItem?
     @Published var logoPath: String?
@@ -1133,9 +1415,13 @@ class MediaDetailViewModel: ObservableObject {
     @Published var collectionInfo: CollectionInfo?
     @Published var collectionItems: [MediaItem] = []
     @Published var productionCompanies: [ProductionCompany] = []
+    @Published var creditsStingers: CreditsStingers?
     @Published var postCreditsSummary: String?
     @Published var postCreditsError: String?
     @Published var isPostCreditsLoading = false
+    @Published var showUpgradePaywall = false
+    /// IMDb ID resolved from TMDB details, used for Trailerio addon fetch on tvOS.
+    private var imdbId: String?
     private let currencyFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
@@ -1146,6 +1432,23 @@ class MediaDetailViewModel: ObservableObject {
 
     var isMovie: Bool {
         item.resolvedMediaType == .movie
+    }
+
+    /// Earliest announced departure from a streaming service showing this title.
+    /// Limited to the user's StreamQ services when they've picked any.
+    var leavingSoon: (providerName: String, date: Date)? {
+        guard let region = watchProviders else { return nil }
+        let selected = Set(StorageService.shared.settings.streamqServiceIds)
+        let now = Date()
+        let providers = (region.flatrate ?? []) + (region.free ?? []) + (region.ads ?? [])
+        return providers
+            .filter { selected.isEmpty || selected.contains($0.providerId) }
+            .compactMap { provider -> (providerName: String, date: Date)? in
+                guard let date = StreamingDeepLinkService.leavingDate(forTMDBProviderId: provider.providerId, from: deepLinks),
+                      date > now else { return nil }
+                return (provider.providerName, date)
+            }
+            .min { $0.date < $1.date }
     }
 
     var hasQuickStats: Bool {
@@ -1167,12 +1470,12 @@ class MediaDetailViewModel: ObservableObject {
 
         let aiAvailable = await AIService.shared.isAvailable
         if !aiAvailable {
-            postCreditsError = "Scout AI isn’t configured. Add your API key in Settings."
+            postCreditsError = "Atlas AI isn’t configured. Add your API key in Settings."
             return
         }
 
         if !AIMessageQuota.canUsePostCreditsThisMonth() {
-            postCreditsError = "Free plan post-credits checks used for this month. Upgrade to Scout Unlimited for unlimited checks."
+            showUpgradePaywall = true
             return
         }
 
@@ -1189,7 +1492,7 @@ class MediaDetailViewModel: ObservableObject {
                 conversationHistory: [],
                 likedItems: [],
                 webSearchEnabled: true,
-                model: .gemini25Flash,
+                model: .geminiFlashLite,
                 restrictedMode: false
             )
             postCreditsSummary = response
@@ -1236,6 +1539,7 @@ class MediaDetailViewModel: ObservableObject {
             
             savedItem = SavedMediaItem(from: details)
             collectionInfo = details.belongsToCollection
+            imdbId = details.imdbId
         } catch {
             print("Error loading movie details: \(error)")
             overview = item.overview
@@ -1280,6 +1584,12 @@ class MediaDetailViewModel: ObservableObject {
                 }
             }
             
+            // Mid/post-credits scene tags
+            group.addTask { @MainActor in
+                let keywords = await TMDBService.shared.getKeywords(id: movieId, mediaType: .movie)
+                self.creditsStingers = CreditsStingers(keywords: keywords)
+            }
+
             // Certification
             group.addTask { @MainActor in
                 do {
@@ -1301,22 +1611,36 @@ class MediaDetailViewModel: ObservableObject {
                 }
             }
             
-            // Videos
+            // Videos + Trailerio addon fetch
             group.addTask { @MainActor in
                 do {
                     let videosResponse = try await TMDBService.shared.getMovieVideos(id: movieId)
                     self.videos = videosResponse.results
-                    self.preferredTrailer = self.computePreferredTrailer(from: self.videos)
                 } catch {
                     print("Error loading videos: \(error)")
-                    self.preferredTrailer = self.computePreferredTrailer(from: [])
                 }
+
+                // Fetch Trailerio / addon trailers (Direct URLs playable via AVPlayer on tvOS)
+                if let imdbId = self.imdbId {
+                    let addons = StorageService.shared.settings.trailerAddons
+                    let addonVideos = await TrailerAddonService.shared.fetchTrailers(
+                        imdbID: imdbId,
+                        mediaType: .movie,
+                        addons: addons
+                    )
+                    self.videos.append(contentsOf: addonVideos)
+                }
+
+                self.preferredTrailer = self.computePreferredTrailer(from: self.videos)
             }
             
-            // Watch providers
+            // Watch providers + deep links
             group.addTask { @MainActor in
                 do {
                     let providers = try await TMDBService.shared.getMovieWatchProviders(id: movieId)
+                    if let allResults = providers.results {
+                        self.allWatchProviderRegions = allResults
+                    }
                     if let regionData = providers.results?[region] {
                         self.watchProviders = regionData
                         self.watchProvidersLink = regionData.link
@@ -1324,6 +1648,13 @@ class MediaDetailViewModel: ObservableObject {
                 } catch {
                     print("Error loading providers: \(error)")
                 }
+                // Fetch MOTN deep links for the user's region
+                let links = await StreamingDeepLinkService.shared.fetchDeepLinks(
+                    tmdbId: movieId,
+                    mediaType: .movie,
+                    country: region
+                )
+                self.deepLinks = links
             }
             
             // Similar
@@ -1387,6 +1718,7 @@ class MediaDetailViewModel: ObservableObject {
             }
             
             savedItem = SavedMediaItem(from: details)
+            imdbId = details.externalIds?.imdbId
         } catch {
             print("Error loading TV details: \(error)")
             overview = item.overview
@@ -1436,22 +1768,36 @@ class MediaDetailViewModel: ObservableObject {
                 }
             }
             
-            // Videos
+            // Videos + Trailerio addon fetch
             group.addTask { @MainActor in
                 do {
                     let videosResponse = try await TMDBService.shared.getTVShowVideos(id: tvId)
                     self.videos = videosResponse.results
-                    self.preferredTrailer = self.computePreferredTrailer(from: self.videos)
                 } catch {
                     print("Error loading videos: \(error)")
-                    self.preferredTrailer = self.computePreferredTrailer(from: [])
                 }
+
+                // Fetch Trailerio / addon trailers (Direct URLs playable via AVPlayer on tvOS)
+                if let imdbId = self.imdbId {
+                    let addons = StorageService.shared.settings.trailerAddons
+                    let addonVideos = await TrailerAddonService.shared.fetchTrailers(
+                        imdbID: imdbId,
+                        mediaType: .tv,
+                        addons: addons
+                    )
+                    self.videos.append(contentsOf: addonVideos)
+                }
+
+                self.preferredTrailer = self.computePreferredTrailer(from: self.videos)
             }
             
-            // Watch providers
+            // Watch providers + deep links
             group.addTask { @MainActor in
                 do {
                     let providers = try await TMDBService.shared.getTVShowWatchProviders(id: tvId)
+                    if let allResults = providers.results {
+                        self.allWatchProviderRegions = allResults
+                    }
                     if let regionData = providers.results?[region] {
                         self.watchProviders = regionData
                         self.watchProvidersLink = regionData.link
@@ -1459,6 +1805,13 @@ class MediaDetailViewModel: ObservableObject {
                 } catch {
                     print("Error loading providers: \(error)")
                 }
+                // Fetch MOTN deep links for the user's region
+                let links = await StreamingDeepLinkService.shared.fetchDeepLinks(
+                    tmdbId: tvId,
+                    mediaType: .tv,
+                    country: region
+                )
+                self.deepLinks = links
             }
             
             // Similar
@@ -1509,6 +1862,12 @@ class MediaDetailViewModel: ObservableObject {
     }
 
     private func computePreferredTrailer(from videos: [Video]) -> Video? {
+        // Prefer direct-play (Trailerio/addon) trailers on all platforms — VPN-safe, no WKWebView needed
+        let directTrailers = videos.filter { $0.site.lowercased() == "direct" && $0.type.lowercased() == "trailer" }
+        if let direct = directTrailers.first { return direct }
+        let anyDirect = videos.first { $0.site.lowercased() == "direct" }
+        if let direct = anyDirect { return direct }
+
         let yt = videos.filter { $0.site.lowercased() == "youtube" }
         let filtered = yt.filter { video in
             let name = video.name.lowercased()
