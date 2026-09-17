@@ -6,3 +6,6 @@
 
 # macOS
 .DS_Store
+# Local build output / per-user Xcode state
+.codex/
+xcuserdata/

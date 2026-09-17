@@ -35,10 +35,19 @@ actor OMDbService {
     private init() {}
     
     func getRatings(imdbId: String) async throws -> OMDbResponse {
-        // Check cache
+        // L1: in-memory cache
         if let cached = cache[imdbId],
            Date().timeIntervalSince(cached.cachedAt) < cacheExpiration {
             return cached.response
+        }
+        
+        // L2: Supabase shared cache
+        let supabaseKey = SupabaseCacheService.omdbCacheKey(imdbId: imdbId)
+        if let cachedData = await SupabaseCacheService.shared.get(key: supabaseKey) {
+            if let decoded = try? JSONDecoder().decode(OMDbResponse.self, from: cachedData) {
+                cache[imdbId] = CachedRatings(response: decoded, cachedAt: Date())
+                return decoded
+            }
         }
         
         var components = URLComponents(string: baseURL)!
@@ -62,8 +71,19 @@ actor OMDbService {
         let decoder = JSONDecoder()
         let omdbResponse = try decoder.decode(OMDbResponse.self, from: data)
         
-        // Cache the response
+        // Store in L1
         cache[imdbId] = CachedRatings(response: omdbResponse, cachedAt: Date())
+        
+        // Fire-and-forget L2 write
+        let capturedData = data
+        Task.detached {
+            await SupabaseCacheService.shared.set(
+                key: supabaseKey,
+                source: .omdb,
+                responseData: capturedData,
+                ttlSeconds: SupabaseCacheService.CacheTTL.ratings
+            )
+        }
         
         return omdbResponse
     }

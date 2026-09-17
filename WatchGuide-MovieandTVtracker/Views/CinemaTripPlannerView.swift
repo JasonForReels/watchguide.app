@@ -1,5 +1,5 @@
 import SwiftUI
-import CoreLocation
+@preconcurrency import CoreLocation
 import MapKit
 #if canImport(UIKit)
 import UIKit
@@ -7,8 +7,33 @@ import UIKit
 
 // MARK: - Trip Planner View (Plan a Cinema Trip)
 
+#if os(tvOS)
+struct CinemaTripPlannerView: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "car.circle")
+                .font(.system(size: 42, weight: .semibold))
+                .foregroundColor(.secondary)
+            Text("Trip Planner Unavailable")
+                .font(.title3)
+                .fontWeight(.semibold)
+            Text("Plan cinema trips on iPhone or iPad. Apple TV can still browse cinemas and showtimes.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(32)
+        .navigationTitle("Trip Planner")
+    }
+}
+#else
 struct CinemaTripPlannerView: View {
     @StateObject private var plannerService = CinemaTripPlannerService.shared
+    #if os(iOS)
+    @StateObject private var walletService = WalletPassService.shared
+    #endif
     @State private var showNewTripSheet = false
 
     var body: some View {
@@ -73,7 +98,9 @@ struct CinemaTripPlannerView: View {
         .listStyle(.inset)
         #else
         .listStyle(.insetGrouped)
+        #if !os(tvOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         #endif
         .navigationTitle("Trip Planner")
         .toolbar {
@@ -89,6 +116,13 @@ struct CinemaTripPlannerView: View {
         .sheet(isPresented: $showNewTripSheet) {
             NewCinemaTripSheet()
         }
+        #if os(iOS)
+        .alert("Apple Wallet", isPresented: .init(get: { walletService.passError != nil }, set: { if !$0 { walletService.passError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(walletService.passError ?? "")
+        }
+        #endif
         .onAppear {
             plannerService.cleanupOldTrips()
         }
@@ -211,6 +245,48 @@ private struct CinemaTripCard: View {
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
+                
+                Divider()
+                
+                // Action Buttons (Share & Wallet)
+                HStack {
+                    ShareLink(item: tripShareText) {
+                        Label("Share Trip", systemImage: "square.and.arrow.up")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.accentColor.opacity(0.12))
+                            .foregroundColor(.accentColor)
+                            .cornerRadius(8)
+                    }
+                    
+                    Spacer()
+                    
+                    #if os(iOS)
+                    Button {
+                        Task { await WalletPassService.shared.generateAndAddPass(for: trip) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if WalletPassService.shared.isGeneratingPass {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "wallet.pass.fill")
+                            }
+                            Text("Add to Wallet")
+                        }
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.primary)
+                        .foregroundColor(Color(UIColor.systemBackground))
+                        .cornerRadius(8)
+                    }
+                    .disabled(WalletPassService.shared.isGeneratingPass)
+                    #endif
+                }
             }
         }
         .padding(14)
@@ -224,6 +300,10 @@ private struct CinemaTripCard: View {
                 .stroke(Color.gray.opacity(0.18), lineWidth: 0.5)
         )
         .opacity(isPast ? 0.7 : 1.0)
+    }
+
+    private var tripShareText: String {
+        "I'm going to see \(trip.movieTitle) at \(trip.cinemaName)!\nShowtime is \(trip.showtimeDateText) at \(trip.showtimeTimeText)."
     }
 
     private func timeUntilLeave(_ date: Date) -> String {
@@ -260,6 +340,7 @@ private struct NewCinemaTripSheet: View {
     @State private var scoutLeaveByDate: Date?
     @State private var scoutErrorText: String?
     @State private var showLocationPermissionAlert = false
+    @State private var showUpgradePaywall = false
 
     private let prepOptions = [10, 15, 20, 25, 30]
 
@@ -345,7 +426,7 @@ private struct NewCinemaTripSheet: View {
                                 Image(systemName: "sparkles")
                                     .foregroundColor(.accentColor)
                             }
-                            Text(isScoutCalculating ? "Scout is calculating..." : "Calculate Leave Time with Scout")
+                            Text(isScoutCalculating ? "Atlas is calculating..." : "Calculate Leave Time with Atlas")
                         }
                     }
                     .disabled(!isFormValid || isScoutCalculating || isSaving)
@@ -374,14 +455,16 @@ private struct NewCinemaTripSheet: View {
                         }
                     }
                 } header: {
-                    Text("Scout")
+                    Text("Atlas")
                 } footer: {
-                    Text("Scout uses live Maps traffic to estimate drive time and tell you when to leave.")
+                    Text("Atlas uses live Maps traffic to estimate drive time and tell you when to leave.")
                 }
             }
             .navigationTitle("Plan Trip")
             #if !os(macOS)
+            #if !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -408,7 +491,10 @@ private struct NewCinemaTripSheet: View {
                     PlatformURLHandler.openAppSettings()
                 }
             } message: {
-                Text("Scout needs your location to calculate when you should leave. Please allow location access for Watch Guide.")
+                Text("Atlas needs your location to calculate when you should leave. Please allow location access for Watch Guide.")
+            }
+            .sheet(isPresented: $showUpgradePaywall) {
+                WGSubscriptionPaywallView(context: .plus)
             }
         }
     }
@@ -416,7 +502,7 @@ private struct NewCinemaTripSheet: View {
     private func saveTrip() {
         guard let cinema = selectedCinema else { return }
         guard AIMessageQuota.canCreateTripPlanThisMonth() else {
-            scoutErrorText = "Free plan allows 1 new trip plan per month. Upgrade to Scout Unlimited for unlimited trip planning."
+            showUpgradePaywall = true
             return
         }
         isSaving = true
@@ -602,7 +688,9 @@ private struct CinemaPickerSheet: View {
             .searchable(text: $searchText, prompt: "Search cinemas")
             .navigationTitle("Select Cinema")
             #if !os(macOS)
+            #if !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -638,10 +726,12 @@ private final class TripLocationViewModel: NSObject, ObservableObject, CLLocatio
         }
     }
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        authorizationStatus = manager.authorizationStatus
-        if isAuthorized(authorizationStatus) {
-            manager.requestLocation()
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            authorizationStatus = manager.authorizationStatus
+            if isAuthorized(authorizationStatus) {
+                manager.requestLocation()
+            }
         }
     }
 
@@ -653,11 +743,13 @@ private final class TripLocationViewModel: NSObject, ObservableObject, CLLocatio
         #endif
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        currentLocation = locations.last?.coordinate
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        Task { @MainActor in
+            currentLocation = locations.last?.coordinate
+        }
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         print("TripLocation error: \(error)")
     }
 }
@@ -669,3 +761,4 @@ private final class TripLocationViewModel: NSObject, ObservableObject, CLLocatio
         CinemaTripPlannerView()
     }
 }
+#endif

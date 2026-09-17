@@ -39,6 +39,9 @@ struct AIRecommendView: View {
                     // Stats Section
                     statsSection
                     
+                    RemoteBannerView(placement: .aiRecommend)
+                        .padding(.horizontal)
+                    
                     Spacer(minLength: 40)
                 }
                 .padding(.top, 20)
@@ -384,7 +387,7 @@ struct AIProviderSheet: View {
                 Spacer()
             }
             .navigationTitle("Open AI Assistant")
-            #if !os(macOS)
+            #if !os(macOS) && !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
@@ -503,7 +506,7 @@ struct AIProviderButton: View {
         Button(action: action) {
             HStack(spacing: 16) {
                 // Logo from URL with white rendering
-                AsyncImage(url: URL(string: provider.logoURL)) { phase in
+                ResilientAsyncImage(url: URL(string: provider.logoURL)) { phase in
                     switch phase {
                     case .success(let image):
                         image

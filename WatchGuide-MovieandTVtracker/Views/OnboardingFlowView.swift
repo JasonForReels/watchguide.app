@@ -98,13 +98,15 @@ struct OnboardingFlowView: View {
     }
     
     private var footer: some View {
-        HStack {
-            Spacer()
-            Button("Get Started") {
+        VStack(spacing: 0) {
+            ActionButtonAnimationView(
+                title: "Get Started",
+                icon: "play.fill"
+            ) {
                 onboardingComplete = true
             }
-            .buttonStyle(PrimaryPillButtonStyle())
         }
+        .frame(maxWidth: .infinity)
     }
 }
 

@@ -1,9 +1,9 @@
 import SwiftUI
-#if canImport(UIKit)
+#if os(iOS) && canImport(UIKit)
 import UIKit
 #endif
 
-#if canImport(UIKit)
+#if os(iOS) && canImport(UIKit)
 struct InAppVisualScannerView: View {
     @Binding var selectedItem: MediaItem?
     @Environment(\.dismiss) private var dismiss
@@ -111,50 +111,36 @@ struct InAppVisualScannerView: View {
         } else if let topMatch {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
-                    Image(systemName: "viewfinder.circle.fill")
+                    Image(systemName: "photo.stack.fill")
                         .font(.system(size: 24))
                         .foregroundStyle(.yellow)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Best Match")
+                        Text("Possible matches")
                             .font(.headline)
                             .foregroundStyle(.white)
-                        Text(topMatch.item.displayTitle)
-                            .font(.title3.weight(.bold))
-                            .foregroundStyle(.white)
+                        Text("Pick the correct title")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.68))
                     }
                     Spacer()
                 }
 
-                if let year = topMatch.item.year {
-                    Text(year)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.7))
+                ForEach(Array(matches.prefix(5).enumerated()), id: \.element.id) { index, match in
+                    visualMatchCard(match, isTopMatch: index == 0)
                 }
 
-                if let overview = topMatch.item.overview, !overview.isEmpty {
-                    Text(overview)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.82))
-                        .lineLimit(4)
-                }
+                if !topMatch.rawDetectedText.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Detected text")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.white.opacity(0.7))
 
-                if let imdb = topMatch.ratingsSummary?.imdbRating {
-                    Text("IMDb \(imdb)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.72))
+                        Text(topMatch.rawDetectedText.prefix(6).joined(separator: " • "))
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.62))
+                    }
                 }
-
-                Button {
-                    selectedItem = topMatch.item
-                    dismiss()
-                } label: {
-                    Text("See title")
-                        .font(.headline.weight(.bold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                }
-                .buttonStyle(.borderedProminent)
             }
             .padding(20)
             .background(
@@ -188,6 +174,87 @@ struct InAppVisualScannerView: View {
                 subtitle: "We’ll scan the artwork, read the title text, then match it to TMDB and MDBList."
             )
         }
+    }
+
+    private func visualMatchCard(_ match: InAppVisualSearchResult, isTopMatch: Bool) -> some View {
+        Button {
+            selectedItem = match.item
+            dismiss()
+        } label: {
+            HStack(alignment: .top, spacing: 14) {
+                PosterImageView(
+                    posterPath: match.item.posterPath,
+                    backdropPath: match.item.backdropPath,
+                    size: .medium,
+                    mediaId: match.item.id,
+                    mediaType: match.item.resolvedMediaType
+                )
+                .frame(width: 82, height: 122)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        if isTopMatch {
+                            Text("Best Match")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.yellow)
+                        } else {
+                            Text("Match \(matches.firstIndex(where: { $0.id == match.id }).map { $0 + 1 } ?? 0)")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white.opacity(0.62))
+                        }
+                        Spacer()
+                    }
+
+                    Text(match.item.displayTitle)
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.leading)
+
+                    Text([match.item.resolvedMediaType.displayName, match.item.year].compactMap { $0 }.joined(separator: " • "))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.68))
+
+                    if let fanArtTitleLogoURL = match.fanArtTitleLogoURL {
+                        ResilientAsyncImage(url: fanArtTitleLogoURL) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(maxWidth: .infinity, maxHeight: 34, alignment: .leading)
+                            default:
+                                EmptyView()
+                            }
+                        }
+                    } else if let fanArtTitleName = match.fanArtTitleName, !fanArtTitleName.isEmpty {
+                        Text(fanArtTitleName)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.72))
+                            .lineLimit(1)
+                    }
+
+                    if let overview = match.item.overview, !overview.isEmpty {
+                        Text(overview)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.75))
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                    }
+
+                    Text("See title")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.top, 2)
+                }
+            }
+            .padding(14)
+            .background(Color.white.opacity(isTopMatch ? 0.1 : 0.06), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(isTopMatch ? Color.yellow.opacity(0.32) : Color.white.opacity(0.08), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private func analysisStatusCard(title: String, subtitle: String) -> some View {

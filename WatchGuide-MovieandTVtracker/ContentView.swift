@@ -10,51 +10,70 @@ import SwiftUI
 struct ContentView: View {
     @AppStorage("onboardingComplete") private var onboardingComplete = false
     @State private var selectedTab: Tab = .browse
+    @ObservedObject private var quickRouteCenter = WatchGuideQuickRouteCenter.shared
     @State private var selectedMediaItem: MediaItem?
+    @State private var showProfilePicker = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var profileService = ProfileService.shared
     @ObservedObject private var aiGuideManager = AppleIntelligenceGuideManager.shared
+    @ObservedObject private var scoutAgentRouteCenter = ScoutAgentRouteCenter.shared
+    @ObservedObject private var atlasActionCenter = AtlasActionCenter.shared
+    #if !os(tvOS)
+    @ObservedObject private var atlasDock = AtlasDockState.shared
+    #else
+    @ObservedObject private var heroFocusState = TVHeroFocusState.shared
+    #endif
     
     // Track which tabs have been visited so we only create their views once
     @State private var visitedTabs: Set<Tab> = [.browse]
     
-    @State private var showProfileSwitcherPage = false
-    @State private var lastContentTab: Tab = .browse
-    
     enum Tab: Int, CaseIterable, Identifiable {
         case browse = 0
         case search = 1
-        case ai = 2
         case lists = 3
         case me = 4
-        
+        case settings = 5
+        case more = 7
+        case myStreaming = 8
+        case watchHour = 9
+        case tonight = 10
+
         var id: Int { rawValue }
-        
+
         var label: String {
             switch self {
             case .browse: return "Browse"
             case .search: return "Search"
-            case .ai: return "Scout"
             case .lists: return "Lists"
             case .me: return "Me"
+            case .settings: return "Settings"
+            case .more: return "More"
+            case .myStreaming: return "StreamQ"
+            case .watchHour: return "WatchHour"
+            case .tonight: return "Tonight"
             }
         }
-        
+
         var iconName: String {
             switch self {
             case .browse: return "popcorn.fill"
             case .search: return "magnifyingglass"
-            case .ai: return "sparkles"
             case .lists: return "list.bullet.below.rectangle"
             case .me: return "person.crop.circle"
+            case .settings: return "gearshape.fill"
+            case .more: return "ellipsis.circle.fill"
+            case .myStreaming: return "play.tv.fill"
+            case .watchHour: return "hourglass"
+            case .tonight: return "sparkles.rectangle.stack.fill"
             }
         }
     }
     
     @State private var showPostSignInSync = false
-    
+    @State private var showAtlasSheet = false
+
     #if os(macOS) || targetEnvironment(macCatalyst)
     private var isMacLike: Bool { true }
     #else
@@ -92,7 +111,9 @@ struct ContentView: View {
                 }
         } else {
             Group {
-                #if os(macOS) || targetEnvironment(macCatalyst)
+                #if os(tvOS)
+                tvOSLayout
+                #elseif os(macOS) || targetEnvironment(macCatalyst)
                 if isMacLike {
                     macLayout
                 } else {
@@ -102,31 +123,20 @@ struct ContentView: View {
                 iPhoneLayout
                 #endif
             }
-            .sheet(item: $selectedMediaItem) { item in
-                MediaDetailView(item: item)
-            }
-            .sheet(isPresented: $aiGuideManager.isGuidePresented) {
-                AppleIntelligenceGuideView()
-            }
-            .onChange(of: selectedMediaItem) { _, newValue in
-                HeroCarouselMuteManager.shared.isExternallyMuted = (newValue != nil)
-            }
+            .modifier(TVPrimaryPresentationModifier(
+                isGuidePresented: $aiGuideManager.isGuidePresented
+            ))
+            .mediaDetailPresentation(item: $selectedMediaItem)
             .onChange(of: authService.isAuthenticated) { _, isAuth in
                 if !isAuth && selectedTab == .lists {
                     selectedTab = .browse
                 }
                 visitedTabs.insert(selectedTab)
             }
-            .onChange(of: StorageService.shared.settings.isKidsProfile) { _, isKids in
-                if isKids && selectedTab == .ai {
-                    selectedTab = .browse
-                }
+            .onChange(of: StorageService.shared.settings.isKidsProfile) { _, _ in
                 visitedTabs.insert(selectedTab)
             }
-            .onChange(of: profileService.activeProfile?.ageGroup) { _, newAgeGroup in
-                if newAgeGroup != .adult && selectedTab == .ai {
-                    selectedTab = .browse
-                }
+            .onChange(of: profileService.activeProfile?.ageGroup) { _, _ in
                 visitedTabs.insert(selectedTab)
             }
             .onReceive(NotificationCenter.default.publisher(for: .appleIntelligenceGuideOpenDestination)) { notification in
@@ -136,27 +146,109 @@ struct ContentView: View {
                     selectedTab = .search
                     visitedTabs.insert(.search)
                 case .scout:
-                    let target: Tab = visibleTabs.contains(.ai) ? .ai : .browse
-                    selectedTab = target
-                    visitedTabs.insert(target)
+                    #if os(tvOS)
+                    showAtlasSheet = true
+                    #else
+                    AtlasProactiveEngine.shared.markBriefingSeen()
+                    AtlasDockState.shared.engage()
+                    #endif
                 case .browse:
                     selectedTab = .browse
                     visitedTabs.insert(.browse)
                 }
             }
-            .task {
-                await handlePendingVisualRouteIfNeeded()
-                aiGuideManager.presentIfNeededAfterUpdate()
+            .onChange(of: scoutAgentRouteCenter.pendingRoute?.id) { _, newValue in
+                guard newValue != nil else { return }
+                selectedMediaItem = nil
+                selectedTab = .search
+                visitedTabs.insert(.search)
             }
-            .onChange(of: scenePhase) { _, newPhase in
-                guard newPhase == .active else { return }
-                Task {
-                    await handlePendingVisualRouteIfNeeded()
+            // Control Center controls land here. `.scanner` is deliberately left
+            // in the slot: the scanner sheet belongs to SearchView, so this only
+            // gets the user onto the right tab and SearchView consumes it.
+            .onChange(of: quickRouteCenter.pending) { _, route in
+                guard let route else { return }
+                switch route.destination {
+                case .atlas, .tonight:
+                    #if os(iOS) && !targetEnvironment(macCatalyst)
+                    if route.destination == .tonight {
+                        selectedTab = .tonight
+                        visitedTabs.insert(.tonight)
+                        quickRouteCenter.consume()
+                        return
+                    }
+                    #endif
+                    #if os(tvOS)
+                    showAtlasSheet = true
+                    #else
+                    AtlasProactiveEngine.shared.markBriefingSeen()
+                    AtlasDockState.shared.engage()
+                    #endif
+                    quickRouteCenter.consume()
+                case .search:
+                    selectedTab = .search
+                    visitedTabs.insert(.search)
+                    quickRouteCenter.consume()
+                case .watchlist:
+                    selectedTab = authService.isAuthenticated ? .lists : .browse
+                    visitedTabs.insert(selectedTab)
+                    quickRouteCenter.consume()
+                case .scanner:
+                    selectedTab = .search
+                    visitedTabs.insert(.search)
                 }
             }
+            .task {
+                aiGuideManager.presentIfNeededAfterUpdate()
+                WidgetDataService.shared.syncAPIKey()
+            }
+            // tvOS keeps the full page: it has no dock bar, because the bar
+            // depends on direct manipulation the remote can't provide.
+            #if os(tvOS)
+            .sheet(isPresented: $showAtlasSheet) {
+                NavigationStack {
+                    AIAssistantView()
+                }
+            }
+            .onChange(of: showAtlasSheet) { _, isOpen in
+                HeroCarouselMuteManager.shared.isExternallyMuted = isOpen
+                if isOpen { AtlasProactiveEngine.shared.markBriefingSeen() }
+            }
+            #endif
+            .onChange(of: atlasActionCenter.pendingNavigation?.id) { _, newValue in
+                guard let newValue, let request = atlasActionCenter.pendingNavigation else { return }
+                handleAtlasNavigation(request.target)
+                atlasActionCenter.consumeNavigation(newValue)
+            }
+            #if !os(tvOS)
+            .atlasHUD()
+            #endif
         }
     }
     
+    /// Moves the user to the screen Atlas asked for. Atlas states the intent;
+    /// the tab switch itself stays in the view layer.
+    private func handleAtlasNavigation(_ target: AtlasNavigationTarget) {
+        let tab: Tab
+        switch target {
+        case .browse:      tab = .browse
+        case .search:      tab = .search
+        case .lists, .watchlist: tab = .lists
+        case .myStreaming: tab = .myStreaming
+        case .watchHour:   tab = .watchHour
+        case .me:          tab = .me
+        case .settings:    tab = .settings
+        }
+
+        #if os(tvOS)
+        showAtlasSheet = false
+        #else
+        AtlasDockState.shared.dismiss()
+        #endif
+        selectedTab = tab
+        visitedTabs.insert(tab)
+    }
+
     private var requiresOnboarding: Bool {
         if !onboardingComplete { return true }
         return false
@@ -175,128 +267,291 @@ struct ContentView: View {
             && profileService.hasProfiles
             && !profileService.hasActiveProfile
     }
+
+    private var selectedMediaItemPresentationBinding: Binding<Bool> {
+        Binding(
+            get: { selectedMediaItem != nil },
+            set: { isPresented in
+                if !isPresented {
+                    selectedMediaItem = nil
+                }
+            }
+        )
+    }
     
-    // Visible tabs (no "Me" — that's the separate button)
     private var visibleTabs: [Tab] {
-        var tabs = Tab.allCases
-        
+        var tabs: [Tab] = [.browse, .search, .myStreaming, .lists, .me, .settings]
+
+        #if !os(tvOS)
         if !authService.isAuthenticated {
             tabs = tabs.filter { $0 != .lists }
         }
-        
-        let isAdult = profileService.activeProfile?.ageGroup == .adult && profileService.activeProfile?.isKids != true
-        let isKids = profileService.activeProfile?.isKids == true || StorageService.shared.settings.isKidsProfile
-        if isKids || (profileService.hasActiveProfile && !isAdult) {
-            tabs = tabs.filter { $0 != .ai }
-        }
-        
+        #endif
+
+        #if os(tvOS)
         return tabs
+        #elseif !os(macOS)
+        // On iPhone/iPad, we group secondary things into "More"
+        var grouped: [Tab] = [.browse]
+        if tabs.contains(.search) { grouped.append(.search) }
+        if tabs.contains(.myStreaming) { grouped.append(.myStreaming) }
+        grouped.append(.tonight)
+        grouped.append(.more)
+        return grouped
+        #else
+        return tabs
+        #endif
     }
 
     private var firstAvailableContentTab: Tab {
-        visibleTabs.first(where: { $0 != .me }) ?? .browse
+        visibleTabs.first ?? .browse
     }
 
     // MARK: - iPhone Layout
+    
+    /// Tabs that appear directly in the tab bar
+    private var primaryTabs: [Tab] {
+        visibleTabs.filter { [.browse, .myStreaming].contains($0) }
+    }
+    
+    /// Tabs that go into the "More" section (Lists, Me, Settings)
+    private var secondaryTabs: [Tab] {
+        visibleTabs.filter { [.lists, .me, .settings].contains($0) }
+    }
+    
     private var iPhoneLayout: some View {
         TabView(selection: $selectedTab) {
-            ForEach(visibleTabs) { tab in
-                tabContent(for: tab)
-                    .tabItem {
-                        Image(systemName: tab.iconName)
-                        Text(tab.label)
-                    }
-                    .tag(tab)
+            // Primary tabs in the tab bar
+            ForEach(primaryTabs) { tab in
+                SwiftUI.Tab(tab.label, systemImage: tab.iconName, value: tab) {
+                    tabContent(for: tab)
+                }
             }
+
+            if visibleTabs.contains(.tonight) {
+                SwiftUI.Tab(ContentView.Tab.tonight.label, systemImage: ContentView.Tab.tonight.iconName, value: ContentView.Tab.tonight) {
+                    tabContent(for: .tonight)
+                }
+            }
+
+            // Search tab as a separate circular liquid glass button
+            if visibleTabs.contains(.search) {
+                SwiftUI.Tab(value: ContentView.Tab.search, role: .search) {
+                    tabContent(for: .search)
+                }
+            }
+
+            // The single "More" tab that leads to the hub
+            if visibleTabs.contains(.more) {
+                SwiftUI.Tab(value: ContentView.Tab.more) {
+                    tabContent(for: .more)
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle.fill")
+                }
+            }
+        }
+        .tabViewStyle(.tabBarOnly)
+        .onAppear {
+            HeroCarouselMuteManager.shared.activeTabID = "\(selectedTab.rawValue)"
         }
         .onChange(of: selectedTab) { _, newTab in
-            if newTab == .me {
-                showProfileSwitcherPage = true
-                let fallbackTab = visibleTabs.contains(lastContentTab) ? lastContentTab : firstAvailableContentTab
-                if selectedTab != fallbackTab {
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) {
-                        selectedTab = fallbackTab
-                    }
-                }
-            } else {
-                lastContentTab = newTab
-                visitedTabs.insert(newTab)
-            }
-        }
-        .onAppear {
-            if selectedTab == .me {
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    selectedTab = firstAvailableContentTab
-                }
-            }
-        }
-        .sheet(isPresented: $showProfileSwitcherPage) {
-            ProfilePickerView()
+            visitedTabs.insert(newTab)
+            HeroCarouselMuteManager.shared.activeTabID = "\(newTab.rawValue)"
         }
         .ignoresSafeArea(.keyboard)
     }
+
+    #if os(tvOS)
+    private var tvOSLayout: some View {
+        TabView(selection: $selectedTab) {
+            ForEach(visibleTabs) { tab in
+                tabContent(for: tab)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(tvOSBackground)
+                    // The hero carousel is the top-most focusable on a page and
+                    // fills the screen, so once it takes focus there is nothing
+                    // above it to move to and the bar stays collapsed. Pin the
+                    // bar while the hero holds focus so an up-swipe reaches it.
+                    .toolbar(heroFocusState.isHeroFocused ? .visible : .automatic, for: .tabBar)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            if tab != .search && tab != .myStreaming && tab != .browse {
+                                Button {
+                                    showProfilePicker = true
+                                } label: {
+                                    Label("Profiles", systemImage: "person.crop.circle")
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 8)
+                                        .glassEffect(.regular, in: .capsule)
+                                }
+                            }
+                        }
+                    }
+                .tabItem {
+                    Label(tab.label, systemImage: tab.iconName)
+                }
+                .tag(tab)
+            }
+        }
+        .tabViewStyle(.tabBarOnly)
+        .background(tvOSBackground.ignoresSafeArea())
+        .fullScreenCover(isPresented: $showProfilePicker) {
+            NavigationStack {
+                ProfilePickerView(dismissOnSelection: true)
+            }
+        }
+        .onAppear {
+            if !visibleTabs.contains(selectedTab) {
+                selectedTab = firstAvailableContentTab
+            }
+            visitedTabs.formUnion(visibleTabs)
+            syncVoiceTabContext(selectedTab)
+            HeroCarouselMuteManager.shared.activeTabID = "\(selectedTab.rawValue)"
+        }
+        .onChange(of: selectedTab) { _, newTab in
+            visitedTabs.insert(newTab)
+            syncVoiceTabContext(newTab)
+            HeroCarouselMuteManager.shared.activeTabID = "\(newTab.rawValue)"
+        }
+    }
+
+    private var tvOSBackground: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.01, green: 0.02, blue: 0.05),
+                    Color(red: 0.04, green: 0.05, blue: 0.1),
+                    Color(red: 0.02, green: 0.03, blue: 0.06),
+                    Color.black
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            RadialGradient(
+                colors: [
+                    Color(red: 0.32, green: 0.45, blue: 0.92).opacity(0.26),
+                    Color.clear
+                ],
+                center: .topLeading,
+                startRadius: 40,
+                endRadius: 880
+            )
+
+            RadialGradient(
+                colors: [
+                    Color(red: 0.98, green: 0.44, blue: 0.22).opacity(0.16),
+                    Color.clear
+                ],
+                center: .trailing,
+                startRadius: 90,
+                endRadius: 640
+            )
+
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.08),
+                    Color.clear,
+                    Color.black.opacity(0.32)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            HStack {
+                Circle()
+                    .fill(.white.opacity(0.07))
+                    .frame(width: 520, height: 520)
+                    .blur(radius: 120)
+                    .offset(x: -140, y: -240)
+
+                Spacer()
+
+                Circle()
+                    .fill(Color(red: 0.16, green: 0.22, blue: 0.42).opacity(0.34))
+                    .frame(width: 420, height: 420)
+                    .blur(radius: 130)
+                    .offset(x: 110, y: -90)
+            }
+
+            VStack {
+                Spacer()
+                LinearGradient(
+                    colors: [
+                        Color.clear,
+                        Color.black.opacity(0.34)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 280)
+            }
+        }
+        .overlay {
+            Rectangle()
+                .fill(.black.opacity(0.18))
+                .blendMode(.multiply)
+                .ignoresSafeArea()
+        }
+        .compositingGroup()
+        .ignoresSafeArea()
+    }
+    #endif
     
     // MARK: - Mac Layout
     #if os(macOS) || targetEnvironment(macCatalyst)
     private var macLayout: some View {
-        NavigationSplitView {
-            List(selection: $selectedTab) {
-                ForEach(visibleTabs.filter { $0 != .me }) { tab in
-                    Label(tab.label, systemImage: tab.iconName)
-                        .tag(tab)
+        TabView(selection: $selectedTab) {
+            ForEach(visibleTabs) { tab in
+                SwiftUI.Tab(tab.label, systemImage: tab.iconName, value: tab) {
+                    tabContent(for: tab)
                 }
             }
-            .navigationTitle("WatchGuide")
-            .listStyle(.sidebar)
-            .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 6) {
-                    Button {
-                        showProfileSwitcherPage = true
-                    } label: {
-                        Label("Profiles", systemImage: "person.crop.circle")
-                    }
-                    .buttonStyle(.borderless)
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
-        } detail: {
-            tabContent(for: activeMacTab)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .sheet(isPresented: $showProfileSwitcherPage) {
-            ProfilePickerView()
-        }
+        .tabViewStyle(.tabBarOnly)
         .onAppear {
-            if !visibleTabs.contains(selectedTab) || selectedTab == .me {
+            if !visibleTabs.contains(selectedTab) {
                 selectedTab = firstAvailableContentTab
             }
             visitedTabs.insert(selectedTab)
+            syncVoiceTabContext(selectedTab)
+            HeroCarouselMuteManager.shared.activeTabID = "\(selectedTab.rawValue)"
         }
         .onChange(of: selectedTab) { _, newTab in
-            if !visibleTabs.contains(newTab) || newTab == .me {
+            if !visibleTabs.contains(newTab) {
                 selectedTab = firstAvailableContentTab
             }
             visitedTabs.insert(selectedTab)
+            syncVoiceTabContext(selectedTab)
+            HeroCarouselMuteManager.shared.activeTabID = "\(selectedTab.rawValue)"
         }
         .frame(minWidth: 1100, minHeight: 740)
     }
-    
-    private var activeMacTab: Tab {
-        let candidate = selectedTab == .me ? firstAvailableContentTab : selectedTab
-        return visibleTabs.contains(candidate) ? candidate : firstAvailableContentTab
+    #endif
+
+    #if os(macOS)
+    /// macOS: Atlas lives in its own button beside the tab bar rather than a floating orb.
+    private var atlasToolbarButton: some View {
+        Button {
+            if atlasDock.isEngaged {
+                atlasDock.dismiss()
+            } else {
+                AtlasProactiveEngine.shared.markBriefingSeen()
+                atlasDock.engage()
+            }
+        } label: {
+            Label("Atlas", systemImage: "sparkles")
+                .labelStyle(.titleAndIcon)
+        }
+        .help("Ask Atlas")
+        .keyboardShortcut("k", modifiers: .command)
     }
     #endif
 
     private var platformBackgroundColor: Color {
         #if os(macOS)
         Color(nsColor: .windowBackgroundColor)
-        #elseif canImport(UIKit)
+        #elseif os(iOS) || targetEnvironment(macCatalyst)
         Color(uiColor: .systemBackground)
         #else
         Color.black
@@ -305,93 +560,82 @@ struct ContentView: View {
     
     @ViewBuilder
     private func tabContent(for tab: Tab) -> some View {
+        #if os(tvOS)
+        // tvOS: avoid wrapping in NavigationStack so it doesn't interfere
+        // with the TabView's tab bar focus management.
+        tabContentInner(for: tab)
+        #else
+        NavigationStack {
+            tabContentInner(for: tab)
+                // The Atlas dock bar replaces the tab bar rather than stacking
+                // on it, so engaging Atlas costs no extra vertical space.
+                #if !os(macOS)
+                .toolbar(atlasDock.isEngaged ? .hidden : .visible, for: .tabBar)
+                #else
+                .toolbar {
+                    ToolbarItem(placement: .navigation) {
+                        atlasToolbarButton
+                    }
+                }
+                #endif
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private func tabContentInner(for tab: Tab) -> some View {
         switch tab {
         case .browse:
             BrowseView(selectedItem: $selectedMediaItem)
         case .search:
             LazyTabContent(tab: .search, visitedTabs: $visitedTabs) {
-                NavigationStack {
-                    SearchView(selectedItem: $selectedMediaItem)
-                        .navigationTitle("Search")
-                }
+                SearchView(selectedItem: $selectedMediaItem)
             }
-        case .ai:
-            LazyTabContent(tab: .ai, visitedTabs: $visitedTabs) {
-                AIAssistantView()
+        case .myStreaming:
+            LazyTabContent(tab: .myStreaming, visitedTabs: $visitedTabs) {
+                MyStreamingView()
+            }
+        case .watchHour:
+            LazyTabContent(tab: .watchHour, visitedTabs: $visitedTabs) {
+                WatchHourView()
+            }
+        case .tonight:
+            LazyTabContent(tab: .tonight, visitedTabs: $visitedTabs) {
+                TonightReelView(selectedItem: $selectedMediaItem)
             }
         case .lists:
             LazyTabContent(tab: .lists, visitedTabs: $visitedTabs) {
                 ListsView()
             }
         case .me:
-            Color.clear
-        }
-    }
-
-    @MainActor
-    private func handlePendingVisualRouteIfNeeded() async {
-        guard let route = await VisualIntentRouteCenter.shared.consume() else { return }
-        guard let mediaItem = await fetchMediaItem(for: route) else { return }
-
-        if route.action == .addToWatchlist {
-            StorageService.shared.addToWantToWatch(SavedMediaItem(from: mediaItem))
-        }
-
-        selectedTab = .browse
-        selectedMediaItem = mediaItem
-    }
-
-    private func fetchMediaItem(for route: VisualIntentRoute) async -> MediaItem? {
-        do {
-            switch route.mediaType {
-            case .movie:
-                let details = try await TMDBService.shared.getMovieDetails(id: route.mediaId)
-                return MediaItem(
-                    id: details.id,
-                    title: details.title,
-                    name: nil,
-                    originalTitle: details.originalTitle,
-                    originalName: nil,
-                    overview: details.overview,
-                    posterPath: details.posterPath,
-                    backdropPath: details.backdropPath,
-                    releaseDate: details.releaseDate,
-                    firstAirDate: nil,
-                    voteAverage: details.voteAverage,
-                    voteCount: details.voteCount,
-                    popularity: nil,
-                    genreIds: details.genres?.map { $0.id },
-                    mediaType: MediaType.movie.rawValue,
-                    adult: details.adult,
-                    originalLanguage: nil
-                )
-            case .tv:
-                let details = try await TMDBService.shared.getTVShowDetails(id: route.mediaId)
-                return MediaItem(
-                    id: details.id,
-                    title: nil,
-                    name: details.name,
-                    originalTitle: nil,
-                    originalName: details.originalName,
-                    overview: details.overview,
-                    posterPath: details.posterPath,
-                    backdropPath: details.backdropPath,
-                    releaseDate: nil,
-                    firstAirDate: details.firstAirDate,
-                    voteAverage: details.voteAverage,
-                    voteCount: details.voteCount,
-                    popularity: nil,
-                    genreIds: details.genres?.map { $0.id },
-                    mediaType: MediaType.tv.rawValue,
-                    adult: nil,
-                    originalLanguage: nil
-                )
-            case .person:
-                return nil
+            if authService.isAuthenticated {
+                SettingsView(displayMode: .accountOnly)
+            } else {
+                AuthView()
             }
-        } catch {
-            return nil
+        case .settings:
+            SettingsView()
+        case .more:
+            MoreHubView()
         }
+    }
+
+    private func syncVoiceTabContext(_ tab: Tab) {
+        _ = tab
+    }
+
+}
+
+private struct TVPrimaryPresentationModifier: ViewModifier {
+    @Binding var isGuidePresented: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .fullScreenCover(isPresented: $isGuidePresented) {
+                NavigationStack {
+                    AppleIntelligenceGuideView()
+                }
+            }
     }
 }
 

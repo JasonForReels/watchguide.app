@@ -12,6 +12,8 @@ struct ListActionsView: View {
     
     @ObservedObject private var storage = StorageService.shared
     @State private var showAddToList = false
+    @State private var showShareCard = false
+    @State private var showShareCardPaywall = false
     
     var body: some View {
         HStack(spacing: 12) {
@@ -55,9 +57,36 @@ struct ListActionsView: View {
                     showAddToList = true
                 }
             )
+            
+            // Share Card (Plus+ gated)
+            ActionButton(
+                title: "Share Card",
+                iconName: "rectangle.and.pencil.and.ellipsis",
+                isActive: false,
+                action: {
+                    if AIMessageQuota.isPlusOrAbove() {
+                        showShareCard = true
+                    } else {
+                        showShareCardPaywall = true
+                    }
+                }
+            )
         }
         .sheet(isPresented: $showAddToList) {
             AddToListSheet(item: savedItem)
+        }
+        .sheet(isPresented: $showShareCard) {
+            ShareCardView(
+                title: savedItem.title,
+                posterPath: savedItem.posterPath,
+                mediaType: mediaType,
+                rating: nil,
+                comment: nil,
+                userName: nil
+            )
+        }
+        .sheet(isPresented: $showShareCardPaywall) {
+            WGSubscriptionPaywallView(context: .plus)
         }
     }
 }
@@ -69,37 +98,136 @@ struct ActionButton: View {
     var activeColor: Color = .accentColor
     let action: () -> Void
     
-    @State private var isPressed = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #if os(tvOS)
+    @FocusState private var isFocused: Bool
+    #endif
+
+    private var isCompact: Bool {
+        #if os(tvOS)
+        return false
+        #else
+        return horizontalSizeClass == .compact
+        #endif
+    }
+    private var compactMinHeight: CGFloat { isCompact ? 40 : 76 }
+    private var compactVerticalPad: CGFloat { isCompact ? 4 : 10 }
     
     var body: some View {
-        Button(action: {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                isPressed = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                isPressed = false
-                action()
-            }
-        }) {
-            VStack(spacing: 6) {
+        Button(action: action) {
+            VStack(spacing: isCompact ? 4 : 6) {
                 Image(systemName: iconName)
-                    .font(.title2)
+                    .font(isCompact ? .body : .title2)
                     .foregroundColor(isActive ? activeColor : .primary)
-                    .scaleEffect(isPressed ? 1.3 : 1.0)
+                    // The outline and filled glyphs are one symbol in two
+                    // states, so morph between them rather than swapping the
+                    // image out — and let the symbol itself react to being
+                    // switched on. This is the whole animation; the old
+                    // delayed 1.3x pop was standing in for it.
+                    .contentTransition(.symbolEffect(.replace.downUp))
+                    .symbolEffect(.bounce, options: .speed(1.4), value: isActive)
                 
                 Text(title)
                     .font(.caption2)
-                    .foregroundColor(isActive ? activeColor : .secondary)
+                    .foregroundColor(labelColor)
             }
-            .frame(minWidth: 60)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 4)
+            .frame(maxWidth: .infinity, minHeight: compactMinHeight)
+            .padding(.vertical, compactVerticalPad)
+            .padding(.horizontal, isCompact ? 6 : 10)
             .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(isActive ? activeColor.opacity(0.1) : Color.clear)
+                RoundedRectangle(cornerRadius: isCompact ? 12 : 16, style: .continuous)
+                    .fill(backgroundFill)
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: isCompact ? 12 : 16, style: .continuous)
+                    .stroke(borderColor, lineWidth: borderWidth)
+            )
+            .shadow(color: shadowColor, radius: shadowRadius, x: 0, y: shadowYOffset)
+            .scaleEffect(scaleEffect)
+            .animation(WGMotion.snappy, value: isActive)
         }
-        .buttonStyle(.plain)
+        #if os(tvOS)
+        .buttonStyle(TVOSTransparentButtonStyle(cornerRadius: isCompact ? 12 : 16))
+        .focused($isFocused)
+        #else
+        .buttonStyle(.wgPressDeep)
+        .sensoryFeedback(.success, trigger: isActive) { _, active in active }
+        #endif
+    }
+
+    private var labelColor: Color {
+        isActive ? activeColor : .secondary
+    }
+
+    private var backgroundFill: Color {
+        #if os(tvOS)
+        if isActive {
+            return activeColor.opacity(0.22)
+        }
+        return Color.white.opacity(0.10)
+        #else
+        if isActive {
+            return activeColor.opacity(0.22)
+        }
+
+        return Color.secondary.opacity(0.12)
+        #endif
+    }
+
+    private var borderColor: Color {
+        if isActive {
+            #if os(tvOS)
+            return activeColor.opacity(isFocused ? 0.95 : 0.72)
+            #else
+            return activeColor.opacity(0.7)
+            #endif
+        }
+
+        #if os(tvOS)
+        return Color.white.opacity(isFocused ? 0.96 : 0.18)
+        #else
+        return Color.primary.opacity(0.12)
+        #endif
+    }
+
+    private var borderWidth: CGFloat {
+        #if os(tvOS)
+        return isFocused ? 2.6 : (isActive ? 1.6 : 1.1)
+        #else
+        return isActive ? 1.4 : 1
+        #endif
+    }
+
+    private var shadowColor: Color {
+        #if os(tvOS)
+        return Color.black.opacity(isFocused ? 0.4 : 0.16)
+        #else
+        return Color.clear
+        #endif
+    }
+
+    private var shadowRadius: CGFloat {
+        #if os(tvOS)
+        return isFocused ? 18 : 6
+        #else
+        return 0
+        #endif
+    }
+
+    private var shadowYOffset: CGFloat {
+        #if os(tvOS)
+        return isFocused ? 10 : 3
+        #else
+        return 0
+        #endif
+    }
+
+    private var scaleEffect: CGFloat {
+        #if os(tvOS)
+        return isFocused ? 1.08 : 1
+        #else
+        return 1
+        #endif
     }
 }
 
@@ -171,7 +299,7 @@ struct AddToListSheet: View {
                 }
             }
             .navigationTitle("Add to List")
-            #if !os(macOS)
+            #if !os(macOS) && !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {

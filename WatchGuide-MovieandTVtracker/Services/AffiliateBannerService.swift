@@ -12,8 +12,8 @@ actor AffiliateBannerService {
 
     // MARK: - Configuration
 
-    /// Replace with the raw GitHub URL where banners.json is hosted
-    private static let configURL = "https://raw.githubusercontent.com/YOUR_OWNER/YOUR_REPO/main/banners.json"
+    /// ⬇️ PASTE YOUR BANNER JSON URL BELOW ⬇️
+    private static let configURL = "https://raw.githubusercontent.com/JasonForReels/NordVPN-Partner/refs/heads/main/banners.json"
     private static let cacheTTL: TimeInterval = 30 * 60 // 30 minutes
 
     private let session: URLSession = {
@@ -34,7 +34,12 @@ actor AffiliateBannerService {
     /// Returns banners matching the given placement, filtered by country, platform, and date.
     func banners(for placement: BannerPlacement) async -> [AffiliateBanner] {
         let config = await fetchConfig()
-        return filterBanners(config.banners, for: placement)
+        let remote = filterBanners(config.banners, for: placement)
+        if !remote.isEmpty {
+            return remote
+        }
+        // Remote config has no banners for this placement — use hardcoded fallback
+        return filterBanners(fallbackConfig().banners, for: placement)
     }
 
     // MARK: - Fetch with Cache & Deduplication
@@ -153,7 +158,7 @@ actor AffiliateBannerService {
             subtitle: "",
             affiliateUrl: "https://go.nordvpn.net/aff_c?offer_id=15&aff_id=147783&url_id=902",
             imageUrl: "",
-            logoUrl: "",
+            logoUrl: "https://raw.githubusercontent.com/JasonForReels/NordVPN-Partner/main/assets/nordvpn-logo-horizontal.svg",
             style: BannerStyle.label.rawValue,
             placements: [BannerPlacement.browseHeader.rawValue],
             countries: [],
@@ -170,15 +175,20 @@ actor AffiliateBannerService {
             title: "",
             subtitle: "",
             affiliateUrl: "https://go.nordvpn.net/aff_c?offer_id=15&aff_id=147783&url_id=902",
-            imageUrl: "",
-            logoUrl: "",
+            imageUrl: "https://raw.githubusercontent.com/JasonForReels/NordVPN-Partner/main/assets/nordvpn-antivirus-300x50.png",
+            logoUrl: "https://raw.githubusercontent.com/JasonForReels/NordVPN-Partner/main/assets/nordvpn-logo-horizontal.svg",
             style: BannerStyle.fullImage.rawValue,
             placements: [
                 BannerPlacement.browseFooter.rawValue,
                 BannerPlacement.discover.rawValue,
                 BannerPlacement.search.rawValue,
                 BannerPlacement.detail.rawValue,
-                BannerPlacement.settings.rawValue
+                BannerPlacement.settings.rawValue,
+                BannerPlacement.lists.rawValue,
+                BannerPlacement.friends.rawValue,
+                BannerPlacement.personDetail.rawValue,
+                BannerPlacement.moreHub.rawValue,
+                BannerPlacement.aiRecommend.rawValue
             ],
             countries: [],
             platforms: [],

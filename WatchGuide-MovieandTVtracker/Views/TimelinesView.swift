@@ -205,14 +205,66 @@ struct MCUTimelineView: View {
     ]
 
     private let multiverseEntries: [TimelineEntry] = [
-        TimelineEntry(
-            title: "The Fantastic Four: First Steps",
-            releaseDate: "Feb 1964-Feb 1965 (Earth-828)",
-            searchTitle: "The Fantastic 4: First Steps",
-            searchYear: 2025,
-            fixedTmdbId: 617126,
-            fixedMediaType: .movie
-        )
+        TimelineEntry(title: "Iron Man", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "The Incredible Hulk", releaseDate: "Earth-616 • Sacred Timeline", searchYear: 2008, fixedTmdbId: 1724, fixedMediaType: .movie),
+        TimelineEntry(title: "Iron Man 2", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Thor", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Captain America: The First Avenger", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "The Avengers", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Iron Man 3", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Thor: The Dark World", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Captain America: The Winter Soldier", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Guardians of the Galaxy", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Guardians of the Galaxy Vol. 2", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Avengers: Age of Ultron", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Ant-Man", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Captain America: Civil War", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Black Panther", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Spider-Man: Homecoming", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Doctor Strange", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Thor: Ragnarok", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Avengers: Infinity War", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Ant-Man and the Wasp", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Captain Marvel", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Avengers: Endgame", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Spider-Man: Far From Home", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "WandaVision", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "The Falcon and the Winter Soldier", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Hawkeye", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Moon Knight", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Ms. Marvel", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Secret Invasion", releaseDate: "Earth-616 • Sacred Timeline"),
+        TimelineEntry(title: "Shang-Chi and the Legend of the Ten Rings", releaseDate: "Earth-616 • Phase 4-5 continuation"),
+        TimelineEntry(title: "Eternals", releaseDate: "Earth-616 • Phase 4-5 continuation"),
+        TimelineEntry(title: "Thor: Love and Thunder", releaseDate: "Earth-616 • Phase 4-5 continuation"),
+        TimelineEntry(title: "Black Panther: Wakanda Forever", releaseDate: "Earth-616 • Phase 4-5 continuation"),
+        TimelineEntry(title: "Ant-Man and the Wasp: Quantumania", releaseDate: "Earth-616 • Phase 4-5 continuation"),
+        TimelineEntry(title: "Guardians of the Galaxy Vol. 3", releaseDate: "Earth-616 • Phase 4-5 continuation"),
+        TimelineEntry(title: "The Marvels", releaseDate: "Earth-616 • Phase 4-5 continuation"),
+        TimelineEntry(title: "Loki S1", releaseDate: "Earth-616 Branch • Loki escape / TVA branch", searchTitle: "Loki"),
+        TimelineEntry(title: "Doctor Strange in the Multiverse of Madness", releaseDate: "Earth-838 • Illuminati timeline"),
+        TimelineEntry(title: "Spider-Man", releaseDate: "Earth-96283 • Raimi timeline"),
+        TimelineEntry(title: "Spider-Man 2", releaseDate: "Earth-96283 • Raimi timeline"),
+        TimelineEntry(title: "Spider-Man 3", releaseDate: "Earth-96283 • Raimi timeline"),
+        TimelineEntry(title: "The Amazing Spider-Man", releaseDate: "Earth-120703 • Webb timeline"),
+        TimelineEntry(title: "The Amazing Spider-Man 2", releaseDate: "Earth-120703 • Webb timeline"),
+        TimelineEntry(title: "X-Men", releaseDate: "Earth-10005 • Original X-Men timeline"),
+        TimelineEntry(title: "X2: X-Men United", releaseDate: "Earth-10005 • Original X-Men timeline", searchTitle: "X2"),
+        TimelineEntry(title: "X-Men: The Last Stand", releaseDate: "Earth-10005 • Original X-Men timeline"),
+        TimelineEntry(title: "The Wolverine", releaseDate: "Earth-10005 • Original X-Men timeline"),
+        TimelineEntry(title: "X-Men: First Class", releaseDate: "Earth-10005 • Revised timeline"),
+        TimelineEntry(title: "X-Men: Days of Future Past", releaseDate: "Earth-10005 • Revised timeline"),
+        TimelineEntry(title: "X-Men: Apocalypse", releaseDate: "Earth-10005 • Revised timeline"),
+        TimelineEntry(title: "Dark Phoenix", releaseDate: "Earth-10005 • Revised timeline"),
+        TimelineEntry(title: "Logan", releaseDate: "Earth-17315 • Future branch from Earth-10005"),
+        TimelineEntry(title: "Deadpool", releaseDate: "Earth-10005 • Loose-canon side timeline"),
+        TimelineEntry(title: "Deadpool 2", releaseDate: "Earth-10005 • Loose-canon side timeline"),
+        TimelineEntry(title: "What If…? S1", releaseDate: "TRN Multiverse • Captain Carter / Zombies / Ultron Wins", searchTitle: "What If...?"),
+        TimelineEntry(title: "What If…? S2", releaseDate: "TRN Multiverse • Separate branching realities", searchTitle: "What If...?"),
+        TimelineEntry(title: "What If…? S3", releaseDate: "TRN Multiverse • Separate branching realities", searchTitle: "What If...?"),
+        TimelineEntry(title: "Spider-Man: No Way Home", releaseDate: "Multiverse Event • Earth-616 / Earth-96283 / Earth-120703"),
+        TimelineEntry(title: "Doctor Strange in the Multiverse of Madness", releaseDate: "Multiverse Event • Earth-616 / Earth-838 / Incursions"),
+        TimelineEntry(title: "Loki S2", releaseDate: "Multiverse Event • Infinite timelines / Kang variants", searchTitle: "Loki")
     ]
 
     @State private var posterItems: [UUID: MediaItem] = [:]
@@ -220,6 +272,7 @@ struct MCUTimelineView: View {
     @State private var releaseDatesByEntry: [UUID: String] = [:]
     @State private var isLoadingPosters = false
     @State private var displayMode: TimelineDisplayMode = .mcu
+    @State private var selectedItem: MediaItem?
 
     private var activeChronologicalEntries: [TimelineEntry] {
         displayMode == .multiverse ? multiverseEntries : chronologicalEntries
@@ -272,8 +325,8 @@ struct MCUTimelineView: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(orderedEntries) { entry in
                         if let item = posterItems[entry.id] {
-                            NavigationLink {
-                                MediaDetailView(item: item)
+                            Button {
+                                selectedItem = item
                             } label: {
                                 TimelineEntryRow(
                                     entry: entry,
@@ -303,9 +356,10 @@ struct MCUTimelineView: View {
             }
         }
         .navigationTitle(timeline.title)
-        #if !os(macOS)
+        #if !os(macOS) && !os(tvOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .mediaDetailPresentation(item: $selectedItem)
         .task { await loadPosters() }
     }
 
@@ -612,29 +666,9 @@ struct TimelinePoster: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
-        let posterURL = TMDBService.shared.imageURL(path: mediaItem?.posterPath, size: .small)
         let posterSize = ResponsiveSizing.compactPosterSize(horizontalSizeClass: horizontalSizeClass)
-        AsyncImage(url: posterURL) { phase in
-            switch phase {
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFill()
-            case .empty:
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.gray.opacity(0.18))
-                    .overlay(ProgressView())
-            default:
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(accentColor.opacity(0.2))
-                    .overlay(
-                        Image(systemName: "film")
-                            .foregroundColor(accentColor)
-                    )
-            }
-        }
+        PosterImageView(posterPath: mediaItem?.posterPath, size: .small)
         .frame(width: posterSize.width, height: posterSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 

@@ -80,6 +80,48 @@ struct MediaItem: Identifiable, Codable, Hashable {
     }
 }
 
+extension MediaItem {
+    init(from movie: MovieDetails) {
+        self.id = movie.id
+        self.title = movie.title
+        self.name = nil
+        self.originalTitle = movie.originalTitle
+        self.originalName = nil
+        self.overview = movie.overview
+        self.posterPath = movie.posterPath
+        self.backdropPath = movie.backdropPath
+        self.releaseDate = movie.releaseDate
+        self.firstAirDate = nil
+        self.voteAverage = movie.voteAverage
+        self.voteCount = movie.voteCount
+        self.popularity = nil
+        self.genreIds = movie.genres?.map { $0.id }
+        self.mediaType = "movie"
+        self.adult = movie.adult
+        self.originalLanguage = nil
+    }
+    
+    init(from show: TVShowDetails) {
+        self.id = show.id
+        self.title = nil
+        self.name = show.name
+        self.originalTitle = nil
+        self.originalName = show.originalName
+        self.overview = show.overview
+        self.posterPath = show.posterPath
+        self.backdropPath = show.backdropPath
+        self.releaseDate = nil
+        self.firstAirDate = show.firstAirDate
+        self.voteAverage = show.voteAverage
+        self.voteCount = show.voteCount
+        self.popularity = nil
+        self.genreIds = show.genres?.map { $0.id }
+        self.mediaType = "tv"
+        self.adult = nil
+        self.originalLanguage = nil
+    }
+}
+
 // MARK: - Movie Details
 struct MovieDetails: Identifiable, Codable {
     let id: Int
@@ -402,6 +444,49 @@ struct VideosResponse: Codable {
     let results: [Video]
 }
 
+// MARK: - Reviews
+struct ReviewsResponse: Codable {
+    let page: Int?
+    let results: [MediaReview]
+    let totalPages: Int?
+    let totalResults: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case page, results
+        case totalPages = "total_pages"
+        case totalResults = "total_results"
+    }
+}
+
+struct MediaReview: Identifiable, Codable {
+    let id: String
+    let author: String
+    let authorDetails: ReviewAuthorDetails?
+    let content: String
+    let createdAt: String?
+    let updatedAt: String?
+    let url: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, author, content, url
+        case authorDetails = "author_details"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+struct ReviewAuthorDetails: Codable {
+    let name: String?
+    let username: String?
+    let avatarPath: String?
+    let rating: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case name, username, rating
+        case avatarPath = "avatar_path"
+    }
+}
+
 struct Video: Identifiable, Codable {
     let id: String
     let key: String
@@ -410,6 +495,7 @@ struct Video: Identifiable, Codable {
     let type: String
     let official: Bool?
     let publishedAt: String?
+    let sourceLabel: String?
     
     var youtubeUrl: URL? {
         guard site.lowercased() == "youtube" else { return nil }
@@ -420,10 +506,43 @@ struct Video: Identifiable, Codable {
         guard site.lowercased() == "youtube" else { return nil }
         return URL(string: "https://img.youtube.com/vi/\(key)/hqdefault.jpg")
     }
+
+    /// True if the video name indicates an R-rated / red band / unrated trailer.
+    var isRedBand: Bool {
+        let lowered = name.lowercased()
+        return lowered.contains("red band")
+            || lowered.contains("redband")
+            || lowered.contains("unrated")
+            || lowered.contains("uncensored")
+            || lowered.contains("nsfw")
+            || lowered.contains("restricted")
+            || lowered.contains("18+")
+            || lowered.contains("adults only")
+    }
     
     enum CodingKeys: String, CodingKey {
-        case id, key, name, site, type, official
+        case id, key, name, site, type, official, sourceLabel
         case publishedAt = "published_at"
+    }
+
+    init(
+        id: String,
+        key: String,
+        name: String,
+        site: String,
+        type: String,
+        official: Bool? = nil,
+        publishedAt: String? = nil,
+        sourceLabel: String? = nil
+    ) {
+        self.id = id
+        self.key = key
+        self.name = name
+        self.site = site
+        self.type = type
+        self.official = official
+        self.publishedAt = publishedAt
+        self.sourceLabel = sourceLabel
     }
 }
 
@@ -457,9 +576,10 @@ struct WatchProvider: Identifiable, Codable {
     }
 }
 
-// MARK: - Media Images (Logos)
+// MARK: - Media Images (Logos & Backdrops)
 struct MediaImagesResponse: Codable {
     let logos: [MediaImage]
+    let backdrops: [MediaImage]?
 }
 
 struct MediaImage: Codable {
@@ -523,6 +643,39 @@ struct TMDBResponse<T: Codable>: Codable {
 
 struct GenresResponse: Codable {
     let genres: [Genre]
+}
+
+// MARK: - Keywords
+
+/// A TMDB keyword — the fine-grained descriptive tags ("dystopia", "coming of
+/// age", "slow burn") that express tone and subject in ways genres cannot.
+struct Keyword: Identifiable, Codable, Hashable {
+    let id: Int
+    let name: String
+}
+
+/// Keyword payloads differ by media type: `/movie/{id}/keywords` returns them
+/// under `keywords`, `/tv/{id}/keywords` under `results`. Decode either.
+struct KeywordsResponse: Codable {
+    let keywords: [Keyword]
+
+    private enum CodingKeys: String, CodingKey {
+        case keywords, results
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let movieKeywords = try container.decodeIfPresent([Keyword].self, forKey: .keywords) {
+            keywords = movieKeywords
+        } else {
+            keywords = try container.decodeIfPresent([Keyword].self, forKey: .results) ?? []
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(keywords, forKey: .keywords)
+    }
 }
 
 // MARK: - Company

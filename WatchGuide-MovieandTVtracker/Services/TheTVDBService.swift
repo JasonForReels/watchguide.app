@@ -93,6 +93,17 @@ actor TheTVDBService {
     // MARK: - Episode Fetch
 
     private func fetchEpisodeImage(tvdbSeriesId: Int, season: Int, episode: Int) async throws -> URL? {
+        // L2: Supabase shared cache (check before authenticating to save time)
+        let supabaseKey = SupabaseCacheService.thetvdbCacheKey(tvdbSeriesId: tvdbSeriesId, season: season, episode: episode)
+        if let cachedData = await SupabaseCacheService.shared.get(key: supabaseKey) {
+            if let episodeResponse = try? JSONDecoder().decode(EpisodesResponse.self, from: cachedData),
+               let ep = episodeResponse.data?.episodes?.first(where: {
+                   $0.seasonNumber == season && $0.number == episode
+               }), let imagePath = ep.image, !imagePath.isEmpty {
+                return URL(string: imagePath)
+            }
+        }
+        
         try await ensureAuthenticated()
 
         guard let token = bearerToken else { throw TheTVDBError.authFailed }
@@ -123,6 +134,17 @@ actor TheTVDBService {
         }
 
         let episodeResponse = try JSONDecoder().decode(EpisodesResponse.self, from: data)
+
+        // Fire-and-forget L2 write
+        let capturedData = data
+        Task.detached {
+            await SupabaseCacheService.shared.set(
+                key: supabaseKey,
+                source: .thetvdb,
+                responseData: capturedData,
+                ttlSeconds: SupabaseCacheService.CacheTTL.episodeImages
+            )
+        }
 
         // Find the matching episode and extract image URL
         if let ep = episodeResponse.data?.episodes?.first(where: {

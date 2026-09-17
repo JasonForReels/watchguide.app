@@ -53,6 +53,11 @@ enum BannerPlacement: String, CaseIterable {
     case search = "search"
     case detail = "detail"
     case settings = "settings"
+    case lists = "lists"
+    case friends = "friends"
+    case personDetail = "person_detail"
+    case moreHub = "more_hub"
+    case aiRecommend = "ai_recommend"
 }
 
 // MARK: - Style Enum

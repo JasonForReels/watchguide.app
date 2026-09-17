@@ -1,5 +1,5 @@
 import SwiftUI
-import CoreLocation
+@preconcurrency import CoreLocation
 import MapKit
 
 private struct CinemaRouteInfo: Equatable {
@@ -94,10 +94,12 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
         }
     }
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        authorizationStatus = manager.authorizationStatus
-        if isAuthorized(authorizationStatus) {
-            manager.requestLocation()
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            authorizationStatus = manager.authorizationStatus
+            if isAuthorized(authorizationStatus) {
+                manager.requestLocation()
+            }
         }
     }
 
@@ -109,14 +111,18 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
         #endif
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
-        currentLocation = location
-        Task { await updateNearbyCinemas(from: location) }
+        Task { @MainActor in
+            currentLocation = location
+            await updateNearbyCinemas(from: location)
+        }
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        errorMessage = "Could not get your location."
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in
+            errorMessage = "Could not get your location."
+        }
     }
 
     private func updateNearbyCinemas(from location: CLLocation) async {
@@ -238,11 +244,16 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
 
     /// Open Apple Maps with business name search for accurate navigation
     func openInAppleMaps(cinema: CinemaLocation) {
+        #if os(tvOS)
+        _ = cinema
+        return
+        #else
         let destination = MKMapItem(placemark: MKPlacemark(coordinate: cinema.coordinate))
         destination.name = cinema.mapSearchName
         destination.openInMaps(launchOptions: [
             MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
         ])
+        #endif
     }
 
     func openWebsite(for cinema: CinemaLocation) {
@@ -274,7 +285,9 @@ private final class BoxOfficeLocationViewModel: NSObject, ObservableObject, CLLo
 struct BoxOfficeCinemaSelectorView: View {
     @StateObject private var viewModel = BoxOfficeLocationViewModel()
     @State private var showList = false
+    #if !os(tvOS)
     @State private var showTripPlanner = false
+    #endif
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -339,7 +352,11 @@ struct BoxOfficeCinemaSelectorView: View {
                         onShowtimes: { viewModel.openWebsite(for: selected) },
                         onDirections: { viewModel.showRoute(to: selected) },
                         onOpenMaps: { viewModel.openInAppleMaps(cinema: selected) },
-                        onPlanTrip: { showTripPlanner = true },
+                        onPlanTrip: {
+                            #if !os(tvOS)
+                            showTripPlanner = true
+                            #endif
+                        },
                         onDismiss: {
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 viewModel.selectedCinema = nil
@@ -374,16 +391,18 @@ struct BoxOfficeCinemaSelectorView: View {
             .padding(.bottom, 8)
         }
         .navigationTitle("Box Office")
-        #if !os(macOS)
+        #if !os(macOS) && !os(tvOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            #if !os(tvOS)
             ToolbarItem(placement: .primaryAction) {
                 NavigationLink(destination: CinemaTripPlannerView()) {
                     Image(systemName: "car.circle.fill")
                         .font(.title3)
                 }
             }
+            #endif
         }
         .task {
             // First resolve accurate locations from Apple Maps, then request user location
@@ -399,11 +418,13 @@ struct BoxOfficeCinemaSelectorView: View {
                     .ignoresSafeArea()
             }
         }
+        #if !os(tvOS)
         .sheet(isPresented: $showTripPlanner) {
             NavigationStack {
                 CinemaTripPlannerView()
             }
         }
+        #endif
     }
 }
 
@@ -676,6 +697,7 @@ private struct CinemaDetailCard: View {
                     )
                 }
 
+                #if !os(tvOS)
                 Button(action: onOpenMaps) {
                     Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
                         .font(.subheadline)
@@ -687,9 +709,10 @@ private struct CinemaDetailCard: View {
                                 .fill(Color.gray.opacity(0.18))
                         )
                 }
+                #endif
             }
 
-            // Plan Trip button
+            #if !os(tvOS)
             Button(action: onPlanTrip) {
                 HStack(spacing: 6) {
                     Image(systemName: "car.circle.fill")
@@ -705,6 +728,7 @@ private struct CinemaDetailCard: View {
                         .fill(Color.green.opacity(0.12))
                 )
             }
+            #endif
         }
         .padding(16)
         .background(
@@ -759,6 +783,7 @@ private struct RouteInfoBanner: View {
                 }
             }
 
+            #if !os(tvOS)
             Button(action: onOpenMaps) {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
@@ -774,6 +799,7 @@ private struct RouteInfoBanner: View {
                         .fill(Color.blue)
                 )
             }
+            #endif
         }
         .padding(16)
         .background(
@@ -826,7 +852,7 @@ private struct CinemaListSheet: View {
                 }
             }
             .navigationTitle("All Cinemas")
-            #if !os(macOS)
+            #if !os(macOS) && !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {

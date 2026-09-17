@@ -26,6 +26,24 @@ enum PlatformURLHandler {
         #endif
     }
 
+    static func openUniversalLink(_ url: URL) async -> Bool {
+        #if os(iOS) || os(tvOS)
+        return await withCheckedContinuation { continuation in
+            UIApplication.shared.open(
+                url,
+                options: [.universalLinksOnly: true]
+            ) { success in
+                continuation.resume(returning: success)
+            }
+        }
+        #elseif os(macOS)
+        NSWorkspace.shared.open(url)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     static func openAppSettings() {
         #if os(iOS) || os(tvOS)
         if let url = URL(string: UIApplication.openSettingsURLString) {

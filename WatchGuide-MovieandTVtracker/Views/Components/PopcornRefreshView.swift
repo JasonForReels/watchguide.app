@@ -327,6 +327,7 @@ struct PopcornRefreshableScrollView<Content: View>: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
+                #if !os(tvOS)
                 // Track scroll offset for pull progress
                 GeometryReader { geo in
                     let offset = geo.frame(in: .named("popcornScroll")).minY
@@ -342,14 +343,18 @@ struct PopcornRefreshableScrollView<Content: View>: View {
                         .frame(height: 100)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
+                #endif
                 
                 // Actual content
                 content()
             }
         }
+        #if os(tvOS)
+        .scrollClipDisabled()
+        #else
         .coordinateSpace(name: "popcornScroll")
         .refreshable {
-            #if canImport(UIKit) && !os(tvOS)
+            #if canImport(UIKit)
             // Haptic feedback
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
@@ -375,6 +380,7 @@ struct PopcornRefreshableScrollView<Content: View>: View {
         }
         // Hide the default system refresh spinner by tinting it to clear
         .tint(.clear)
+        #endif
     }
 }
 

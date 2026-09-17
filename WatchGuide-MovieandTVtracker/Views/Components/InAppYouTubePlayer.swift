@@ -10,11 +10,16 @@
 
 import SwiftUI
 import AVKit
+import AVFoundation
+#if canImport(YouTubePlayerKit)
 import YouTubePlayerKit
+#endif
 
 private extension Color {
     static var trailerFallbackGray: Color {
-        #if canImport(UIKit)
+        #if os(tvOS)
+        return Color.gray.opacity(0.2)
+        #elseif canImport(UIKit)
         return Color(UIColor.systemGray5)
         #elseif canImport(AppKit)
         return Color(nsColor: .controlBackgroundColor)
@@ -42,10 +47,13 @@ struct EmbeddedTrailerPlayer: View {
     var volume: Double = 1.0
     var pauseOffscreen: Bool = true
 
+    #if canImport(YouTubePlayerKit)
     // YouTube player (primary path for YouTube IDs)
     @StateObject private var ytPlayer: YouTubePlayer
+    #endif
 
     // AVPlayer (secondary path for direct media URLs)
+    @State private var avSession: TrailerPlaybackSession?
     @State private var avPlayer: AVPlayer?
     @State private var usingAVPlayer = false
 
@@ -55,7 +63,13 @@ struct EmbeddedTrailerPlayer: View {
     @State private var isReady = false
     @State private var hasError = false
     @State private var progressObserver: Any?
+    @State private var endObserver: NSObjectProtocol?
     @State private var wasPlayingBeforeHidden = false
+    /// Separate from `wasPlayingBeforeHidden` on purpose: scroll visibility and a
+    /// voice session can suppress playback at the same time, and one restoring
+    /// must not resume a trailer the other still wants silent.
+    @State private var wasPlayingBeforeVoice = false
+    @ObservedObject private var playbackGate = HeroCarouselMuteManager.shared
 
     init(
         videoKey: String,
@@ -91,6 +105,7 @@ struct EmbeddedTrailerPlayer: View {
         let startMuted = StorageService.shared.settings.autoPlayTrailersMuted
         _isMuted = State(initialValue: startMuted)
 
+        #if canImport(YouTubePlayerKit)
         // Resolve which key to use for YouTube
         let resolvedYTID = Self.resolveYouTubeID(from: videoKey)
             ?? alternateVideoKeys.lazy.compactMap({ Self.resolveYouTubeID(from: $0) }).first
@@ -112,6 +127,7 @@ struct EmbeddedTrailerPlayer: View {
                 }
             )
         ))
+        #endif
     }
 
     private var resolvedCornerRadius: CGFloat {
@@ -122,38 +138,42 @@ struct EmbeddedTrailerPlayer: View {
         ZStack {
             Color.black
 
-            if usingAVPlayer, let avPlayer {
+            if usingAVPlayer, !hasError, let avPlayer {
                 // Direct media (mp4/mov/m3u8) via AVPlayer
                 VideoPlayer(player: avPlayer)
                     .scaleEffect(zoomScale)
                     .onAppear {
                         avPlayer.isMuted = isMuted
                         avPlayer.volume = Float(volume)
-                        if autoPlay {
-                            avPlayer.play()
-                        }
                         setupAVProgressObserver(for: avPlayer)
                         setupAVEndObserver(for: avPlayer)
                     }
                     .onDisappear {
-                        avPlayer.pause()
+                        avSession?.pause()
                         removeAVProgressObserver(from: avPlayer)
                     }
                     .onChange(of: volume) { _, newValue in
                         avPlayer.volume = Float(newValue)
                     }
             } else if !hasError {
+                #if canImport(YouTubePlayerKit)
                 // YouTube player (primary path)
                 YouTubePlayerKit.YouTubePlayerView(ytPlayer)
                     .scaleEffect(zoomScale)
                     .opacity(isReady ? 1 : 0)
                     .animation(.easeIn(duration: 0.3), value: isReady)
+                #else
+                // No YouTube player available on this platform — show fallback
+                TrailerErrorFallback(videoKey: videoKey, title: title, compact: compact)
+                #endif
             }
 
+            #if canImport(YouTubePlayerKit)
             // Loading state (YouTube path)
             if !usingAVPlayer && !isReady && !hasError {
                 loadingOverlay
             }
+            #endif
 
             // Error fallback
             if hasError {
@@ -176,23 +196,50 @@ struct EmbeddedTrailerPlayer: View {
                 scheduleControlsHide()
             }
         }
+        .onChange(of: playbackGate.isVoiceModeActive) { _, active in
+            handleVoiceModeChange(active)
+        }
         .onDisappear {
             controlsTimer?.invalidate()
+            removeAVEndObserver()
+            // Ordered teardown before the player reference goes away, so CoreMedia
+            // isn't left with a reporting session for an item that no longer exists.
+            avSession?.invalidate()
+            avSession = nil
+            avPlayer = nil
         }
+        #if canImport(YouTubePlayerKit)
         .onReceive(ytPlayer.statePublisher) { state in
             guard !usingAVPlayer else { return }
             switch state {
             case .ready:
                 isReady = true
                 hasError = false
+                guard autoPlay else { break }
+                // Atlas is listening — starting here would both talk over the
+                // session and reconfigure the shared audio session away from
+                // `.voiceChat`. Playback resumes when the call ends.
+                guard !HeroCarouselMuteManager.shared.isVoiceModeActive else {
+                    wasPlayingBeforeVoice = true
+                    break
+                }
                 let shouldMute = StorageService.shared.settings.autoPlayTrailersMuted
                 Task {
+                    // Configure audio session for playback
+                    #if !os(macOS)
+                    try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+                    try? AVAudioSession.sharedInstance().setActive(true)
+                    #endif
+                    // Small delay to let the WebView fully settle on real devices
+                    try? await Task.sleep(for: .milliseconds(150))
                     // Always mute first to satisfy iOS autoplay policy
                     try? await ytPlayer.mute()
-                    // Explicitly start playback
+                    // Explicitly start playback (autoPlay param alone is unreliable on real devices)
                     try? await ytPlayer.play()
                     // Then apply the user's actual mute preference
                     if !shouldMute {
+                        // Wait for playback to actually begin before unmuting
+                        try? await Task.sleep(for: .milliseconds(300))
                         try? await ytPlayer.unmute()
                     }
                 }
@@ -202,6 +249,17 @@ struct EmbeddedTrailerPlayer: View {
                 break
             }
         }
+        .onReceive(ytPlayer.playbackStatePublisher) { playbackState in
+            guard !usingAVPlayer else { return }
+            if playbackState == .ended {
+                if loops {
+                    Task { try? await ytPlayer.play() }
+                } else {
+                    onPlaybackEnded?()
+                }
+            }
+        }
+        #endif
     }
 
     // MARK: - Direct media URL check
@@ -212,16 +270,33 @@ struct EmbeddedTrailerPlayer: View {
         let keysToTry = [videoKey] + alternateVideoKeys
         for key in keysToTry {
             if let url = Self.resolveDirectMediaURL(from: key) {
-                let player = AVPlayer(url: url)
-                player.isMuted = isMuted
-                player.volume = Float(volume)
-                avPlayer = player
+                // Configure audio session for media playback so audio isn't silenced
+                #if !os(macOS)
+                try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+                try? AVAudioSession.sharedInstance().setActive(true)
+                #endif
+                let session = TrailerPlaybackSession(url: url, muted: isMuted, volume: Float(volume))
+                // Playback is held until the item has buffered enough to play through,
+                // rather than starting into an empty buffer the moment the view appears.
+                session.onReadyToPlay = {
+                    isReady = true
+                    if autoPlay { session.play() }
+                }
+                // A dead URL, or one the connection can't carry, drops to the poster
+                // fallback instead of looping through stall after stall.
+                session.onFailure = {
+                    hasError = true
+                }
+                avSession = session
+                avPlayer = session.player
                 usingAVPlayer = true
-                isReady = true
                 return
             }
         }
-        // Otherwise YouTubePlayerKit is already configured in init
+        #if !canImport(YouTubePlayerKit)
+        // No YouTube player on this platform — show error fallback for YouTube IDs
+        hasError = true
+        #endif
     }
 
     // MARK: - Loading overlay
@@ -267,6 +342,7 @@ struct EmbeddedTrailerPlayer: View {
                             if usingAVPlayer {
                                 avPlayer?.isMuted = isMuted
                             } else {
+                                #if canImport(YouTubePlayerKit)
                                 Task {
                                     if isMuted {
                                         try? await ytPlayer.mute()
@@ -274,6 +350,7 @@ struct EmbeddedTrailerPlayer: View {
                                         try? await ytPlayer.unmute()
                                     }
                                 }
+                                #endif
                             }
                             scheduleControlsHide()
                         } label: {
@@ -320,22 +397,54 @@ struct EmbeddedTrailerPlayer: View {
 
     // MARK: - Visibility handling
 
+    /// Pauses for the duration of an Atlas voice session and restores afterwards,
+    /// but only what was actually playing when the session began.
+    private func handleVoiceModeChange(_ active: Bool) {
+        if active {
+            if usingAVPlayer {
+                guard let avPlayer, avPlayer.rate > 0 else { return }
+                wasPlayingBeforeVoice = true
+                avSession?.pause()
+            } else {
+                #if canImport(YouTubePlayerKit)
+                guard isReady else { return }
+                wasPlayingBeforeVoice = true
+                Task { try? await ytPlayer.pause() }
+                #endif
+            }
+        } else if wasPlayingBeforeVoice {
+            wasPlayingBeforeVoice = false
+            if usingAVPlayer {
+                avSession?.play()
+            } else {
+                #if canImport(YouTubePlayerKit)
+                Task { try? await ytPlayer.play() }
+                #endif
+            }
+        }
+    }
+
     private func handleVisibilityChange(_ visible: Bool) {
+        // Scrolling back into view must not undo a voice-mode pause.
+        let visible = visible && !playbackGate.isVoiceModeActive
         if usingAVPlayer {
             if visible {
-                if wasPlayingBeforeHidden, let avPlayer {
-                    avPlayer.play()
+                if wasPlayingBeforeHidden {
+                    avSession?.play()
                     wasPlayingBeforeHidden = false
                 }
             } else {
                 if let avPlayer, avPlayer.rate > 0 {
                     wasPlayingBeforeHidden = true
-                    avPlayer.pause()
+                    avSession?.pause()
                 } else {
                     wasPlayingBeforeHidden = false
                 }
             }
         } else {
+            #if canImport(YouTubePlayerKit)
+            // Don't interfere with playback until the player is actually ready
+            guard isReady else { return }
             if visible {
                 if wasPlayingBeforeHidden {
                     Task { try? await ytPlayer.play() }
@@ -345,6 +454,7 @@ struct EmbeddedTrailerPlayer: View {
                 wasPlayingBeforeHidden = true
                 Task { try? await ytPlayer.pause() }
             }
+            #endif
         }
     }
 
@@ -379,17 +489,30 @@ struct EmbeddedTrailerPlayer: View {
     }
 
     private func setupAVEndObserver(for player: AVPlayer) {
-        NotificationCenter.default.addObserver(
+        // Re-registering on every appearance used to stack observers on the same item,
+        // so a looping trailer fired several seek+play pairs per lap and thrashed the
+        // buffer it had just filled.
+        removeAVEndObserver()
+        endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player.currentItem,
             queue: .main
         ) { _ in
             if loops {
                 player.seek(to: .zero)
+                // The session is still armed from the initial start, so stall recovery
+                // continues to cover the next lap.
                 player.play()
             } else {
                 onPlaybackEnded?()
             }
+        }
+    }
+
+    private func removeAVEndObserver() {
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+            self.endObserver = nil
         }
     }
 
@@ -398,7 +521,17 @@ struct EmbeddedTrailerPlayer: View {
     private static func resolveDirectMediaURL(from value: String) -> URL? {
         if let url = URL(string: value), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) {
             let ext = url.pathExtension.lowercased()
-            if ["mp4", "mov", "m4v", "m3u8"].contains(ext) {
+            if ["mp4", "mov", "m4v", "m3u8", "ts"].contains(ext) {
+                return url
+            }
+            // Some CDN/HLS URLs embed the format in the path without a clean extension
+            let path = url.path.lowercased()
+            if path.contains(".m3u8") || path.contains("/playlist") || path.contains("/master") {
+                return url
+            }
+            // Treat any non-YouTube HTTP URL as direct media (addon URLs are already validated)
+            let host = url.host?.lowercased() ?? ""
+            if !host.contains("youtube.com") && !host.contains("youtu.be") && !host.contains("youtube-nocookie.com") {
                 return url
             }
         }
@@ -501,7 +634,7 @@ struct YouTubePlayerSheet: View {
                     Spacer()
                 }
             }
-            #if !os(macOS)
+            #if !os(macOS) && !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {

@@ -42,10 +42,28 @@ struct SavedMediaItem: Identifiable, Codable, Hashable {
     let posterPath: String?
     let backdropPath: String?
     let year: String?
+    let releaseDate: String?
     let voteAverage: Double?
     let overview: String?
     let addedAt: Date
     
+    init(id: String, mediaId: Int, mediaType: MediaType, title: String, posterPath: String?, backdropPath: String?, year: String?, releaseDate: String?, voteAverage: Double?, overview: String?, addedAt: Date) {
+        self.id = id
+        self.mediaId = mediaId
+        self.mediaType = mediaType
+        self.title = title
+        self.posterPath = posterPath
+        self.backdropPath = backdropPath
+        self.year = year
+        self.releaseDate = releaseDate
+        self.voteAverage = voteAverage
+        self.overview = overview
+        self.addedAt = addedAt
+    }
+    
+}
+
+extension SavedMediaItem {
     init(from mediaItem: MediaItem) {
         self.id = "\(mediaItem.resolvedMediaType.rawValue)-\(mediaItem.id)"
         self.mediaId = mediaItem.id
@@ -54,6 +72,7 @@ struct SavedMediaItem: Identifiable, Codable, Hashable {
         self.posterPath = mediaItem.posterPath
         self.backdropPath = mediaItem.backdropPath
         self.year = mediaItem.year
+        self.releaseDate = mediaItem.releaseDate ?? mediaItem.firstAirDate
         self.voteAverage = mediaItem.voteAverage
         self.overview = mediaItem.overview
         self.addedAt = Date()
@@ -67,6 +86,7 @@ struct SavedMediaItem: Identifiable, Codable, Hashable {
         self.posterPath = movie.posterPath
         self.backdropPath = movie.backdropPath
         self.year = movie.year
+        self.releaseDate = movie.releaseDate
         self.voteAverage = movie.voteAverage
         self.overview = movie.overview
         self.addedAt = Date()
@@ -80,9 +100,113 @@ struct SavedMediaItem: Identifiable, Codable, Hashable {
         self.posterPath = tvShow.posterPath
         self.backdropPath = tvShow.backdropPath
         self.year = tvShow.year
+        self.releaseDate = tvShow.firstAirDate
         self.voteAverage = tvShow.voteAverage
         self.overview = tvShow.overview
         self.addedAt = Date()
+    }
+}
+
+struct ContinueWatchingEpisode: Codable, Hashable {
+    let seasonNumber: Int
+    let episodeNumber: Int
+    let title: String?
+    let overview: String?
+    let airDate: String?
+
+    var code: String {
+        "S\(seasonNumber) E\(episodeNumber)"
+    }
+}
+
+enum WatchingStatus: String, Codable {
+    case inProgress
+    case watched
+    case skipped
+}
+
+enum ContinueWatchingSource: String, Codable {
+    case deepLink
+    case trakt
+}
+
+struct ContinueWatchingItem: Identifiable, Codable {
+    let id: String
+    let show: SavedMediaItem
+    let progress: Double
+    var status: WatchingStatus
+    let lastEpisode: ContinueWatchingEpisode?
+    let nextEpisode: ContinueWatchingEpisode?
+    let upcomingEpisode: ContinueWatchingEpisode?
+    let providers: WatchProviderRegion?
+    let providersLink: String?
+    let lastUpdated: Date
+    let source: ContinueWatchingSource
+    var deepLinkURL: String?
+    var reminderScheduled: Bool
+
+    init(
+        show: SavedMediaItem,
+        progress: Double,
+        status: WatchingStatus = .inProgress,
+        lastEpisode: ContinueWatchingEpisode?,
+        nextEpisode: ContinueWatchingEpisode?,
+        upcomingEpisode: ContinueWatchingEpisode?,
+        providers: WatchProviderRegion?,
+        providersLink: String?,
+        lastUpdated: Date,
+        source: ContinueWatchingSource = .trakt,
+        deepLinkURL: String? = nil,
+        reminderScheduled: Bool = false
+    ) {
+        self.id = show.id
+        self.show = show
+        self.progress = progress
+        self.status = status
+        self.lastEpisode = lastEpisode
+        self.nextEpisode = nextEpisode
+        self.upcomingEpisode = upcomingEpisode
+        self.providers = providers
+        self.providersLink = providersLink
+        self.lastUpdated = lastUpdated
+        self.source = source
+        self.deepLinkURL = deepLinkURL
+        self.reminderScheduled = reminderScheduled
+    }
+
+    // Backwards-compatible decoder for existing persisted data
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        show = try container.decode(SavedMediaItem.self, forKey: .show)
+        progress = try container.decode(Double.self, forKey: .progress)
+        status = try container.decodeIfPresent(WatchingStatus.self, forKey: .status) ?? .inProgress
+        lastEpisode = try container.decodeIfPresent(ContinueWatchingEpisode.self, forKey: .lastEpisode)
+        nextEpisode = try container.decodeIfPresent(ContinueWatchingEpisode.self, forKey: .nextEpisode)
+        upcomingEpisode = try container.decodeIfPresent(ContinueWatchingEpisode.self, forKey: .upcomingEpisode)
+        providers = try container.decodeIfPresent(WatchProviderRegion.self, forKey: .providers)
+        providersLink = try container.decodeIfPresent(String.self, forKey: .providersLink)
+        lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
+        source = try container.decodeIfPresent(ContinueWatchingSource.self, forKey: .source) ?? .trakt
+        deepLinkURL = try container.decodeIfPresent(String.self, forKey: .deepLinkURL)
+        reminderScheduled = try container.decodeIfPresent(Bool.self, forKey: .reminderScheduled) ?? false
+    }
+
+    func withNextEpisode(_ next: ContinueWatchingEpisode) -> ContinueWatchingItem {
+        ContinueWatchingItem(
+            show: show,
+            progress: progress,
+            status: status,
+            lastEpisode: lastEpisode,
+            nextEpisode: next,
+            upcomingEpisode: upcomingEpisode,
+            providers: providers,
+            providersLink: providersLink,
+            lastUpdated: lastUpdated,
+            source: source,
+            deepLinkURL: deepLinkURL,
+            reminderScheduled: reminderScheduled
+        )
     }
 }
 
@@ -174,7 +298,7 @@ struct NetworkHub: Identifiable, Codable {
                 name: "Max",
                 logoURL: "https://upload.wikimedia.org/wikipedia/commons/b/b3/HBO_Max_%282025%29.svg",
                 networkIds: [49, 3186], // HBO, Max networks
-                providerIds: [384, 1899], // HBO Max / Max provider IDs
+                providerIds: [1899], // HBO Max / Max provider ID
                 regions: ["US", "BR", "MX", "AR", "CL", "CO", "PE", "CR", "PA", "EC", "DO", "GT", "HN", "SV", "NI", "BO", "PY", "UY", "PT", "ES", "SE", "NO", "DK", "FI", "PL", "CZ", "RO", "HU", "BG", "HR", "SK", "SI", "BA", "RS", "NL", "BE"]
             ),
             NetworkHub(
@@ -188,7 +312,7 @@ struct NetworkHub: Identifiable, Codable {
                 name: "Paramount+",
                 logoURL: "https://upload.wikimedia.org/wikipedia/commons/e/ea/Paramount%2B_logo.png",
                 networkIds: [4330, 16, 2552], // Paramount+, CBS networks
-                providerIds: [531, 582], // Paramount+ provider IDs
+                providerIds: [2303, 582], // Paramount+ provider IDs
                 regions: ["US", "CA", "GB", "AU", "DE", "AT", "CH", "IT", "FR", "ES", "MX", "BR", "AR", "CL", "CO", "PE", "KR", "SE", "NO", "DK", "FI", "NL", "BE", "IE"]
             ),
             NetworkHub(
@@ -317,11 +441,13 @@ struct CompanyHub: Identifiable, Codable {
 enum ImportedListSource: String, Codable {
     case publicMetaDB = "publicmetadb"
     case mdblist = "mdblist"
+    case trakt = "trakt"
     
     var displayName: String {
         switch self {
         case .publicMetaDB: return "PublicMetaDB"
         case .mdblist: return "MDBList"
+        case .trakt: return "Trakt"
         }
     }
     
@@ -329,6 +455,7 @@ enum ImportedListSource: String, Codable {
         switch self {
         case .publicMetaDB: return "list.bullet.clipboard"
         case .mdblist: return "list.star"
+        case .trakt: return "checkmark.rectangle.stack.fill"
         }
     }
     
@@ -336,6 +463,7 @@ enum ImportedListSource: String, Codable {
         switch self {
         case .publicMetaDB: return "orange"
         case .mdblist: return "purple"
+        case .trakt: return "red"
         }
     }
 }
@@ -418,6 +546,7 @@ struct CustomHomeRow: Identifiable, Codable {
 
 // MARK: - Hero Carousel Source
 enum HeroCarouselSource: String, Codable, CaseIterable {
+    case featured = "featured"
     case trendingMovies = "trending_movies"
     case trendingTV = "trending_tv"
     case popularMovies = "popular_movies"
@@ -431,13 +560,14 @@ enum HeroCarouselSource: String, Codable, CaseIterable {
     
     var displayName: String {
         switch self {
+        case .featured: return "Featured (Movies + TV)"
         case .trendingMovies: return "Trending Movies"
         case .trendingTV: return "Trending TV Shows"
         case .popularMovies: return "Popular Movies"
         case .popularTV: return "Popular TV Shows"
         case .nowPlayingMovies: return "Now Playing"
         case .topRatedMovies: return "Top Rated Movies"
-        case .upcomingMovies: return "Upcoming Movies"
+        case .upcomingMovies: return "Coming Soon"
         case .mdblistTrending: return "Trending (MDBList)"
         case .customLists: return "Custom Lists (Movies + TV)"
         case .mdblistPair: return "MDBList Pair (Movies + TV)"
@@ -454,6 +584,7 @@ struct UserSettings: Codable, Equatable {
     var autoPlayTrailers: Bool
     var autoPlayTrailersMuted: Bool
     var showTrailersInMediaDetail: Bool
+    var trailerAddons: [TrailerAddon]
     var compactMode: Bool
     var ambientModeEnabled: Bool
     var heroCarouselSource: HeroCarouselSource
@@ -463,24 +594,27 @@ struct UserSettings: Codable, Equatable {
     var heroCarouselMDBListShowId: String?
     var isKidsProfile: Bool
     var parentPasscode: String?  // 4-digit passcode set by parent to lock age-restricted settings
+    var streamqServiceIds: [Int]  // Selected streaming service IDs for StreamQ tab
     
     init() {
         self.region = Locale.current.region?.identifier ?? "US"
         self.includeAdult = false
         self.useAppleIntelligenceSearch = false
         self.preferredLanguage = Locale.current.language.languageCode?.identifier ?? "en"
-        self.autoPlayTrailers = false
+        self.autoPlayTrailers = true
         self.autoPlayTrailersMuted = true
         self.showTrailersInMediaDetail = true
+        self.trailerAddons = TrailerAddon.defaultAddons
         self.compactMode = false
         self.ambientModeEnabled = false
-        self.heroCarouselSource = .trendingMovies
+        self.heroCarouselSource = .featured
         self.heroCarouselCustomMovieListId = nil
         self.heroCarouselCustomShowListId = nil
         self.heroCarouselMDBListMovieId = nil
         self.heroCarouselMDBListShowId = nil
         self.isKidsProfile = false
         self.parentPasscode = nil
+        self.streamqServiceIds = []
     }
 
     enum CodingKeys: String, CodingKey {
@@ -491,6 +625,7 @@ struct UserSettings: Codable, Equatable {
         case autoPlayTrailers
         case autoPlayTrailersMuted
         case showTrailersInMediaDetail
+        case trailerAddons
         case compactMode
         case ambientModeEnabled
         case heroCarouselSource
@@ -500,6 +635,7 @@ struct UserSettings: Codable, Equatable {
         case heroCarouselMDBListShowId
         case isKidsProfile
         case parentPasscode
+        case streamqServiceIds
     }
 
     init(from decoder: Decoder) throws {
@@ -512,6 +648,7 @@ struct UserSettings: Codable, Equatable {
         autoPlayTrailers = try container.decodeIfPresent(Bool.self, forKey: .autoPlayTrailers) ?? autoPlayTrailers
         autoPlayTrailersMuted = try container.decodeIfPresent(Bool.self, forKey: .autoPlayTrailersMuted) ?? autoPlayTrailersMuted
         showTrailersInMediaDetail = try container.decodeIfPresent(Bool.self, forKey: .showTrailersInMediaDetail) ?? showTrailersInMediaDetail
+        trailerAddons = try container.decodeIfPresent([TrailerAddon].self, forKey: .trailerAddons) ?? trailerAddons
         compactMode = try container.decodeIfPresent(Bool.self, forKey: .compactMode) ?? compactMode
         ambientModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .ambientModeEnabled) ?? ambientModeEnabled
         if let sourceRaw = try container.decodeIfPresent(String.self, forKey: .heroCarouselSource),
@@ -524,6 +661,7 @@ struct UserSettings: Codable, Equatable {
         heroCarouselMDBListShowId = try container.decodeIfPresent(String.self, forKey: .heroCarouselMDBListShowId)
         isKidsProfile = try container.decodeIfPresent(Bool.self, forKey: .isKidsProfile) ?? isKidsProfile
         parentPasscode = try container.decodeIfPresent(String.self, forKey: .parentPasscode)
+        streamqServiceIds = try container.decodeIfPresent([Int].self, forKey: .streamqServiceIds) ?? streamqServiceIds
     }
 
     func encode(to encoder: Encoder) throws {
@@ -535,6 +673,7 @@ struct UserSettings: Codable, Equatable {
         try container.encode(autoPlayTrailers, forKey: .autoPlayTrailers)
         try container.encode(autoPlayTrailersMuted, forKey: .autoPlayTrailersMuted)
         try container.encode(showTrailersInMediaDetail, forKey: .showTrailersInMediaDetail)
+        try container.encode(trailerAddons, forKey: .trailerAddons)
         try container.encode(compactMode, forKey: .compactMode)
         try container.encode(ambientModeEnabled, forKey: .ambientModeEnabled)
         try container.encode(heroCarouselSource.rawValue, forKey: .heroCarouselSource)
@@ -544,7 +683,33 @@ struct UserSettings: Codable, Equatable {
         try container.encode(heroCarouselMDBListShowId, forKey: .heroCarouselMDBListShowId)
         try container.encode(isKidsProfile, forKey: .isKidsProfile)
         try container.encode(parentPasscode, forKey: .parentPasscode)
+        try container.encode(streamqServiceIds, forKey: .streamqServiceIds)
     }
+}
+
+struct TrailerAddon: Identifiable, Codable, Equatable {
+    let id: String
+    var name: String
+    var baseURL: String
+    var isEnabled: Bool
+    let createdAt: Date
+
+    init(id: String = UUID().uuidString, name: String, baseURL: String, isEnabled: Bool = true, createdAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.baseURL = baseURL
+        self.isEnabled = isEnabled
+        self.createdAt = createdAt
+    }
+
+    static let trailio = TrailerAddon(
+        id: "trailio-default-addon",
+        name: "Trailerio",
+        baseURL: "https://trailerio.cc",
+        isEnabled: true
+    )
+
+    static let defaultAddons: [TrailerAddon] = [.trailio]
 }
 
 // MARK: - Browse Row Configuration
@@ -554,11 +719,14 @@ struct BrowseRowConfig: Identifiable, Codable {
     let endpoint: BrowseEndpoint
     var isEnabled: Bool
     var sortOrder: Int
+
+    static let latestHighRatedTitle = "Latest Movies & Shows Rated 6/10+"
     
     enum BrowseEndpoint: String, Codable {
         case trendingMovies = "trending_movies"
         case trendingTV = "trending_tv"
         case trendingPeople = "trending_people"
+        case latestCertifiedFresh = "latest_certified_fresh"
         case popularMovies = "popular_movies"
         case popularTV = "popular_tv"
         case topRatedMovies = "top_rated_movies"
@@ -579,7 +747,8 @@ struct BrowseRowConfig: Identifiable, Codable {
             BrowseRowConfig(id: "6", title: "Now Playing", endpoint: .nowPlayingMovies, isEnabled: true, sortOrder: 5),
             BrowseRowConfig(id: "7", title: "Top Rated Movies", endpoint: .topRatedMovies, isEnabled: true, sortOrder: 6),
             BrowseRowConfig(id: "8", title: "Top Rated TV Shows", endpoint: .topRatedTV, isEnabled: true, sortOrder: 7),
-            BrowseRowConfig(id: "9", title: "Upcoming Movies", endpoint: .upcomingMovies, isEnabled: true, sortOrder: 8),
+            BrowseRowConfig(id: "9", title: latestHighRatedTitle, endpoint: .latestCertifiedFresh, isEnabled: true, sortOrder: 8),
+            BrowseRowConfig(id: "10", title: "Coming Soon", endpoint: .upcomingMovies, isEnabled: true, sortOrder: 9),
         ]
     }
 }
@@ -714,44 +883,52 @@ struct BrowseSectionItem: Identifiable, Codable, Equatable {
     var sortOrder: Int
     
     enum BrowseSectionType: String, Codable, Equatable {
+        case continueWatching = "continue_watching"
         case networks = "networks"
         case rows = "rows"        // The content rows (Trending, Popular, etc.)
         case studios = "studios"
         case customHubs = "custom_hubs"
         case forYou = "for_you"
         case discover = "discover"
+        case streaming = "streaming"
     }
     
     var displayName: String {
         switch sectionType {
+        case .continueWatching: return "Continue Watching"
         case .networks: return "Networks (Streaming)"
         case .rows: return "Content Rows"
         case .studios: return "Studios"
         case .customHubs: return "Custom Hubs"
         case .forYou: return "For You (AI Picks)"
         case .discover: return "Discover Section"
+        case .streaming: return "Streaming"
         }
     }
     
     var iconName: String {
         switch sectionType {
+        case .continueWatching: return "play.circle.fill"
         case .networks: return "tv.fill"
         case .rows: return "film.stack"
         case .studios: return "building.2.fill"
         case .customHubs: return "star.circle.fill"
         case .forYou: return "heart.text.square.fill"
         case .discover: return "safari.fill"
+        case .streaming: return "play.tv.fill"
         }
     }
     
     static var defaultSections: [BrowseSectionItem] {
         [
-            BrowseSectionItem(id: "sec_networks", sectionType: .networks, isEnabled: true, sortOrder: 0),
-            BrowseSectionItem(id: "sec_rows", sectionType: .rows, isEnabled: true, sortOrder: 1),
-            BrowseSectionItem(id: "sec_studios", sectionType: .studios, isEnabled: true, sortOrder: 2),
-            BrowseSectionItem(id: "sec_custom_hubs", sectionType: .customHubs, isEnabled: true, sortOrder: 3),
-            BrowseSectionItem(id: "sec_for_you", sectionType: .forYou, isEnabled: true, sortOrder: 4),
-            BrowseSectionItem(id: "sec_discover", sectionType: .discover, isEnabled: true, sortOrder: 5),
+            BrowseSectionItem(id: "sec_continue_watching", sectionType: .continueWatching, isEnabled: true, sortOrder: 0),
+            BrowseSectionItem(id: "sec_networks", sectionType: .networks, isEnabled: true, sortOrder: 1),
+            BrowseSectionItem(id: "sec_rows", sectionType: .rows, isEnabled: true, sortOrder: 2),
+            BrowseSectionItem(id: "sec_studios", sectionType: .studios, isEnabled: true, sortOrder: 3),
+            BrowseSectionItem(id: "sec_streaming", sectionType: .streaming, isEnabled: true, sortOrder: 4),
+            BrowseSectionItem(id: "sec_custom_hubs", sectionType: .customHubs, isEnabled: false, sortOrder: 5),
+            BrowseSectionItem(id: "sec_for_you", sectionType: .forYou, isEnabled: true, sortOrder: 6),
+            BrowseSectionItem(id: "sec_discover", sectionType: .discover, isEnabled: true, sortOrder: 7),
         ]
     }
 }
@@ -768,3 +945,30 @@ struct SearchHistoryItem: Identifiable, Codable {
         self.timestamp = Date()
     }
 }
+
+// MARK: - Social Profile
+struct SocialProfile: Identifiable, Codable, Equatable {
+    let id: String
+    let userId: String
+    var displayName: String
+    var username: String?
+    var avatarURL: String?
+    var bio: String?
+    var isPublic: Bool
+    let createdAt: Date
+    var updatedAt: Date
+    
+    init(userId: String, displayName: String, username: String? = nil, avatarURL: String? = nil, bio: String? = nil, isPublic: Bool = true) {
+        self.id = UUID().uuidString
+        self.userId = userId
+        self.displayName = displayName
+        self.username = username
+        self.avatarURL = avatarURL
+        self.bio = bio
+        self.isPublic = isPublic
+        self.createdAt = Date()
+        self.updatedAt = Date()
+    }
+}
+
+

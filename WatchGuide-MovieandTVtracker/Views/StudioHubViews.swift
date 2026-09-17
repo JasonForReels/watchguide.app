@@ -98,6 +98,7 @@ struct WarnerBrosHubView: View {
                 )
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
 
@@ -140,6 +141,7 @@ struct UniversalHubView: View {
                 )
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
 
@@ -182,6 +184,7 @@ struct SonyPicturesHubView: View {
                 )
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
 
@@ -224,6 +227,7 @@ struct ColumbiaHubView: View {
                 )
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
 
@@ -266,6 +270,7 @@ struct ParamountPicturesHubView: View {
                 )
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
 
@@ -308,6 +313,7 @@ struct DreamWorksHubView: View {
                 )
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
 
@@ -350,6 +356,7 @@ struct IlluminationHubView: View {
                 )
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
 
@@ -392,6 +399,7 @@ struct SearchlightHubView: View {
                 )
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
 
@@ -434,6 +442,7 @@ struct SkydanceHubView: View {
                 )
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
 
@@ -476,6 +485,7 @@ struct HappyMadisonHubView: View {
                 )
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
 
@@ -518,6 +528,7 @@ struct WaltDisneyHubView: View {
                 )
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
 

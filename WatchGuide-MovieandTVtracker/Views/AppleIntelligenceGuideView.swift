@@ -25,8 +25,8 @@ struct AppleIntelligenceGuideView: View {
                     featureCard(
                         title: "Image Playground",
                         isEnabled: report.supportsImagePlayground,
-                        detail: "Generate images in Scout chat and Avatar Picker with Apple Intelligence.",
-                        actionTitle: "Try in Scout",
+                        detail: "Generate images in Atlas chat and Avatar Picker with Apple Intelligence.",
+                        actionTitle: "Try in Atlas",
                         destination: .scout
                     )
 
@@ -61,7 +61,7 @@ struct AppleIntelligenceGuideView: View {
                 .padding()
             }
             .navigationTitle("Apple Intelligence (Beta)")
-            #if !os(macOS)
+            #if !os(macOS) && !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {

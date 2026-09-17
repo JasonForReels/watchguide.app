@@ -3,6 +3,10 @@ import Foundation
 import UIKit
 #endif
 
+#if canImport(FoundationModels) && !os(tvOS)
+import FoundationModels
+#endif
+
 #if canImport(ImagePlayground)
 import ImagePlayground
 #endif
@@ -34,6 +38,27 @@ enum AppleIntelligenceCapabilityService {
     }
 
     private static var availabilityTuple: (isAvailable: Bool, summary: String) {
+        #if canImport(FoundationModels) && !os(tvOS)
+        if #available(iOS 18.0, macOS 15.0, *) {
+            let model = SystemLanguageModel.default
+            switch model.availability {
+            case .available:
+                return (true, "Apple Intelligence is available on this device.")
+            case .unavailable(let reason):
+                switch reason {
+                case .deviceNotEligible:
+                    return (false, "This device isn’t eligible for Apple Intelligence.")
+                case .appleIntelligenceNotEnabled:
+                    return (false, "Turn on Apple Intelligence in Settings to use on-device features.")
+                case .modelNotReady:
+                    return (false, "Apple Intelligence is still preparing on this device. Try again later.")
+                default:
+                    return (false, "Apple Intelligence is currently unavailable on this device.")
+                }
+            }
+        }
+        #endif
+
         #if os(iOS)
         if #available(iOS 18.0, *) {
             if PlatformCompatibility.isDesignedForiPadOnMac {
@@ -81,7 +106,7 @@ enum AppleIntelligenceCapabilityService {
     }
 
     private static var visualIntelligenceSupported: Bool {
-        return PlatformCompatibility.supportsVisualIntelligence
+        return false
     }
 
     private static var currentPlatformName: String {

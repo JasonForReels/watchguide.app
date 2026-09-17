@@ -29,7 +29,11 @@ class ApiKeyManager {
     }
     
     // UserDefaults key to track initialization
-    private let initializationKey = "ApiKeyManager_Initialized"
+    // Bumped to _v3 so installs that already seeded their Keychain pick up the
+    // restored POE_API_KEY entry on next launch. Re-seeding is safe: every key in
+    // the plist is app-owned, and `userProvidedKeys` is what protects
+    // user-entered keys from being overwritten.
+    private let initializationKey = "ApiKeyManager_Initialized_v4"
     private let userProvidedKeys: Set<String> = []
     
     // Get project name from bundle (should match what Swifty used for encryption)

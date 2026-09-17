@@ -27,9 +27,7 @@ struct DecadeExplorerView: View {
             .padding(.top, 12)
         }
         .navigationTitle("Time Machine")
-        .sheet(item: $selectedItem) { item in
-            MediaDetailView(item: item)
-        }
+        .mediaDetailPresentation(item: $selectedItem)
     }
     
     // MARK: - Decade Selection

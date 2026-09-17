@@ -62,7 +62,7 @@ struct PostSignInSyncView: View {
                     }
                 }
             }
-            #if !os(macOS)
+            #if !os(macOS) && !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
@@ -214,7 +214,7 @@ struct PostSignInSyncView: View {
             VStack(alignment: .leading, spacing: 14) {
                 featureRow(icon: "person.2.fill", color: .accentColor, title: "Personal Profiles", subtitle: "Each person gets their own experience")
                 featureRow(icon: "cloud.fill", color: .green, title: "Cloud Sync", subtitle: "Your data syncs across all your devices")
-                featureRow(icon: "sparkles", color: .purple, title: "Scout AI", subtitle: "Get personalized recommendations")
+                featureRow(icon: "sparkles", color: .purple, title: "Ask Atlas", subtitle: "Get personalized recommendations")
             }
             .padding(16)
             .background(

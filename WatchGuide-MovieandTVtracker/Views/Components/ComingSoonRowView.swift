@@ -12,9 +12,11 @@ struct ComingSoonRowView: View {
     let onSeeAll: (() -> Void)?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let isRegular = horizontalSizeClass == .regular
+        let displayedItems = Array(items.prefix(20))
         VStack(alignment: .leading, spacing: isRegular ? 16 : 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
@@ -24,41 +26,59 @@ struct ComingSoonRowView: View {
 
                     Text("Movies, new series, and the next episode worth waiting for.")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(subtitleColor)
                 }
 
                 Spacer()
 
                 if let onSeeAll {
                     Button(action: onSeeAll) {
-                        HStack(spacing: 4) {
-                            Text("See All")
-                                .font(.subheadline)
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                        }
-                        .foregroundColor(.accentColor)
+                        #if os(tvOS)
+                        TVSeeAllButtonLabel()
+                        #else
+                        Image(systemName: "chevron.right")
+                            .font(.headline)
+                            .foregroundStyle(colorScheme == .dark ? .white : .gray)
+                        #endif
                     }
+                    #if os(tvOS)
+                    .buttonStyle(.plain)
+                    #endif
                 }
             }
-            .padding(.horizontal, isRegular ? 20 : 16)
+            .padding(.horizontal, horizontalPadding(isRegular: isRegular))
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: isRegular ? 18 : 14) {
-                    ForEach(items) { item in
-                        Button {
+                    ForEach(displayedItems) { item in
+                        FocusableActionSurface(action: {
                             onItemTap(item.mediaItem)
-                        } label: {
+                        }, outlineShape: .roundedRectangle(cornerRadius: 22)) {
                             ComingSoonPosterCard(item: item)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, isRegular ? 20 : 16)
+                .padding(.horizontal, horizontalPadding(isRegular: isRegular))
                 .padding(.vertical, 4)
             }
             .scrollClipDisabled()
         }
+    }
+
+    private var subtitleColor: Color {
+        #if os(tvOS)
+        .white.opacity(0.66)
+        #else
+        .secondary
+        #endif
+    }
+
+    private func horizontalPadding(isRegular: Bool) -> CGFloat {
+        #if os(tvOS)
+        60
+        #else
+        isRegular ? 20 : 16
+        #endif
     }
 }
 
@@ -73,7 +93,6 @@ struct ComingSoonPosterCard: View {
         let baseSize = ResponsiveSizing.posterSize(horizontalSizeClass: horizontalSizeClass)
         let posterWidth = baseSize.width
         let posterHeight = baseSize.height
-        let scale: CGFloat = 1.08
         let isEngaged = isHovered || isFocused
 
         ZStack {
@@ -85,7 +104,7 @@ struct ComingSoonPosterCard: View {
                 mediaType: item.mediaType
             )
             .frame(width: posterWidth, height: posterHeight)
-            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: sharedPosterCornerRadius, style: .continuous))
             .overlay(alignment: .topLeading) {
                 HStack(spacing: 6) {
                     Image(systemName: item.mediaType == .movie ? "film.stack.fill" : "sparkles.tv.fill")
@@ -105,14 +124,13 @@ struct ComingSoonPosterCard: View {
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(Color.white.opacity(isFocused ? 0.9 : 0), lineWidth: 3)
+                    .strokeBorder(Color.white.opacity(isFocused ? 0.9 : 0), lineWidth: 0.75)
             }
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .shadow(color: .black.opacity(isEngaged ? 0.28 : 0.16), radius: isEngaged ? 14 : 6, y: isEngaged ? 10 : 4)
-            .scaleEffect(isEngaged ? scale : 1.0)
+            .shadow(color: .black.opacity(isEngaged ? 0.22 : 0.16), radius: isEngaged ? 8 : 6, y: isEngaged ? 4 : 4)
             .animation(.spring(response: 0.3, dampingFraction: 0.72), value: isEngaged)
         }
-        .frame(width: posterWidth * scale, height: posterHeight * scale)
+        .frame(width: posterWidth, height: posterHeight)
         .contentShape(Rectangle())
         #if !os(tvOS)
         .onHover { hovering in
@@ -136,27 +154,76 @@ struct ComingSoonPosterCard: View {
                     .lineLimit(1)
             }
 
-            HStack(alignment: .lastTextBaseline, spacing: 8) {
-                Image(systemName: "timer")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(item.urgencyColor)
-
-                Text(item.countdownText)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-
-                Spacer(minLength: 8)
-
-                Text(item.releaseDateFormatted)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            LiveCountdownClock(releaseDate: item.releaseDate, urgencyColor: item.urgencyColor)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .frame(width: width - 20, alignment: .leading)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+// MARK: - Live Countdown Clock
+struct LiveCountdownClock: View {
+    let releaseDate: Date
+    let urgencyColor: Color
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let remaining = releaseDate.timeIntervalSince(context.date)
+
+            if remaining <= 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.green)
+                    Text("Released")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.primary)
+                }
+            } else {
+                let components = countdownComponents(from: remaining)
+                HStack(spacing: 6) {
+                    Image(systemName: "timer")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(urgencyColor)
+                        .symbolEffect(.pulse, isActive: remaining < 86400)
+
+                    countdownUnit(value: components.days, label: "D")
+                    countdownSeparator
+                    countdownUnit(value: components.hours, label: "H")
+                    countdownSeparator
+                    countdownUnit(value: components.minutes, label: "M")
+                    countdownSeparator
+                    countdownUnit(value: components.seconds, label: "S")
+                }
+            }
+        }
+    }
+
+    private func countdownUnit(value: Int, label: String) -> some View {
+        HStack(alignment: .lastTextBaseline, spacing: 1) {
+            Text("\(value)")
+                .font(.subheadline.weight(.bold).monospacedDigit())
+                .foregroundStyle(.primary)
+            Text(label)
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var countdownSeparator: some View {
+        Text(":")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.secondary.opacity(0.6))
+    }
+
+    private func countdownComponents(from interval: TimeInterval) -> (days: Int, hours: Int, minutes: Int, seconds: Int) {
+        let total = Int(interval)
+        let days = total / 86400
+        let hours = (total % 86400) / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        return (days, hours, minutes, seconds)
     }
 }

@@ -11,13 +11,21 @@ import MapKit
 // MARK: - Country Coordinate Data
 
 /// Represents a country with streaming availability that can be placed on the map.
-struct StreamingCountry: Identifiable {
+struct StreamingCountry: Identifiable, Equatable, Hashable {
     let id: String // ISO 3166-1 alpha-2 code
     let name: String
     let coordinate: CLLocationCoordinate2D
     let flag: String
     let continent: Continent
     let providers: WatchProviderRegion
+
+    static func == (lhs: StreamingCountry, rhs: StreamingCountry) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 }
 
 // MARK: - Continent Definitions
@@ -238,9 +246,14 @@ private enum CountryDirectory {
         "PG": CountryInfo(name: "Papua New Guinea", latitude: -6.3150, longitude: 143.9555, flag: "🇵🇬", continent: .oceania),
     ]
 
+    /// Returns countries that have at least one streaming option (flatrate, ads, or free).
+    /// Rent/buy-only regions (box office titles) are excluded.
     static func streamingCountries(from regions: [String: WatchProviderRegion]) -> [StreamingCountry] {
         regions.compactMap { code, region in
-            guard let flatrate = region.flatrate, !flatrate.isEmpty else { return nil }
+            let hasFlatrate = region.flatrate?.isEmpty == false
+            let hasAds = region.ads?.isEmpty == false
+            let hasFree = region.free?.isEmpty == false
+            guard hasFlatrate || hasAds || hasFree else { return nil }
             guard let info = countries[code] else { return nil }
             return StreamingCountry(
                 id: code,
@@ -252,6 +265,15 @@ private enum CountryDirectory {
             )
         }
         .sorted { $0.name < $1.name }
+    }
+
+    /// Quick check whether any region has streaming providers (flatrate, ads, or free).
+    static func hasStreamingCountries(in regions: [String: WatchProviderRegion]) -> Bool {
+        regions.values.contains { region in
+            (region.flatrate?.isEmpty == false) ||
+            (region.ads?.isEmpty == false) ||
+            (region.free?.isEmpty == false)
+        }
     }
 
     static func clusters(from countries: [StreamingCountry]) -> [ContinentCluster] {
@@ -273,38 +295,127 @@ struct StreamingMapView: View {
     let alternateTitle: String?
     let mediaType: MediaType
     let year: String?
+    var deepLinks: [StreamingDeepLink] = []
+    /// Binding owned by the parent so the sheet can be presented outside the scroll view.
+    @Binding var selectedCountry: StreamingCountry?
 
-    @State private var selectedCountry: StreamingCountry?
-    @State private var cameraPosition: MapCameraPosition = .automatic
+    /// Returns `true` when at least one region has streaming providers (flatrate, ads, or free).
+    /// Use this to decide whether to show the map at all (hides it for box-office-only titles).
+    static func hasStreamingAvailability(in regions: [String: WatchProviderRegion]) -> Bool {
+        CountryDirectory.hasStreamingCountries(in: regions)
+    }
+
+    @State private var cameraPosition: MapCameraPosition = .region(
+        MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 20, longitude: 0),
+                           span: MKCoordinateSpan(latitudeDelta: 140, longitudeDelta: 360))
+    )
     @State private var allCountries: [StreamingCountry] = []
     @State private var clusters: [ContinentCluster] = []
-    @State private var expandedContinent: Continent?
+
+    /// Snapshot of visible countries/clusters, updated only when the camera settles
+    /// and no sheet is being presented.
+    @State private var renderedCountries: [StreamingCountry] = []
+    @State private var renderedClusters: [ContinentCluster] = []
+
+    /// Current visible region reported by the camera.
+    @State private var visibleRegion: MKCoordinateRegion = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 20, longitude: 0),
+        span: MKCoordinateSpan(latitudeDelta: 140, longitudeDelta: 360)
+    )
+
+    // MARK: - Zoom thresholds
+
+    /// Above this latitude-delta only continent clusters are shown.
+    private let clusterOnlyThreshold: Double = 80
+    /// Below this latitude-delta, clusters dissolve entirely into individual pins.
+    private let pinsOnlyThreshold: Double = 25
+
+    // MARK: - Viewport helpers
+
+    /// Whether a coordinate falls inside the current visible region (with a small margin).
+    private func isInViewport(_ coord: CLLocationCoordinate2D) -> Bool {
+        let latHalf = visibleRegion.span.latitudeDelta / 2 * 1.15  // 15 % margin
+        let lonHalf = visibleRegion.span.longitudeDelta / 2 * 1.15
+        let center = visibleRegion.center
+        let latOK = abs(coord.latitude - center.latitude) <= latHalf
+        let lonOK = abs(coord.longitude - center.longitude) <= lonHalf
+        return latOK && lonOK
+    }
+
+    /// Set of continents whose center coordinate is inside the viewport.
+    private var continentsInViewport: Set<Continent> {
+        Set(clusters.compactMap { cluster in
+            isInViewport(cluster.coordinate) ? cluster.continent : nil
+        })
+    }
+
+    // MARK: - Computed annotations
+
+    /// Individual country pins to display at the current zoom & viewport.
+    private var visibleCountries: [StreamingCountry] {
+        let delta = visibleRegion.span.latitudeDelta
+
+        // Fully zoomed out – no individual pins
+        if delta >= clusterOnlyThreshold { return [] }
+
+        // Between thresholds – show pins only for countries whose continent
+        // center is visible, AND the country itself is in the viewport.
+        if delta >= pinsOnlyThreshold {
+            let nearby = continentsInViewport
+            return allCountries.filter { country in
+                nearby.contains(country.continent) && isInViewport(country.coordinate)
+            }
+        }
+
+        // Fully zoomed in – show only countries inside the viewport
+        return allCountries.filter { isInViewport($0.coordinate) }
+    }
+
+    /// Continent clusters to display at the current zoom & viewport.
+    private var visibleClusters: [ContinentCluster] {
+        let delta = visibleRegion.span.latitudeDelta
+
+        // Fully zoomed out – all clusters
+        if delta >= clusterOnlyThreshold {
+            return clusters
+        }
+
+        // Between thresholds – keep clusters for continents that are NOT
+        // in the viewport (far away), hide clusters for nearby ones
+        // (those are shown as individual pins instead).
+        if delta >= pinsOnlyThreshold {
+            let nearby = continentsInViewport
+            return clusters.filter { !nearby.contains($0.continent) }
+        }
+
+        // Fully zoomed in – no clusters
+        return []
+    }
+
+    /// Recompute the rendered snapshots from the current visible region.
+    private func refreshRenderedAnnotations() {
+        renderedCountries = visibleCountries
+        renderedClusters = visibleClusters
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Map(position: $cameraPosition) {
-                if let expanded = expandedContinent {
-                    // Show individual country pins for the expanded continent
-                    let visible = allCountries.filter { $0.continent == expanded }
-                    ForEach(visible) { country in
-                        Annotation(country.name, coordinate: country.coordinate) {
-                            CountryPinView(country: country) {
-                                selectedCountry = country
-                            }
+                ForEach(renderedCountries) { country in
+                    Annotation(country.name, coordinate: country.coordinate) {
+                        CountryPinView(country: country) {
+                            selectedCountry = country
                         }
                     }
-                } else {
-                    // Show continent cluster pins
-                    ForEach(clusters) { cluster in
-                        Annotation(cluster.continent.rawValue, coordinate: cluster.coordinate) {
-                            ClusterPinView(cluster: cluster) {
-                                expandedContinent = cluster.continent
-                                withAnimation {
-                                    cameraPosition = .region(MKCoordinateRegion(
-                                        center: cluster.continent.centerCoordinate,
-                                        span: cluster.continent.regionSpan
-                                    ))
-                                }
+                }
+                ForEach(renderedClusters) { cluster in
+                    Annotation(cluster.continent.rawValue, coordinate: cluster.coordinate) {
+                        ClusterPinView(cluster: cluster) {
+                            withAnimation {
+                                cameraPosition = .region(MKCoordinateRegion(
+                                    center: cluster.continent.centerCoordinate,
+                                    span: cluster.continent.regionSpan
+                                ))
                             }
                         }
                     }
@@ -314,46 +425,29 @@ struct StreamingMapView: View {
             .mapControls {
                 MapCompass()
             }
-            .frame(height: 320)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .overlay(alignment: .topLeading) {
-                if expandedContinent != nil {
-                    Button {
-                        expandedContinent = nil
-                        withAnimation {
-                            cameraPosition = .automatic
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 11, weight: .bold))
-                            Text("All")
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.ultraThickMaterial, in: Capsule())
-                        .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(10)
+            .onMapCameraChange(frequency: .onEnd) { context in
+                visibleRegion = context.region
+                // Only update annotations when no sheet is presented,
+                // so that a tap opening the sheet doesn't cause the
+                // ForEach content to mutate and dismiss the sheet.
+                if selectedCountry == nil {
+                    refreshRenderedAnnotations()
                 }
             }
+            .frame(height: 320)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
         .onAppear {
             allCountries = CountryDirectory.streamingCountries(from: allRegions)
             clusters = CountryDirectory.clusters(from: allCountries)
+            refreshRenderedAnnotations()
         }
-        .sheet(item: $selectedCountry) { country in
-            CountryStreamingDetailView(
-                country: country,
-                mediaTitle: mediaTitle,
-                alternateTitle: alternateTitle,
-                mediaType: mediaType,
-                year: year
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+        .onChange(of: selectedCountry) { _, newValue in
+            // When the sheet is dismissed, refresh annotations to reflect
+            // any camera changes that occurred while the sheet was open.
+            if newValue == nil {
+                refreshRenderedAnnotations()
+            }
         }
     }
 }
@@ -366,26 +460,27 @@ private struct ClusterPinView: View {
     let onTap: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 2) {
-                Text(cluster.continent.emoji)
-                    .font(.system(size: 20))
+        VStack(spacing: 2) {
+            Text(cluster.continent.emoji)
+                .font(.system(size: 20))
 
-                Text("\(cluster.count)")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(Color.accentColor, in: Capsule())
-            }
-            .padding(5)
-            .background {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(.ultraThickMaterial)
-                    .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
-            }
+            Text(cluster.count > 10 ? "10+" : "\(cluster.count)")
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Color.accentColor, in: Capsule())
         }
-        .buttonStyle(.plain)
+        .padding(5)
+        .background {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.ultraThickMaterial)
+                .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
     }
 }
 
@@ -397,25 +492,26 @@ private struct CountryPinView: View {
     let onTap: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 0) {
-                Text(country.flag)
-                    .font(.system(size: 18))
-                    .padding(4)
-                    .background {
-                        Circle()
-                            .fill(.ultraThickMaterial)
-                            .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
-                    }
+        VStack(spacing: 0) {
+            Text(country.flag)
+                .font(.system(size: 18))
+                .padding(4)
+                .background {
+                    Circle()
+                        .fill(.ultraThickMaterial)
+                        .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+                }
 
-                // Pin tail
-                Triangle()
-                    .fill(.ultraThickMaterial)
-                    .frame(width: 10, height: 5)
-                    .shadow(color: .black.opacity(0.1), radius: 1, y: 1)
-            }
+            // Pin tail
+            Triangle()
+                .fill(.ultraThickMaterial)
+                .frame(width: 10, height: 5)
+                .shadow(color: .black.opacity(0.1), radius: 1, y: 1)
         }
-        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
     }
 }
 
@@ -439,6 +535,8 @@ struct CountryStreamingDetailView: View {
     let alternateTitle: String?
     let mediaType: MediaType
     let year: String?
+    var deepLinks: [StreamingDeepLink] = []
+    var savedMediaItem: SavedMediaItem?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -463,24 +561,24 @@ struct CountryStreamingDetailView: View {
                     }
                     .padding(.bottom, 4)
 
-                    if let flatrate = country.providers.flatrate, !flatrate.isEmpty {
-                        StreamingMapProviderSection(title: "Stream", systemImage: "play.circle.fill", providers: flatrate)
-                    }
-
-                    if let ads = country.providers.ads, !ads.isEmpty {
-                        StreamingMapProviderSection(title: "Free with Ads", systemImage: "megaphone.fill", providers: ads)
-                    }
-
-                    if let free = country.providers.free, !free.isEmpty {
-                        StreamingMapProviderSection(title: "Free", systemImage: "gift.fill", providers: free)
-                    }
+                    WatchProvidersView(
+                        providers: country.providers,
+                        link: country.providers.link,
+                        mediaTitle: mediaTitle,
+                        alternateTitle: alternateTitle,
+                        mediaType: mediaType,
+                        year: year,
+                        deepLinks: deepLinks,
+                        countryCode: country.id,
+                        savedMediaItem: savedMediaItem
+                    )
                 }
                 .padding()
             }
             .navigationTitle("Streaming in \(country.name)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         dismiss()
                     }
@@ -569,31 +667,218 @@ struct StreamingMapView: View {
     let alternateTitle: String?
     let mediaType: MediaType
     let year: String?
+    var deepLinks: [StreamingDeepLink] = []
+    /// Accepted for API parity with the non-tvOS version but unused on tvOS.
+    @Binding var selectedCountry: StreamingCountry?
+
+    static func hasStreamingAvailability(in regions: [String: WatchProviderRegion]) -> Bool {
+        CountryDirectory.hasStreamingCountries(in: regions)
+    }
+
+    @State private var allCountries: [StreamingCountry] = []
+    @State private var selectedCountryID: String = ""
+    @State private var showCountryPicker = false
+
+    private var selectedCountryLocal: StreamingCountry? {
+        allCountries.first { $0.id == selectedCountryID }
+    }
+
+    private var launchContext: ProviderLaunchContext {
+        ProviderLaunchContext(
+            title: mediaTitle,
+            alternateTitle: alternateTitle,
+            year: year,
+            mediaType: mediaType
+        )
+    }
+
+    // Provider IDs to exclude (same as WatchProvidersView)
+    private let excludedProviderIds: Set<Int> = [
+        10, 119, 9, 3, 192
+    ]
+
+    private func filterProviders(_ providers: [WatchProvider]?) -> [WatchProvider] {
+        guard let providers else { return [] }
+        return providers.filter { !excludedProviderIds.contains($0.providerId) }
+    }
+
+    private func handleProviderTap(_ provider: WatchProvider) {
+        Task {
+            // Priority 1: MOTN deep link
+            if let motnURL = await StreamingDeepLinkService.shared.deepLink(
+                forTMDBProviderId: provider.providerId,
+                from: deepLinks
+            ) {
+                await MainActor.run {
+                    PlatformURLHandler.openURL(motnURL)
+                }
+                return
+            }
+
+            // Priority 2: Try to open the app directly with a content URL
+            if let contentURL = ProviderDeepLink.contentURL(for: provider.providerId, context: launchContext) {
+                await MainActor.run {
+                    PlatformURLHandler.openURL(contentURL)
+                }
+                return
+            }
+
+            // Try to open the app scheme
+            if let scheme = ProviderDeepLink.appScheme(for: provider.providerId),
+               let appURL = URL(string: scheme) {
+                await MainActor.run {
+                    PlatformURLHandler.openURL(appURL)
+                }
+                return
+            }
+
+            // Fall back to App Store
+            if let appStoreURL = ProviderDeepLink.appStoreURL(for: provider.providerId) {
+                await MainActor.run {
+                    PlatformURLHandler.openURL(appStoreURL)
+                }
+            }
+        }
+    }
 
     var body: some View {
-        let countries = CountryDirectory.streamingCountries(from: allRegions)
+        VStack(alignment: .leading, spacing: 20) {
+            if allCountries.isEmpty {
+                Text("No streaming availability found.")
+                    .foregroundStyle(.secondary)
+            } else {
+                // Country picker button
+                Button {
+                    showCountryPicker = true
+                } label: {
+                    HStack {
+                        Text(selectedCountryLocal?.flag ?? "")
+                            .font(.title3)
+                        Text(selectedCountryLocal?.name ?? "Select Country")
+                            .font(.callout)
+                            .fontWeight(.medium)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(TVOSTransparentButtonStyle())
 
-        if countries.isEmpty {
-            Text("No streaming availability found.")
+                // Providers for selected country
+                if let country = selectedCountryLocal {
+                    tvOSProviderList(for: country)
+                }
+            }
+        }
+        .onAppear {
+            let countries = CountryDirectory.streamingCountries(from: allRegions)
+            allCountries = countries
+            if selectedCountryID.isEmpty, let first = countries.first {
+                selectedCountryID = first.id
+            }
+        }
+        .sheet(isPresented: $showCountryPicker) {
+            TVOSCountryPickerSheet(
+                countries: allCountries,
+                selectedCountryID: $selectedCountryID,
+                isPresented: $showCountryPicker
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func tvOSProviderList(for country: StreamingCountry) -> some View {
+        let flatrate = filterProviders(country.providers.flatrate)
+        let ads = filterProviders(country.providers.ads)
+        let free = filterProviders(country.providers.free)
+        let rent = filterProviders(country.providers.rent)
+        let buy = filterProviders(country.providers.buy)
+
+        if flatrate.isEmpty && ads.isEmpty && free.isEmpty && rent.isEmpty && buy.isEmpty {
+            Text("No providers available in \(country.name).")
                 .foregroundStyle(.secondary)
+                .font(.callout)
         } else {
-            VStack(alignment: .leading, spacing: 8) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
-                        ForEach(countries) { country in
-                            VStack(spacing: 4) {
-                                Text(country.flag)
-                                    .font(.system(size: 32))
-                                Text(country.name)
-                                    .font(.caption2)
-                                    .lineLimit(1)
-                            }
-                            .frame(width: 80)
-                        }
+            VStack(alignment: .leading, spacing: 16) {
+                if !flatrate.isEmpty {
+                    tvOSProviderSection(title: "Stream", providers: flatrate, countryCode: country.id)
+                }
+                if !ads.isEmpty {
+                    tvOSProviderSection(title: "Free with Ads", providers: ads)
+                }
+                if !free.isEmpty {
+                    tvOSProviderSection(title: "Free", providers: free)
+                }
+                if !rent.isEmpty {
+                    tvOSProviderSection(title: "Rent", providers: rent)
+                }
+                if !buy.isEmpty {
+                    tvOSProviderSection(title: "Buy", providers: buy)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tvOSProviderSection(title: String, providers: [WatchProvider], countryCode: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(providers.prefix(10)) { provider in
+                        ProviderLogo(provider: provider, countryCode: countryCode, onTap: handleProviderTap)
                     }
                 }
             }
         }
     }
 }
+
+// MARK: - Country Picker Sheet
+
+struct TVOSCountryPickerSheet: View {
+    let countries: [StreamingCountry]
+    @Binding var selectedCountryID: String
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(countries) { country in
+                        countryRow(country)
+                    }
+                }
+            }
+            .navigationTitle("Select Country")
+        }
+    }
+
+    private func countryRow(_ country: StreamingCountry) -> some View {
+        Button {
+            selectedCountryID = country.id
+            isPresented = false
+        } label: {
+            HStack {
+                Text(String(country.flag))
+                    .font(.title3)
+                Text(String(country.name))
+                Spacer()
+                if country.id == selectedCountryID {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 24)
+        }
+        .buttonStyle(TVOSTransparentButtonStyle())
+    }
+}
+
 #endif

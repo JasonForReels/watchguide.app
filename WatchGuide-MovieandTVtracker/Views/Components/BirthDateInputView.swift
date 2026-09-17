@@ -59,7 +59,7 @@ private struct TVBirthDatePicker: View {
         let year = calendar.component(.year, from: date)
         let month = calendar.component(.month, from: date)
         let startOfMonth = calendar.date(from: DateComponents(year: year, month: month, day: 1)) ?? date
-        let dayRange = calendar.range(of: .day, in: .month, for: startOfMonth) ?? 1...31
+        let dayRange = calendar.range(of: .day, in: .month, for: startOfMonth) ?? 1..<32
         return Array(dayRange)
     }
 

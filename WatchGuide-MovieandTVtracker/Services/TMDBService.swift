@@ -14,7 +14,7 @@ actor TMDBService {
     private let apiKey = "53b0ac93f3955b6a6ccb9782752fecf1"
     
     // MARK: - Optimized URLSession with caching
-    private let session: URLSession = {
+    private nonisolated let session: URLSession = {
         let config = URLSessionConfiguration.default
         // 50 MB memory cache, 200 MB disk cache
         config.urlCache = URLCache(memoryCapacity: 50 * 1024 * 1024, diskCapacity: 200 * 1024 * 1024)
@@ -22,7 +22,8 @@ actor TMDBService {
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 30
         config.httpMaximumConnectionsPerHost = 8
-        config.waitsForConnectivity = true
+        // Fail fast when the simulator/device is offline instead of appearing to hang.
+        config.waitsForConnectivity = false
         return URLSession(configuration: config)
     }()
     
@@ -65,7 +66,19 @@ actor TMDBService {
         return URL(string: "\(imageBaseURL)/\(size.rawValue)\(path)")
     }
     
-    // MARK: - Generic Request (with in-memory caching)
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
+    
+    nonisolated func date(from string: String) -> Date? {
+        return Self.dateFormatter.date(from: string)
+    }
+    
+    // MARK: - Generic Request (with L1 in-memory + L2 Supabase caching)
     private func request<T: Decodable>(_ endpoint: String, queryItems: [URLQueryItem] = [], useCache: Bool = true) async throws -> T {
         var components = URLComponents(string: "\(baseURL)\(endpoint)")!
         var items = queryItems
@@ -77,28 +90,107 @@ actor TMDBService {
         }
         
         let cacheKey = url.absoluteString
-        
-        // Check in-memory cache first
+
+        // L1: Check in-memory cache first
         if useCache, let cached: T = getCached(cacheKey) {
             return cached
         }
-        
-        let (data, response) = try await session.data(from: url)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
-        
-        let decoder = JSONDecoder()
-        let result = try decoder.decode(T.self, from: data)
-        
-        // Store in in-memory cache
+
+        let supabaseKey = useCache
+            ? SupabaseCacheService.tmdbCacheKey(endpoint: endpoint, queryItems: queryItems)
+            : nil
+
+        // L2 (Supabase) and TMDB itself are raced rather than tried in sequence.
+        // Checking Supabase first meant every cold request paid a full extra
+        // round-trip before TMDB was even contacted, which on a screen that
+        // issues a dozen requests dominated the load time.
+        let (data, fromOrigin) = try await fetchData(url: url, supabaseKey: supabaseKey)
+
+        let result = try JSONDecoder().decode(T.self, from: data)
+
+        // Store in L1 in-memory cache
         if useCache {
             setCache(cacheKey, value: result)
         }
-        
+
+        // Fire-and-forget: write to L2 Supabase cache. Only origin responses are
+        // worth writing back — an L2 hit is already there.
+        if useCache, fromOrigin, let supabaseKey {
+            let ttl = SupabaseCacheService.tmdbTTL(for: endpoint)
+            let capturedData = data
+            Task.detached(priority: .background) {
+                await SupabaseCacheService.shared.set(
+                    key: supabaseKey,
+                    source: .tmdb,
+                    responseData: capturedData,
+                    ttlSeconds: ttl
+                )
+            }
+        }
+
         return result
+    }
+
+    /// Returns the first usable response from the shared Supabase cache or TMDB,
+    /// whichever answers first. `fromOrigin` reports which one won.
+    private func fetchData(url: URL, supabaseKey: String?) async throws -> (data: Data, fromOrigin: Bool) {
+        guard let supabaseKey else {
+            return (try await originData(url: url), true)
+        }
+
+        return try await withThrowingTaskGroup(of: (Data, Bool)?.self) { group in
+            group.addTask {
+                guard let cached = await SupabaseCacheService.shared.get(key: supabaseKey) else {
+                    return nil
+                }
+                return (cached, false)
+            }
+            group.addTask { [self] in
+                (try await originData(url: url), true)
+            }
+
+            var originError: Error?
+
+            // Two children: a nil result is a cache miss, so keep waiting for the
+            // other one rather than giving up.
+            for _ in 0..<2 {
+                do {
+                    if let result = try await group.next() ?? nil {
+                        group.cancelAll()
+                        return result
+                    }
+                } catch {
+                    originError = error
+                }
+            }
+
+            throw originError ?? URLError(.badServerResponse)
+        }
+    }
+
+    /// Fetches straight from TMDB. `nonisolated` so racing requests don't
+    /// serialize on the actor while they wait on the network.
+    private nonisolated func originData(url: URL) async throws -> Data {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(from: url)
+        } catch {
+            print("TMDBService request failed: \(url.absoluteString) error=\(error)")
+            throw error
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("TMDBService invalid response: \(url.absoluteString)")
+            throw URLError(.badServerResponse)
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            print("TMDBService bad status: \(httpResponse.statusCode) url=\(url.absoluteString)")
+            throw URLError(.badServerResponse)
+        }
+
+        return data
     }
     
     // MARK: - Trending
@@ -166,6 +258,34 @@ actor TMDBService {
         )
         return response.logos
     }
+
+    /// Fetches English-language backdrops for a movie or TV show, sorted by vote average.
+    func getMediaBackdrops(mediaType: MediaType, id: Int) async throws -> [MediaImage] {
+        let endpoint: String
+        switch mediaType {
+        case .movie:
+            endpoint = "/movie/\(id)/images"
+        case .tv:
+            endpoint = "/tv/\(id)/images"
+        case .person:
+            return []
+        }
+
+        let response: MediaImagesResponse = try await request(
+            endpoint,
+            queryItems: [
+                URLQueryItem(name: "include_image_language", value: "en,null")
+            ]
+        )
+        let backdrops = response.backdrops ?? []
+        // Prefer English (text-baked) backdrops over null (textless), then sort by votes within each group
+        return backdrops.sorted { a, b in
+            let aIsEnglish = a.iso639_1 == "en"
+            let bIsEnglish = b.iso639_1 == "en"
+            if aIsEnglish != bIsEnglish { return aIsEnglish }
+            return (a.voteAverage ?? 0) > (b.voteAverage ?? 0)
+        }
+    }
     
     // MARK: - Movies
     func getPopularMovies(page: Int = 1) async throws -> TMDBResponse<MediaItem> {
@@ -189,10 +309,7 @@ actor TMDBService {
         let tomorrowString = formatter.string(from: tomorrow)
         
         // Default to end of current year
-        let endDateString = endDate ?? {
-            let year = Calendar.current.component(.year, from: today)
-            return "\(year)-12-31"
-        }()
+        let endDateString = endDate ?? "\(Calendar.current.component(.year, from: today))-12-31"
         
         let region = await MainActor.run { StorageService.shared.settings.region }
         
@@ -279,6 +396,10 @@ actor TMDBService {
     func getMovieVideos(id: Int) async throws -> VideosResponse {
         try await request("/movie/\(id)/videos")
     }
+
+    func getMovieReviews(id: Int, page: Int = 1) async throws -> ReviewsResponse {
+        try await request("/movie/\(id)/reviews", queryItems: [URLQueryItem(name: "page", value: "\(page)")])
+    }
     
     func getMovieWatchProviders(id: Int) async throws -> WatchProvidersResponse {
         try await request("/movie/\(id)/watch/providers")
@@ -325,6 +446,10 @@ actor TMDBService {
     
     func getTVShowVideos(id: Int) async throws -> VideosResponse {
         try await request("/tv/\(id)/videos")
+    }
+
+    func getTVShowReviews(id: Int, page: Int = 1) async throws -> ReviewsResponse {
+        try await request("/tv/\(id)/reviews", queryItems: [URLQueryItem(name: "page", value: "\(page)")])
     }
     
     func getTVShowWatchProviders(id: Int) async throws -> WatchProvidersResponse {
@@ -411,11 +536,22 @@ actor TMDBService {
     }
     
     // MARK: - Discover
+
+    /// Joins TMDB filter IDs. TMDB reads `,` as AND and `|` as OR within a single
+    /// `with_*` parameter, so `matchAny` picks the separator.
+    private func joinFilterIds(_ ids: [Int], matchAny: Bool) -> String {
+        ids.map { "\($0)" }.joined(separator: matchAny ? "|" : ",")
+    }
+
     func discoverMovies(
         genres: [Int]? = nil,
         year: Int? = nil,
         originalLanguage: String? = nil,
         productionRegion: String? = nil,
+        keywords: [Int]? = nil,
+        matchAnyGenre: Bool = false,
+        matchAnyKeyword: Bool = true,
+        releasedBefore: Int? = nil,
         sortBy: String = "popularity.desc",
         page: Int = 1
     ) async throws -> TMDBResponse<MediaItem> {
@@ -426,10 +562,16 @@ actor TMDBService {
             URLQueryItem(name: "include_adult", value: adult)
         ]
         if let genres = genres, !genres.isEmpty {
-            queryItems.append(URLQueryItem(name: "with_genres", value: genres.map { "\($0)" }.joined(separator: ",")))
+            queryItems.append(URLQueryItem(name: "with_genres", value: joinFilterIds(genres, matchAny: matchAnyGenre)))
+        }
+        if let keywords = keywords, !keywords.isEmpty {
+            queryItems.append(URLQueryItem(name: "with_keywords", value: joinFilterIds(keywords, matchAny: matchAnyKeyword)))
         }
         if let year = year {
             queryItems.append(URLQueryItem(name: "primary_release_year", value: "\(year)"))
+        }
+        if let releasedBefore = releasedBefore {
+            queryItems.append(URLQueryItem(name: "primary_release_date.lte", value: "\(releasedBefore)-12-31"))
         }
         if let originalLanguage = originalLanguage, !originalLanguage.isEmpty {
             queryItems.append(URLQueryItem(name: "with_original_language", value: originalLanguage))
@@ -445,6 +587,10 @@ actor TMDBService {
         year: Int? = nil,
         originalLanguage: String? = nil,
         productionRegion: String? = nil,
+        keywords: [Int]? = nil,
+        matchAnyGenre: Bool = false,
+        matchAnyKeyword: Bool = true,
+        releasedBefore: Int? = nil,
         sortBy: String = "popularity.desc",
         page: Int = 1
     ) async throws -> TMDBResponse<MediaItem> {
@@ -455,10 +601,16 @@ actor TMDBService {
             URLQueryItem(name: "include_adult", value: adult)
         ]
         if let genres = genres, !genres.isEmpty {
-            queryItems.append(URLQueryItem(name: "with_genres", value: genres.map { "\($0)" }.joined(separator: ",")))
+            queryItems.append(URLQueryItem(name: "with_genres", value: joinFilterIds(genres, matchAny: matchAnyGenre)))
+        }
+        if let keywords = keywords, !keywords.isEmpty {
+            queryItems.append(URLQueryItem(name: "with_keywords", value: joinFilterIds(keywords, matchAny: matchAnyKeyword)))
         }
         if let year = year {
             queryItems.append(URLQueryItem(name: "first_air_date_year", value: "\(year)"))
+        }
+        if let releasedBefore = releasedBefore {
+            queryItems.append(URLQueryItem(name: "first_air_date.lte", value: "\(releasedBefore)-12-31"))
         }
         if let originalLanguage = originalLanguage, !originalLanguage.isEmpty {
             queryItems.append(URLQueryItem(name: "with_original_language", value: originalLanguage))
@@ -468,22 +620,112 @@ actor TMDBService {
         }
         return try await request("/discover/tv", queryItems: queryItems)
     }
+
+    func getLatestHighRatedMovies(
+        minimumVoteAverage: Double = 6.0,
+        minimumVoteCount: Int = 50,
+        page: Int = 1
+    ) async throws -> TMDBResponse<MediaItem> {
+        let adult = await includeAdultValue()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let todayString = formatter.string(from: Date())
+
+        let queryItems = [
+            URLQueryItem(name: "sort_by", value: "primary_release_date.desc"),
+            URLQueryItem(name: "page", value: "\(page)"),
+            URLQueryItem(name: "include_adult", value: adult),
+            URLQueryItem(name: "vote_average.gte", value: String(format: "%.1f", minimumVoteAverage)),
+            URLQueryItem(name: "vote_count.gte", value: "\(minimumVoteCount)"),
+            URLQueryItem(name: "primary_release_date.lte", value: todayString)
+        ]
+
+        let response: TMDBResponse<MediaItem> = try await request("/discover/movie", queryItems: queryItems)
+        return normalizedResponse(response, mediaType: .movie)
+    }
+
+    func getLatestHighRatedTV(
+        minimumVoteAverage: Double = 6.0,
+        minimumVoteCount: Int = 50,
+        page: Int = 1
+    ) async throws -> TMDBResponse<MediaItem> {
+        let adult = await includeAdultValue()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let todayString = formatter.string(from: Date())
+
+        let queryItems = [
+            URLQueryItem(name: "sort_by", value: "first_air_date.desc"),
+            URLQueryItem(name: "page", value: "\(page)"),
+            URLQueryItem(name: "include_adult", value: adult),
+            URLQueryItem(name: "vote_average.gte", value: String(format: "%.1f", minimumVoteAverage)),
+            URLQueryItem(name: "vote_count.gte", value: "\(minimumVoteCount)"),
+            URLQueryItem(name: "first_air_date.lte", value: todayString)
+        ]
+
+        let response: TMDBResponse<MediaItem> = try await request("/discover/tv", queryItems: queryItems)
+        return normalizedResponse(response, mediaType: .tv)
+    }
+
+    private func normalizedResponse(_ response: TMDBResponse<MediaItem>, mediaType: MediaType) -> TMDBResponse<MediaItem> {
+        let updatedResults = response.results.map { item -> MediaItem in
+            guard item.mediaType == nil else { return item }
+
+            return MediaItem(
+                id: item.id,
+                title: item.title,
+                name: item.name,
+                originalTitle: item.originalTitle,
+                originalName: item.originalName,
+                overview: item.overview,
+                posterPath: item.posterPath,
+                backdropPath: item.backdropPath,
+                releaseDate: item.releaseDate,
+                firstAirDate: item.firstAirDate,
+                voteAverage: item.voteAverage,
+                voteCount: item.voteCount,
+                popularity: item.popularity,
+                genreIds: item.genreIds,
+                mediaType: mediaType.rawValue,
+                adult: item.adult,
+                originalLanguage: item.originalLanguage
+            )
+        }
+
+        return TMDBResponse(
+            page: response.page,
+            results: updatedResults,
+            totalPages: response.totalPages,
+            totalResults: response.totalResults
+        )
+    }
     
-    func discoverMoviesByCompany(companyIds: [Int], page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+    func discoverMoviesByCompany(
+        companyIds: [Int],
+        sortBy: String = "popularity.desc",
+        page: Int = 1
+    ) async throws -> TMDBResponse<MediaItem> {
+        let adult = await includeAdultValue()
         let queryItems = [
             URLQueryItem(name: "with_companies", value: companyIds.map { "\($0)" }.joined(separator: "|")),
-            URLQueryItem(name: "sort_by", value: "popularity.desc"),
+            URLQueryItem(name: "sort_by", value: sortBy),
+            URLQueryItem(name: "include_adult", value: adult),
             URLQueryItem(name: "page", value: "\(page)")
         ]
         return try await request("/discover/movie", queryItems: queryItems)
     }
     
-    func discoverTVByNetwork(networkIds: [Int], page: Int = 1) async throws -> TMDBResponse<MediaItem> {
-        let queryItems = [
+    func discoverTVByNetwork(networkIds: [Int], providerIds: [Int] = [], region: String? = nil, page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+        var queryItems = [
             URLQueryItem(name: "with_networks", value: networkIds.map { "\($0)" }.joined(separator: "|")),
             URLQueryItem(name: "sort_by", value: "popularity.desc"),
             URLQueryItem(name: "page", value: "\(page)")
         ]
+        if !providerIds.isEmpty, let region = region {
+            let effectiveRegion = Self.effectiveProviderRegion(region: region, providerIds: providerIds)
+            queryItems.append(URLQueryItem(name: "with_watch_providers", value: providerIds.map { "\($0)" }.joined(separator: "|")))
+            queryItems.append(URLQueryItem(name: "watch_region", value: effectiveRegion))
+        }
         return try await request("/discover/tv", queryItems: queryItems)
     }
     
@@ -530,9 +772,10 @@ actor TMDBService {
     
     // MARK: - Discover by Watch Provider
     func discoverMoviesWithProvider(providerIds: [Int], region: String, page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+        let effectiveRegion = Self.effectiveProviderRegion(region: region, providerIds: providerIds)
         let queryItems = [
             URLQueryItem(name: "with_watch_providers", value: providerIds.map { "\($0)" }.joined(separator: "|")),
-            URLQueryItem(name: "watch_region", value: region),
+            URLQueryItem(name: "watch_region", value: effectiveRegion),
             URLQueryItem(name: "sort_by", value: "popularity.desc"),
             URLQueryItem(name: "page", value: "\(page)")
         ]
@@ -540,13 +783,23 @@ actor TMDBService {
     }
     
     func discoverTVWithProvider(providerIds: [Int], region: String, page: Int = 1) async throws -> TMDBResponse<MediaItem> {
+        let effectiveRegion = Self.effectiveProviderRegion(region: region, providerIds: providerIds)
         let queryItems = [
             URLQueryItem(name: "with_watch_providers", value: providerIds.map { "\($0)" }.joined(separator: "|")),
-            URLQueryItem(name: "watch_region", value: region),
+            URLQueryItem(name: "watch_region", value: effectiveRegion),
             URLQueryItem(name: "sort_by", value: "popularity.desc"),
             URLQueryItem(name: "page", value: "\(page)")
         ]
         return try await request("/discover/tv", queryItems: queryItems)
+    }
+    
+    /// Maps Disney+ South Africa requests to use UK content, since Disney+ ZA mirrors GB.
+    static func effectiveProviderRegion(region: String, providerIds: [Int]) -> String {
+        let disneyPlusProviderId = 337
+        if region == "ZA", providerIds.contains(disneyPlusProviderId) {
+            return "GB"
+        }
+        return region
     }
     
     // MARK: - Collections
@@ -566,6 +819,30 @@ actor TMDBService {
     
     func getTVGenres() async throws -> GenresResponse {
         try await request("/genre/tv/list")
+    }
+
+    // MARK: - Keywords
+
+    func getMovieKeywords(id: Int) async throws -> KeywordsResponse {
+        try await request("/movie/\(id)/keywords")
+    }
+
+    func getTVKeywords(id: Int) async throws -> KeywordsResponse {
+        try await request("/tv/\(id)/keywords")
+    }
+
+    /// Keywords for a title regardless of media type. Returns an empty list for
+    /// people, and never throws — callers treat keywords as optional enrichment.
+    func getKeywords(id: Int, mediaType: MediaType) async -> [Keyword] {
+        do {
+            switch mediaType {
+            case .movie: return try await getMovieKeywords(id: id).keywords
+            case .tv:    return try await getTVKeywords(id: id).keywords
+            case .person: return []
+            }
+        } catch {
+            return []
+        }
     }
     
     // MARK: - Companies
@@ -689,6 +966,15 @@ struct MovieReleaseDatesResult: Codable {
 struct MovieReleaseDate: Codable {
     let certification: String?
     let type: Int?
+    /// TMDB release type: 1 premiere, 2 limited theatrical, 3 theatrical,
+    /// 4 digital, 5 physical, 6 TV. Needed to tell "in cinemas" apart from
+    /// "streaming", which a bare release date can't.
+    let releaseDate: String?
+
+    enum CodingKeys: String, CodingKey {
+        case certification, type
+        case releaseDate = "release_date"
+    }
 }
 
 struct TVContentRatingsResponse: Codable {

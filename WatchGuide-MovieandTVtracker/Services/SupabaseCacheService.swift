@@ -34,6 +34,8 @@ actor SupabaseCacheService {
         case thetvdb
         case omdb
         case deeplink
+        case watchalong
+        case deepdive
     }
     
     // MARK: - TTL Presets (seconds)
@@ -48,7 +50,7 @@ actor SupabaseCacheService {
         static let providers: Int = 86400         // 24 hours
         static let ratings: Int = 43200           // 12 hours
         static let artwork: Int = 604800          // 7 days
-        static let deepLinks: Int = 21600         // 6 hours
+        static let deepLinks: Int = 86400         // 24 hours
         static let genres: Int = 2592000          // 30 days
         static let discover: Int = 3600           // 1 hour
         static let episodeImages: Int = 604800    // 7 days

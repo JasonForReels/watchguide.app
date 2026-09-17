@@ -5,26 +5,38 @@
 
 import SwiftUI
 import Combine
-#if canImport(GoogleMobileAds) && !os(tvOS)
-import GoogleMobileAds
+#if canImport(UnityAds) && !os(tvOS)
+import UnityAds
 #endif
 
-/// Manages Google AdMob ad loading and visibility based on subscription status.
-/// Ads are hidden for Scout Unlimited subscribers, Kids profiles, and tvOS.
+/// Manages Unity Ads loading and visibility based on subscription status.
+/// Ads are hidden for WatchGuide Pro subscribers, Kids profiles, and tvOS.
 @MainActor
-class AdService: ObservableObject {
+class AdService: NSObject, ObservableObject {
     static let shared = AdService()
     
-    // MARK: - Test Ad Unit IDs (replace with real IDs once AdMob account is verified)
-    static let testBannerAdUnitID = "ca-app-pub-3940256099942544/2435281174"
+    // MARK: - Unity Ads Configuration
+    /// Replace with your Unity Ads Game ID from the Unity Dashboard
+    static let gameID = "6111856"
+    /// Replace with your Unity Ads banner placement ID
+    static let bannerPlacementID = "iOS_Banner_1"
+    /// Set to false for production
+    static let testMode = true
     
-    /// Whether ads should be displayed to the current user
+    /// Whether Unity Ads should be displayed to the current user
     @Published private(set) var shouldShowAds: Bool = false
+    
+    /// Whether affiliate banners (NordVPN etc.) should be displayed.
+    /// Unlike shouldShowAds, this works on all platforms including tvOS.
+    @Published private(set) var shouldShowAffiliateBanners: Bool = false
+    
+    /// Whether the Unity Ads SDK has been initialized successfully
+    @Published private(set) var isSDKInitialized: Bool = false
     
     private var cancellables = Set<AnyCancellable>()
     
-    private init() {
-        #if !os(tvOS)
+    private override init() {
+        super.init()
         updateAdVisibility()
         
         // React to subscription status changes
@@ -38,23 +50,43 @@ class AdService: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateAdVisibility() }
             .store(in: &cancellables)
-        #endif
     }
     
-    /// Initialize the Google Mobile Ads SDK. Call once at app launch.
+    /// Initialize the Unity Ads SDK. Call once at app launch.
     func configure() {
-        #if canImport(GoogleMobileAds) && !os(tvOS)
-        GADMobileAds.sharedInstance().start(completionHandler: nil)
+        #if canImport(UnityAds) && !os(tvOS)
+        guard !UnityServices.isInitialized() else { return }
+        UnityServices.initialize(Self.gameID, testMode: Self.testMode, initializationDelegate: self)
         #endif
     }
     
     private func updateAdVisibility() {
+        let isSubscriber = ScoutSubscriptionService.shared.isUnlimitedActive
+        let isKids = StorageService.shared.settings.isKidsProfile
+        
+        // Affiliate banners work on all platforms
+        shouldShowAffiliateBanners = !isSubscriber && !isKids
+        
+        // Unity Ads only on non-tvOS
         #if os(tvOS)
         shouldShowAds = false
         #else
-        let isSubscriber = ScoutSubscriptionService.shared.isUnlimitedActive
-        let isKids = StorageService.shared.settings.isKidsProfile
         shouldShowAds = !isSubscriber && !isKids
         #endif
     }
 }
+
+#if canImport(UnityAds) && !os(tvOS)
+extension AdService: UnityAdsInitializationDelegate {
+    nonisolated func initializationComplete() {
+        print("[AdService] Unity Ads initialized successfully")
+        Task { @MainActor in
+            self.isSDKInitialized = true
+        }
+    }
+    
+    nonisolated func initializationFailed(_ error: UnityAdsInitializationError, withMessage message: String) {
+        print("[AdService] Unity Ads initialization failed: \(message)")
+    }
+}
+#endif

@@ -4,7 +4,6 @@ struct DCHubView: View {
     @State private var movies: [MediaItem] = []
     @State private var loading = true
     @State private var selectedItem: MediaItem?
-    @State private var selectedCollection: HubCollection?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -52,21 +51,6 @@ struct DCHubView: View {
                                     .padding(.horizontal, 60)
                                     .padding(.bottom, 20)
                                 
-                                // Collections
-                                if !collections.isEmpty {
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 24) {
-                                            ForEach(collections) { collection in
-                                                FranchiseCircleButton(collection: collection) {
-                                                    selectedCollection = collection
-                                                }
-                                            }
-                                        }
-                                        .padding(.horizontal, horizontalSizeClass == .regular ? 40 : 20)
-                                    }
-                                    .padding(.vertical, 20)
-                                }
-                                
                                 VStack(spacing: horizontalSizeClass == .regular ? 64 : 32) {
                                     if !featuredItems.isEmpty {
                                         MediaRowView(
@@ -105,16 +89,14 @@ struct DCHubView: View {
                     #endif
                 }
                 .mediaDetailPresentation(item: $selectedItem)
-                .fullScreenCover(item: $selectedCollection) { collection in
-                    HubCollectionView(collection: collection)
-                }
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await loadContent() }
     }
-    
+
     // MARK: - Sections
-    
+
     private var heroSection: some View {
         HeroCarouselView(
             items: Array(movies.prefix(10)),
@@ -217,44 +199,4 @@ struct DCHubView: View {
         }
     }
     
-    private var collections: [HubCollection] {
-        [
-            HubCollection(
-                id: 2001,
-                name: "Batman",
-                logoAssetName: "",
-                backgroundColor: Color(red: 0.1, green: 0.1, blue: 0.1),
-                backdropAssetName: "dc_backdrop",
-                customItems: [
-                    .init(id: "272", type: .movie),
-                    .init(id: "155", type: .movie),
-                    .init(id: "49026", type: .movie),
-                    .init(id: "414906", type: .movie)
-                ]
-            ),
-            HubCollection(
-                id: 2002,
-                name: "Superman",
-                logoAssetName: "",
-                backgroundColor: Color(red: 0.05, green: 0.1, blue: 0.4),
-                backdropAssetName: "dc_backdrop",
-                customItems: [
-                    .init(id: "1924", type: .movie),
-                    .init(id: "49521", type: .movie),
-                    .init(id: "209112", type: .movie)
-                ]
-            ),
-            HubCollection(
-                id: 2003,
-                name: "Wonder Woman",
-                logoAssetName: "",
-                backgroundColor: Color(red: 0.4, green: 0.05, blue: 0.05),
-                backdropAssetName: "dc_backdrop",
-                customItems: [
-                    .init(id: "297762", type: .movie),
-                    .init(id: "464052", type: .movie)
-                ]
-            )
-        ]
-    }
 }

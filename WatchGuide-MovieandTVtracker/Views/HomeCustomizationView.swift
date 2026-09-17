@@ -29,6 +29,7 @@ struct HomeCustomizationView: View {
     @ObservedObject private var profileService = ProfileService.shared
     @State private var selectedAspect: HeroCarouselAspect = .landscape
     @State private var widthRatio: Double = 1.0
+    @State private var selectedStyle: HeroCarouselStyle = .cinematic
     
     enum HomeSection: String, CaseIterable {
         case sections = "Sections"
@@ -41,30 +42,22 @@ struct HomeCustomizationView: View {
     
     var body: some View {
         #if os(tvOS)
-        NavigationStack {
-            VStack(spacing: 16) {
-                Spacer()
-                Image(systemName: "iphone")
-                    .font(.system(size: 48, weight: .semibold))
-                    .foregroundColor(.accentColor)
-                Text("Customize on iPhone")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                Text("Home customization is managed on iPhone. Sync your changes to see them on Apple TV.")
-                    .font(.body)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-                Spacer()
-            }
-            .navigationTitle("Customize Home")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "iphone")
+                .font(.system(size: 48, weight: .semibold))
+                .foregroundColor(.accentColor)
+            Text("Customize on iPhone")
+                .font(.title2)
+                .fontWeight(.bold)
+            Text("Home customization is managed on iPhone. Sync your changes to see them on Apple TV.")
+                .font(.body)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            Spacer()
         }
+        .navigationTitle("Customize Home")
         #else
         NavigationStack {
             VStack(spacing: 0) {
@@ -104,7 +97,9 @@ struct HomeCustomizationView: View {
             }
             .navigationTitle("Customize Home")
             #if !os(macOS)
+            #if !os(tvOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -128,6 +123,44 @@ struct HomeCustomizationView: View {
     
     // MARK: - Carousel Size Editor
     private var carouselSizeEditor: some View {
+        Group {
+            Section {
+                Picker("Style", selection: $selectedStyle) {
+                    ForEach(HeroCarouselStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("Carousel Style")
+            } footer: {
+                Text(selectedStyle.summary)
+            }
+
+            // Orientation and width only apply to the classic style — the cinematic
+            // stage is always full width and sets its own crop.
+            if selectedStyle == .classic {
+                classicCarouselSizeControls
+            }
+
+            Section {
+                Button {
+                    selectedStyle = .cinematic
+                    selectedAspect = .landscape
+                    widthRatio = 1.0
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.counterclockwise")
+                            .foregroundColor(.accentColor)
+                        Text("Reset to Default")
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var classicCarouselSizeControls: some View {
         Group {
             Section {
                 Picker("Orientation", selection: $selectedAspect) {
@@ -155,8 +188,16 @@ struct HomeCustomizationView: View {
                             .foregroundColor(.accentColor)
                     }
                     
+                    #if os(tvOS)
+                    Picker("Adjust Width", selection: $widthRatio) {
+                        ForEach(stride(from: 0.45, through: 1.0, by: 0.05).map { Double(round($0 * 100) / 100) }, id: \.self) { option in
+                            Text("\(Int(option * 100))%").tag(option)
+                        }
+                    }
+                    #else
                     Slider(value: $widthRatio, in: 0.45...1.0, step: 0.05)
                         .tint(.accentColor)
+                    #endif
                 }
                 .padding(.vertical, 4)
             } header: {
@@ -173,22 +214,9 @@ struct HomeCustomizationView: View {
             } header: {
                 Text("Preview")
             }
-            
-            Section {
-                Button {
-                    selectedAspect = .landscape
-                    widthRatio = 1.0
-                } label: {
-                    HStack {
-                        Image(systemName: "arrow.counterclockwise")
-                            .foregroundColor(.accentColor)
-                        Text("Reset to Default")
-                    }
-                }
-            }
         }
     }
-    
+
     private var carouselPreview: some View {
         GeometryReader { geo in
             let previewAvailableWidth = geo.size.width
@@ -500,6 +528,7 @@ struct HomeCustomizationView: View {
         let profile = profileService.activeProfile
         selectedAspect = profile?.heroCarouselAspect ?? .landscape
         widthRatio = profile?.heroCarouselWidthRatio ?? 1.0
+        selectedStyle = profile?.heroCarouselStyle ?? .cinematic
     }
     
     private func saveChanges() {
@@ -523,7 +552,11 @@ struct HomeCustomizationView: View {
         storage.reorderCustomJSONHubs(customHubs)
         
         // Save carousel layout to active profile
-        profileService.updateHeroCarouselLayout(widthRatio: widthRatio, aspect: selectedAspect)
+        profileService.updateHeroCarouselLayout(
+            widthRatio: widthRatio,
+            aspect: selectedAspect,
+            style: selectedStyle
+        )
     }
     
     private func updateSectionSortOrder() {

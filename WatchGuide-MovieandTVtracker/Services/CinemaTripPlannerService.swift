@@ -2,9 +2,13 @@ import Foundation
 import CoreLocation
 import MapKit
 import UserNotifications
+#if canImport(ActivityKit) && os(iOS)
+import ActivityKit
+#endif
 
 // MARK: - Cinema Trip Model
 
+@available(tvOS, unavailable)
 struct CinemaTrip: Identifiable, Codable, Equatable {
     let id: String
     let movieTitle: String
@@ -86,6 +90,7 @@ struct CinemaTrip: Identifiable, Codable, Equatable {
 // MARK: - Trip Planner Service
 
 @MainActor
+@available(tvOS, unavailable)
 final class CinemaTripPlannerService: ObservableObject {
     static let shared = CinemaTripPlannerService()
     
@@ -96,6 +101,9 @@ final class CinemaTripPlannerService: ObservableObject {
 
     private init() {
         loadTrips()
+        Task { @MainActor in
+            startLiveActivitiesForUpcomingTrips()
+        }
     }
 
     // MARK: - CRUD
@@ -103,6 +111,7 @@ final class CinemaTripPlannerService: ObservableObject {
     func addTrip(_ trip: CinemaTrip) {
         trips.append(trip)
         saveTrips()
+        startLiveActivitiesForUpcomingTrips()
     }
 
     func removeTrip(id: String) {
@@ -113,12 +122,14 @@ final class CinemaTripPlannerService: ObservableObject {
         ])
         trips.removeAll { $0.id == id }
         saveTrips()
+        endLiveActivityMatching(id: id)
     }
 
     func updateTrip(_ trip: CinemaTrip) {
         if let idx = trips.firstIndex(where: { $0.id == trip.id }) {
             trips[idx] = trip
             saveTrips()
+            startLiveActivitiesForUpcomingTrips()
         }
     }
 
@@ -191,6 +202,9 @@ final class CinemaTripPlannerService: ObservableObject {
     // MARK: - Notifications
 
     func requestNotificationPermission() async -> Bool {
+        #if os(tvOS)
+        return false
+        #else
         do {
             let granted = try await notificationCenter.requestAuthorization(options: [.alert, .sound, .badge])
             return granted
@@ -198,9 +212,14 @@ final class CinemaTripPlannerService: ObservableObject {
             print("Notification permission error: \(error)")
             return false
         }
+        #endif
     }
 
     func scheduleLeaveNotification(for trip: CinemaTrip) async {
+        #if os(tvOS)
+        _ = trip
+        return
+        #else
         guard let leaveBy = trip.leaveByDate, leaveBy > Date() else { return }
 
         let granted = await requestNotificationPermission()
@@ -253,6 +272,84 @@ final class CinemaTripPlannerService: ObservableObject {
             updated.notificationScheduled = true
             updateTrip(updated)
         }
+        #endif
+    }
+
+    // MARK: - Live Activities (ActivityKit)
+    
+    func startLiveActivitiesForUpcomingTrips() {
+        #if os(iOS)
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        
+        let soonTrips = upcomingTrips.filter { trip in
+            guard let leaveBy = trip.leaveByDate else { return false }
+            let hoursUntilLeave = leaveBy.timeIntervalSinceNow / 3600
+            return hoursUntilLeave >= -2 && hoursUntilLeave <= 8
+        }
+        
+        for trip in soonTrips {
+            startLiveActivity(for: trip)
+        }
+        #endif
+    }
+    
+    private func startLiveActivity(for trip: CinemaTrip) {
+        #if os(iOS)
+        guard let leaveBy = trip.leaveByDate else { return }
+        
+        let existing = Activity<TripActivityAttributes>.activities.first { activity in
+            activity.attributes.movieTitle == trip.movieTitle && activity.attributes.showtimeDate == trip.showtimeDate
+        }
+        
+        let state = TripActivityAttributes.ContentState(
+            estimatedTravelSeconds: trip.estimatedTravelSeconds ?? 0,
+            leaveByDate: leaveBy,
+            isLeavingSoon: leaveBy.timeIntervalSinceNow < 900
+        )
+        
+        if let existing = existing {
+            Task { @MainActor in
+                if #available(iOS 16.2, *) {
+                    let content = ActivityContent(state: state, staleDate: leaveBy.addingTimeInterval(3600))
+                    await existing.update(content)
+                } else {
+                    await existing.update(using: state)
+                }
+            }
+        } else {
+            let attributes = TripActivityAttributes(
+                movieTitle: trip.movieTitle,
+                cinemaName: trip.cinemaName,
+                showtimeDate: trip.showtimeDate
+            )
+            do {
+                if #available(iOS 16.2, *) {
+                    let content = ActivityContent(state: state, staleDate: leaveBy.addingTimeInterval(3600))
+                    _ = try Activity.request(attributes: attributes, content: content)
+                } else {
+                    _ = try Activity.request(attributes: attributes, contentState: state)
+                }
+            } catch {
+                print("Failed to start Live Activity: \(error)")
+            }
+        }
+        #endif
+    }
+    
+    private func endLiveActivityMatching(id: String) {
+        #if os(iOS)
+        // If we know which trip was deleted, end its activity. 
+        // We do a naive matching or end all closed ones.
+        for activity in Activity<TripActivityAttributes>.activities {
+            Task { @MainActor in
+                if #available(iOS 16.2, *) {
+                    await activity.end(ActivityContent(state: activity.content.state, staleDate: Date()), dismissalPolicy: .immediate)
+                } else {
+                    await activity.end(using: activity.contentState, dismissalPolicy: .immediate)
+                }
+            }
+        }
+        #endif
     }
 
     // MARK: - Persistence

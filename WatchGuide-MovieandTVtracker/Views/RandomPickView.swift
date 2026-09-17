@@ -137,9 +137,7 @@ struct RandomPickView: View {
             }
         }
         .navigationTitle("Random Pick")
-        .sheet(item: $selectedItem) { item in
-            MediaDetailView(item: item)
-        }
+        .mediaDetailPresentation(item: $selectedItem)
     }
     
     // MARK: - Spinning View

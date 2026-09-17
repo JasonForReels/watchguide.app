@@ -1,5 +1,52 @@
 import WidgetKit
 import SwiftUI
+import ActivityKit
+
+public struct TripActivityAttributes: ActivityAttributes {
+    public struct ContentState: Codable, Hashable {
+        public var estimatedTravelSeconds: TimeInterval
+        public var leaveByDate: Date
+        public var isLeavingSoon: Bool
+        
+        public init(estimatedTravelSeconds: TimeInterval, leaveByDate: Date, isLeavingSoon: Bool) {
+            self.estimatedTravelSeconds = estimatedTravelSeconds
+            self.leaveByDate = leaveByDate
+            self.isLeavingSoon = isLeavingSoon
+        }
+    }
+
+    public var movieTitle: String
+    public var cinemaName: String
+    public var showtimeDate: Date
+    
+    public init(movieTitle: String, cinemaName: String, showtimeDate: Date) {
+        self.movieTitle = movieTitle
+        self.cinemaName = cinemaName
+        self.showtimeDate = showtimeDate
+    }
+}
+
+public struct ReleaseActivityAttributes: ActivityAttributes {
+    public struct ContentState: Codable, Hashable {
+        public var releaseStatus: String
+        public var progress: Double
+        
+        public init(releaseStatus: String, progress: Double = 0.0) {
+            self.releaseStatus = releaseStatus
+            self.progress = progress
+        }
+    }
+
+    public var mediaTitle: String
+    public var releaseDate: Date
+    public var mediaType: String
+    
+    public init(mediaTitle: String, releaseDate: Date, mediaType: String) {
+        self.mediaTitle = mediaTitle
+        self.releaseDate = releaseDate
+        self.mediaType = mediaType
+    }
+}
 
 struct WatchGuide_MovieandTVtrackerWidgetExtensionEntry: TimelineEntry {
     let date: Date
@@ -46,5 +93,301 @@ struct WatchGuide_MovieandTVtrackerWidgetExtensionWidget: Widget {
 struct WatchGuide_MovieandTVtrackerWidgetExtensionBundle: WidgetBundle {
     var body: some Widget {
         WatchGuide_MovieandTVtrackerWidgetExtensionWidget()
+        ComingSoonWidget()
+        CinemaTripLiveActivity()
+        MovieReleaseLiveActivity()
+        #if os(iOS)
+        AskWatchGuideControl()
+        TonightsPickControl()
+        UpNextControl()
+        SearchWatchGuideControl()
+        ScanPosterControl()
+        #endif
     }
 }
+
+struct CinemaTripLiveActivity: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: TripActivityAttributes.self) { context in
+            // Lock screen / banner UI
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    ZStack {
+                        Circle()
+                            .fill(Color.accentColor.opacity(0.2))
+                            .frame(width: 32, height: 32)
+                        Image(systemName: "film.fill")
+                            .foregroundColor(.accentColor)
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(context.attributes.movieTitle)
+                            .font(.headline)
+                            .lineLimit(1)
+                        Text(context.attributes.cinemaName)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                }
+                
+                HStack {
+                    if context.state.isLeavingSoon || context.state.leaveByDate <= Date() {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                            Text("Leave NOW")
+                        }
+                        .font(.subheadline)
+                        .bold()
+                        .foregroundColor(.red)
+                    } else {
+                        Text("Leave in ")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        + Text(timerInterval: Date()...context.state.leaveByDate, countsDown: true)
+                            .font(.subheadline)
+                            .bold()
+                            .foregroundColor(.primary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 4)
+            }
+            .padding(16)
+        } dynamicIsland: { context in
+            DynamicIsland {
+                // Expanded UI
+                DynamicIslandExpandedRegion(.leading) {
+                    Image(systemName: "film.fill")
+                        .foregroundColor(.accentColor)
+                        .font(.title2)
+                        .padding(.top, 4)
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    if context.state.isLeavingSoon || context.state.leaveByDate <= Date() {
+                        Text("NOW")
+                            .foregroundColor(.red)
+                            .bold()
+                    } else {
+                        Text(timerInterval: Date()...context.state.leaveByDate, countsDown: true)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 50)
+                            .monospacedDigit()
+                            .foregroundColor(.accentColor)
+                    }
+                }
+                DynamicIslandExpandedRegion(.center) {
+                    Text(context.attributes.movieTitle)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    Text("Leave for \(context.attributes.cinemaName)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } compactLeading: {
+                Image(systemName: "film.fill")
+                    .foregroundColor(.accentColor)
+            } compactTrailing: {
+                if context.state.isLeavingSoon || context.state.leaveByDate <= Date() {
+                    Text("NOW")
+                        .foregroundColor(.red)
+                        .font(.caption)
+                        .bold()
+                } else {
+                    Text(timerInterval: Date()...context.state.leaveByDate, countsDown: true)
+                        .frame(width: 40)
+                        .monospacedDigit()
+                        .font(.caption2)
+                }
+            } minimal: {
+                Image(systemName: "car.fill")
+                    .foregroundColor(.accentColor)
+            }
+        }
+    }
+}
+
+struct MovieReleaseLiveActivity: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: ReleaseActivityAttributes.self) { context in
+            // Lock Screen / Banner UI
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.1))
+                        .frame(width: 48, height: 48)
+                    
+                    Image(systemName: "popcorn.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(.accentColor)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(context.attributes.mediaTitle)
+                        .font(.headline)
+                        .lineLimit(1)
+                    
+                    Text(context.state.releaseStatus)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("Releasing")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+                    
+                    Text(context.attributes.releaseDate, style: .date)
+                        .font(.subheadline)
+                        .bold()
+                }
+            }
+            .padding(16)
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    Image(systemName: "popcorn.fill")
+                        .foregroundColor(.accentColor)
+                        .font(.title2)
+                        .padding(.top, 4)
+                }
+                
+                DynamicIslandExpandedRegion(.trailing) {
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text("RELEASE")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text(context.attributes.releaseDate, style: .date)
+                            .font(.caption)
+                            .bold()
+                            .foregroundColor(.accentColor)
+                    }
+                }
+                
+                DynamicIslandExpandedRegion(.center) {
+                    Text(context.attributes.mediaTitle)
+                        .fontWeight(.bold)
+                        .lineLimit(1)
+                }
+                
+                DynamicIslandExpandedRegion(.bottom) {
+                    HStack {
+                        Spacer()
+                        Text(context.state.releaseStatus)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                }
+            } compactLeading: {
+                Image(systemName: "popcorn.fill")
+                    .foregroundColor(.accentColor)
+            } compactTrailing: {
+                Text(context.attributes.releaseDate, style: .date)
+                    .font(.caption2)
+                    .foregroundColor(.accentColor)
+            } minimal: {
+                Image(systemName: "popcorn.fill")
+                    .foregroundColor(.accentColor)
+            }
+        }
+    }
+}
+// MARK: - Control Center Controls
+//
+// Four controls the user can add to Control Center, the Lock Screen or the
+// Action Button — two that lean on the app's AI, two that don't.
+//
+// A control can't render a result: `ControlWidgetButton` runs an intent and the
+// system dismisses Control Center. So rather than trying to answer in place,
+// each one opens the app at a `watchguide://` destination, which
+// `WatchGuideQuickRouteCenter` routes to the right tab or sheet.
+//
+// iOS only. The extension also builds for tvOS, where ControlWidget doesn't
+// exist.
+
+#if os(iOS)
+import AppIntents
+
+/// Shared plumbing: every control here is "open the app somewhere".
+private func watchGuideURL(_ destination: String) -> URL {
+    // The destinations are compile-time literals, so this can't fail in practice.
+    URL(string: "watchguide://\(destination)") ?? URL(string: "watchguide://browse")!
+}
+
+// MARK: AI controls
+
+/// Opens Atlas, the in-app assistant.
+struct AskWatchGuideControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "com.JasonSmith.WatchGuide.control.ask") {
+            ControlWidgetButton(action: OpenURLIntent(watchGuideURL("atlas"))) {
+                Label("Ask Watch Guide", systemImage: "sparkles")
+            }
+        }
+        .displayName("Ask Watch Guide")
+        .description("Open Atlas and ask about anything to watch.")
+    }
+}
+
+/// Opens Atlas pointed at the "what should I watch tonight" question.
+struct TonightsPickControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "com.JasonSmith.WatchGuide.control.tonight") {
+            ControlWidgetButton(action: OpenURLIntent(watchGuideURL("tonight"))) {
+                Label("Tonight's Pick", systemImage: "moon.stars.fill")
+            }
+        }
+        .displayName("Tonight's Pick")
+        .description("Get a suggestion for tonight from your watchlist.")
+    }
+}
+
+// MARK: Non-AI controls
+
+/// Straight to the watchlist.
+struct UpNextControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "com.JasonSmith.WatchGuide.control.upnext") {
+            ControlWidgetButton(action: OpenURLIntent(watchGuideURL("watchlist"))) {
+                Label("Up Next", systemImage: "list.bullet.rectangle.portrait")
+            }
+        }
+        .displayName("Up Next")
+        .description("Jump to your watchlist.")
+    }
+}
+
+/// Straight to search.
+struct SearchWatchGuideControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "com.JasonSmith.WatchGuide.control.search") {
+            ControlWidgetButton(action: OpenURLIntent(watchGuideURL("search"))) {
+                Label("Search", systemImage: "magnifyingglass")
+            }
+        }
+        .displayName("Search Watch Guide")
+        .description("Open Watch Guide and start searching.")
+    }
+}
+
+/// Opens the in-app visual scanner — point the camera at a poster or a screen.
+struct ScanPosterControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "com.JasonSmith.WatchGuide.control.scan") {
+            ControlWidgetButton(action: OpenURLIntent(watchGuideURL("scanner"))) {
+                Label("Scan a Poster", systemImage: "viewfinder")
+            }
+        }
+        .displayName("Scan a Poster")
+        .description("Identify a movie or show with the camera.")
+    }
+}
+#endif

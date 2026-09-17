@@ -1,0 +1,6 @@
+The Studio Hubs have been redesigned with an immersive, Hulu-style hero and carousels.
+
+When you say "It should look like the Browse page", do you mean:
+A) The Studio Hubs should match the current layout of the Home (Browse) page (e.g., adding a Hero Carousel at the top instead of a static banner)?
+B) The Home (Browse) page should be redesigned to match the new immersive style of the Hubs?
+C) Something else (like the top navigation bar transparency or specific color scheme)?

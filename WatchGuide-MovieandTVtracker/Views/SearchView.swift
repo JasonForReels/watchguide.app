@@ -4,326 +4,169 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct SearchView: View {
+    private enum ScoutAgentStep {
+        case openingSearch
+        case tappingField
+        case typing
+        case pressingEnter
+        case selectingResult
+        case openingDetails
+
+        var title: String {
+            switch self {
+            case .openingSearch: return "Opening Search"
+            case .tappingField: return "Placing Cursor"
+            case .typing: return "Typing Title"
+            case .pressingEnter: return "Searching"
+            case .selectingResult: return "Reviewing Match"
+            case .openingDetails: return "Opening Details"
+            }
+        }
+
+        var iconName: String {
+            switch self {
+            case .openingSearch: return "sparkle.magnifyingglass"
+            case .tappingField: return "cursorarrow.click"
+            case .typing: return "keyboard"
+            case .pressingEnter: return "return"
+            case .selectingResult: return "checkmark.circle"
+            case .openingDetails: return "rectangle.portrait.and.arrow.right"
+            }
+        }
+
+    }
+
     @StateObject private var viewModel = SearchViewModel()
     @ObservedObject private var storage = StorageService.shared
+    @ObservedObject private var scoutAgentRouteCenter = ScoutAgentRouteCenter.shared
     @Binding var selectedItem: MediaItem?
     @FocusState private var isSearchFocused: Bool
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    
     @State private var isSyncingUpload = false
     @State private var isSyncingDownload = false
     @State private var syncAlert: (title: String, message: String)?
     @State private var selectedPerson: Person?
-    @State private var trendingPopupService: StreamingServiceOption?
+    @State private var presentedScoutOverviewItem: MediaItem?
+    @State private var isScoutOverviewExpanded = false
+    @State private var scoutOverviewDragOffset: CGFloat = 0
+    @State private var isInAppVisualScannerPresented = false
+    @ObservedObject private var quickRouteCenter = WatchGuideQuickRouteCenter.shared
     @State private var useNaturalLanguageForNextSearch = false
-    private let appleIntelligenceReport = AppleIntelligenceCapabilityService.currentReport()
+    @State private var isHandlingScoutRoute = false
+    @State private var scoutAgentStep: ScoutAgentStep?
+    @State private var highlightedScoutResultID: Int?
+    @State private var highlightedScoutPersonID: Int?
+    @State private var searchFieldEmphasis = false
+    @State private var showScoutPointer = false
+    @State private var scoutPointerAtField = false
+    @State private var showScoutCaret = false
+    @State private var animateScoutCaret = false
     
+    private let appleIntelligenceReport = AppleIntelligenceCapabilityService.currentReport()
+
+    #if os(tvOS)
+    private static let filterChipSpacing: CGFloat = 20
+    private static let peopleGridMinSize: CGFloat = 200
+    private static let peopleGridMaxSize: CGFloat = 260
+    private static let peopleGridSpacing: CGFloat = 40
+    private static let mediaGridMinSize: CGFloat = 220
+    private static let mediaGridMaxSize: CGFloat = 260
+    private static let mediaGridSpacing: CGFloat = 36
+    private static let contentHorizontalPadding: CGFloat = 60
+    private static let loadingScale: CGFloat = 1.8
+    private static let emptyStateIconSize: CGFloat = 72
+    private static let emptyStateTitleFont: Font = .title2
+    private static let emptyStateSubtitleFont: Font = .body
+    #else
+    private static let filterChipSpacing: CGFloat = 12
+    private static let peopleGridMinSize: CGFloat = 100
+    private static let peopleGridMaxSize: CGFloat = 130
+    private static let peopleGridSpacing: CGFloat = 20
+    private static let mediaGridMinSize: CGFloat = 120
+    private static let mediaGridMaxSize: CGFloat = 220
+    private static let mediaGridSpacing: CGFloat = 16
+    private static let contentHorizontalPadding: CGFloat = 16
+    private static let loadingScale: CGFloat = 1.2
+    private static let emptyStateIconSize: CGFloat = 48
+    private static let emptyStateTitleFont: Font = .headline
+    private static let emptyStateSubtitleFont: Font = .subheadline
+    #endif
+
     var body: some View {
+        #if os(tvOS)
+        tvOSSearchBody
+        #else
+        iOSSearchBody
+        #endif
+    }
+
+    #if os(tvOS)
+    private var tvOSSearchBody: some View {
         VStack(spacing: 0) {
-            // Search bar
-            HStack(spacing: 12) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                
-                TextField("Search movies, TV shows, people...", text: $viewModel.query)
-                    .textFieldStyle(.plain)
-                    .focused($isSearchFocused)
-                    .onSubmit {
-                        Task {
-                            await performSearch()
-                        }
-                    }
-
-                if storage.settings.useAppleIntelligenceSearch && appleIntelligenceReport.isAppleIntelligenceAvailableNow {
-                    Button {
-                        useNaturalLanguageForNextSearch.toggle()
-                    } label: {
-                        Image(systemName: "apple.intelligence")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(useNaturalLanguageForNextSearch ? .accentColor : .secondary)
-                        .padding(.horizontal, 4)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Siri natural language search")
-                    .help("Use Siri natural language search for next query")
-                }
-                
-                if !viewModel.query.isEmpty {
-                    Button {
-                        viewModel.clearSearch()
-                        useNaturalLanguageForNextSearch = false
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                    }
-                }
+            searchContent
+        }
+        .searchable(text: $viewModel.query, prompt: "Search movies, TV shows, people...")
+        .onSubmit(of: .search) {
+            Task {
+                await performSearch()
             }
-            .padding()
-            .background(Color.gray.opacity(0.12))
-            .cornerRadius(12)
-            .padding()
-            
-            // Filters
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    FilterChip(
-                        title: "All",
-                        isSelected: viewModel.selectedType == nil,
-                        action: { viewModel.selectedType = nil }
-                    )
-                    
-                    FilterChip(
-                        title: "Movies",
-                        isSelected: viewModel.selectedType == .movie,
-                        action: { viewModel.selectedType = .movie }
-                    )
-                    
-                    FilterChip(
-                        title: "TV Shows",
-                        isSelected: viewModel.selectedType == .tv,
-                        action: { viewModel.selectedType = .tv }
-                    )
-                    
-                    // Hide People filter for kids profiles
-                    if !StorageService.shared.settings.isKidsProfile {
-                        FilterChip(
-                            title: "People",
-                            isSelected: viewModel.selectedType == .person,
-                            action: { viewModel.selectedType = .person }
-                        )
-                    }
-                    
-                    // Hide genre/year filters when People is selected (not applicable)
-                    if viewModel.selectedType != .person {
-                        Divider()
-                            .frame(height: 20)
-                        
-                        // Genre filter
-                        Menu {
-                            Button("All Genres") {
-                                viewModel.selectedGenre = nil
-                            }
-                            Divider()
-                            ForEach(viewModel.genres, id: \.id) { genre in
-                                Button(genre.name) {
-                                    viewModel.selectedGenre = genre
-                                }
-                            }
-                        } label: {
-                            FilterChip(
-                                title: viewModel.selectedGenre?.name ?? "Genre",
-                                isSelected: viewModel.selectedGenre != nil,
-                                showChevron: true
-                            )
-                        }
-                        
-                        // Year filter
-                        Menu {
-                            Button("Any Year") {
-                                viewModel.selectedYear = nil
-                            }
-                            Divider()
-                            ForEach((1970...2025).reversed(), id: \.self) { year in
-                                Button("\(year)") {
-                                    viewModel.selectedYear = year
-                                }
-                            }
-                        } label: {
-                            FilterChip(
-                                title: viewModel.selectedYear != nil ? "\(viewModel.selectedYear!)" : "Year",
-                                isSelected: viewModel.selectedYear != nil,
-                                showChevron: true
-                            )
-                        }
-
-                        // Production language filter
-                        Menu {
-                            Button("Any Language") {
-                                viewModel.selectedProductionLanguage = nil
-                            }
-                            Divider()
-                            ForEach(viewModel.productionLanguageOptions, id: \.code) { language in
-                                Button(language.name) {
-                                    viewModel.selectedProductionLanguage = language.code
-                                }
-                            }
-                        } label: {
-                            FilterChip(
-                                title: viewModel.selectedProductionLanguageName ?? "Language",
-                                isSelected: viewModel.selectedProductionLanguage != nil,
-                                showChevron: true
-                            )
-                        }
-
-                        // Production region filter
-                        Menu {
-                            Button("Any Region") {
-                                viewModel.selectedProductionRegion = nil
-                            }
-                            Divider()
-                            ForEach(viewModel.productionRegionOptions, id: \.code) { region in
-                                Button(region.name) {
-                                    viewModel.selectedProductionRegion = region.code
-                                }
-                            }
-                        } label: {
-                            FilterChip(
-                                title: viewModel.selectedProductionRegionName ?? "Production",
-                                isSelected: viewModel.selectedProductionRegion != nil,
-                                showChevron: true
-                            )
-                        }
-                    }
-                }
-                .padding(.horizontal)
+        }
+        .background(TVOSAmbientBackdrop())
+        .sheet(item: $selectedPerson) { person in
+            PersonDetailView(
+                personId: person.id,
+                personName: person.name,
+                profilePath: person.profilePath
+            )
+        }
+        .onChange(of: scoutAgentRouteCenter.pendingRoute?.id) { _, newValue in
+            guard newValue != nil else { return }
+            Task {
+                await handlePendingScoutRouteIfNeeded()
             }
-            .padding(.bottom, 8)
+        }
+        .task {
+            await viewModel.loadGenres()
+            await handlePendingScoutRouteIfNeeded()
+        }
+    }
+    #else
+    private var iOSSearchBody: some View {
+        NavigationStack {
+            iOSSearchInner
+                .navigationTitle("Search")
+        }
+    }
 
-            if !viewModel.streamingServices.isEmpty {
-                StreamingServiceFilterSection(
-                    services: viewModel.streamingServices,
-                    selectedServiceIds: viewModel.selectedStreamingServiceIds,
-                    onToggle: { service in
-                        Task {
-                            await viewModel.toggleStreamingService(service)
-                        }
-                    },
-                    onTrendingTap: { service in
-                        trendingPopupService = service
-                    }
-                )
-                .padding(.bottom, 8)
-            }
-            
-            Divider()
-            
-            // Content
-            if viewModel.isLoading {
-                Spacer()
-                ProgressView()
-                    .scaleEffect(1.2)
-                Spacer()
-            } else if viewModel.hasSearched && viewModel.isEmptyResults {
-                Spacer()
-                VStack(spacing: 16) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                    Text("No results found")
-                        .font(.headline)
-                    Text("Try different keywords or filters")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-            } else if !viewModel.hasSearched && viewModel.isEmptyResults {
-                // Show search history and suggestions
-                SearchSuggestionsView(
-                    viewModel: viewModel,
-                    onSelect: { query in
-                        viewModel.query = query
-                        Task {
-                            await performSearch()
-                        }
-                    }
-                )
-            } else if viewModel.isPeopleSearch {
-                // People results grid
-                ScrollView {
-                    LazyVGrid(columns: [
-                        GridItem(.adaptive(minimum: 100, maximum: 130), spacing: 20)
-                    ], spacing: 24) {
-                        ForEach(viewModel.personResults) { person in
-                            PersonSearchCard(person: person)
-                                .onTapGesture {
-                                    selectedPerson = person
-                                    let trimmed = viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    if !trimmed.isEmpty {
-                                        StorageService.shared.addSearchHistory(trimmed)
-                                    }
-                                }
-                        }
-                    }
-                    .padding()
-                    
-                    // Load more
-                    if viewModel.hasMorePages {
-                        Button {
-                            Task {
-                                await viewModel.loadMore()
-                            }
-                        } label: {
-                            if viewModel.isLoadingMore {
-                                ProgressView()
-                            } else {
-                                Text("Load More")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                            }
-                        }
-                        .padding()
-                    }
-                }
-            } else {
-                // Media results grid
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if viewModel.isStreamingMode && viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            StreamingRecommendationHeader(
-                                serviceNames: viewModel.selectedStreamingServiceNames
-                            )
-                            .padding(.horizontal)
-                        }
-
-                        LazyVGrid(columns: [
-                            GridItem(
-                                .adaptive(
-                                    minimum: ResponsiveSizing.gridPosterWidth(horizontalSizeClass: horizontalSizeClass),
-                                    maximum: ResponsiveSizing.gridPosterWidth(horizontalSizeClass: horizontalSizeClass) + 30
-                                ),
-                                spacing: 16
-                            )
-                        ], spacing: 20) {
-                            ForEach(viewModel.results) { item in
-                                MediaPosterCard(item: item)
-                                    .onTapGesture {
-                                        selectedItem = item
-                                        let trimmed = viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        if !trimmed.isEmpty {
-                                            StorageService.shared.addSearchHistory(trimmed)
-                                        }
-                                    }
-                            }
-                        }
-                        .padding(.horizontal)
-                    
-                        // Load more
-                        if viewModel.hasMorePages {
-                            Button {
-                                Task {
-                                    await viewModel.loadMore()
-                                }
-                            } label: {
-                                if viewModel.isLoadingMore {
-                                    ProgressView()
-                                } else {
-                                    Text("Load More")
-                                        .font(.subheadline)
-                                        .fontWeight(.medium)
-                                }
-                            }
-                            .padding()
-                        }
-                    }
-                    .padding(.top, 8)
-                }
+    private var iOSSearchInner: some View {
+        VStack(spacing: 0) {
+            searchContent
+        }
+        .searchable(text: $viewModel.query, prompt: "Search movies, TV shows, people...")
+        .onSubmit(of: .search) {
+            Task {
+                await performSearch()
             }
         }
         .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .topBarLeading) {
+                if PlatformCompatibility.supportsInAppVisualScanner {
+                    inAppVisualScannerButton
+                }
+            }
+            #endif
+
             ToolbarItemGroup(placement: .primaryAction) {
-                // Download from cloud
+                if storage.settings.useAppleIntelligenceSearch && appleIntelligenceReport.isAppleIntelligenceAvailableNow {
+                    appleIntelligenceSearchButton
+                }
+
                 Button {
                     Task {
                         await handleDownloadFromCloud()
@@ -338,7 +181,6 @@ struct SearchView: View {
                 .help("Download from Cloud")
                 .disabled(isSyncingDownload || isSyncingUpload)
 
-                // Upload to cloud
                 Button {
                     Task {
                         await handleUploadToCloud()
@@ -366,33 +208,298 @@ struct SearchView: View {
                 profilePath: person.profilePath
             )
         }
-        .sheet(item: $trendingPopupService) { service in
-            NetworkTrendingPopup(service: service, selectedItem: $selectedItem)
+        #if os(iOS)
+        .sheet(isPresented: $isInAppVisualScannerPresented) {
+            InAppVisualScannerView(selectedItem: $selectedItem)
         }
-        .onChange(of: viewModel.selectedType) { _, _ in
-            // Re-search when filter type changes (if there's an active query)
-            if viewModel.isStreamingMode && viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                viewModel.applyStreamingFilters()
-            } else if viewModel.hasSearched && !viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Task {
-                    await viewModel.search(useNaturalLanguage: viewModel.usedNaturalLanguageInLastSearch)
-                }
+        #endif
+        // The Scan control in Control Center opens the app on this tab and
+        // leaves `.scanner` parked; the sheet is owned here, so this is where it
+        // gets consumed.
+        .onChange(of: quickRouteCenter.pending) { _, route in
+            guard route?.destination == .scanner else { return }
+            #if os(iOS)
+            isInAppVisualScannerPresented = true
+            #endif
+            quickRouteCenter.consume()
+        }
+        .onChange(of: scoutAgentRouteCenter.pendingRoute?.id) { _, newValue in
+            guard newValue != nil else { return }
+            Task {
+                await handlePendingScoutRouteIfNeeded()
             }
-        }
-        .onChange(of: viewModel.selectedGenre?.id) { _, _ in
-            rerunSearchForFilterChangeIfNeeded()
-        }
-        .onChange(of: viewModel.selectedYear) { _, _ in
-            rerunSearchForFilterChangeIfNeeded()
-        }
-        .onChange(of: viewModel.selectedProductionLanguage) { _, _ in
-            rerunSearchForFilterChangeIfNeeded()
-        }
-        .onChange(of: viewModel.selectedProductionRegion) { _, _ in
-            rerunSearchForFilterChangeIfNeeded()
         }
         .task {
             await viewModel.loadGenres()
+            await handlePendingScoutRouteIfNeeded()
+        }
+        #if !os(macOS)
+        .toolbar(isScoutOverviewExpanded ? .hidden : .automatic, for: .tabBar)
+        #endif
+        .overlay(alignment: .bottom) {
+            if let item = presentedScoutOverviewItem {
+                ScoutOverviewGlassOverlay(
+                    item: item,
+                    dragOffset: $scoutOverviewDragOffset,
+                    isExpanded: $isScoutOverviewExpanded,
+                    onDismiss: {
+                        dismissScoutOverview()
+                    }
+                )
+                .transition(.opacity)
+                .zIndex(10)
+            }
+        }
+    }
+    #endif
+
+    @ViewBuilder
+    private var searchContent: some View {
+            
+            
+
+            if !isAgentRoutingActive && shouldShowInlineScoutOverview {
+                scoutOverviewSection
+                    .padding(.horizontal)
+                    .padding(.bottom, 12)
+            }
+            
+            if !isAgentRoutingActive {
+                Divider()
+            }
+            
+            // Content
+            if viewModel.isLoading {
+                Spacer()
+                ProgressView()
+                    .scaleEffect(Self.loadingScale)
+                Spacer()
+            } else if viewModel.hasSearched && viewModel.isEmptyResults {
+                Spacer()
+                VStack(spacing: 16) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: Self.emptyStateIconSize))
+                        .foregroundColor(.secondary)
+                    Text("No results found")
+                        .font(Self.emptyStateTitleFont)
+                    Text("Try different keywords or filters")
+                        .font(Self.emptyStateSubtitleFont)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            } else if !viewModel.hasSearched && viewModel.isEmptyResults {
+                // Show search history and suggestions
+                SearchSuggestionsView(
+                    viewModel: viewModel,
+                    onSelect: { query in
+                        viewModel.query = query
+                        Task {
+                            await performSearch()
+                        }
+                    },
+                    showBanner: true
+                )
+            } else if viewModel.isPeopleSearch {
+                // People results grid (dedicated People filter)
+                ScrollView {
+                    LazyVGrid(columns: [
+                        GridItem(.adaptive(minimum: Self.peopleGridMinSize, maximum: Self.peopleGridMaxSize), spacing: Self.peopleGridSpacing)
+                    ], spacing: Self.peopleGridSpacing + 4) {
+                        ForEach(viewModel.personResults) { person in
+                            FocusableActionSurface(action: {
+                                selectedPerson = person
+                                let trimmed = viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty {
+                                    StorageService.shared.addSearchHistory(trimmed)
+                                }
+                            }, outlineShape: .roundedRectangle(cornerRadius: 18)) {
+                                PersonSearchCard(person: person)
+                                    .overlay {
+                                        if highlightedScoutPersonID == person.id {
+                                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                                .stroke(Color.accentColor.opacity(0.9), lineWidth: 2.5)
+                                                .background(
+                                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                                        .fill(Color.accentColor.opacity(0.08))
+                                                )
+                                                .shadow(color: Color.accentColor.opacity(0.22), radius: 16)
+                                        }
+                                    }
+                                    .scaleEffect(highlightedScoutPersonID == person.id ? 1.02 : 1.0)
+                                    .animation(.spring(response: 0.42, dampingFraction: 0.82), value: highlightedScoutPersonID)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, Self.contentHorizontalPadding)
+                    .padding(.vertical)
+                    
+                    // Load more
+                    if viewModel.hasMorePages {
+                        FocusableActionSurface(action: {
+                            Task {
+                                await viewModel.loadMore()
+                            }
+                        }, outlineShape: .roundedRectangle(cornerRadius: 16)) {
+                            if viewModel.isLoadingMore {
+                                ProgressView()
+                            } else {
+                                SearchActionButtonLabel(title: "Load More")
+                            }
+                        }
+                        .padding()
+                    }
+                }
+            } else {
+                // Media results grid
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        LazyVGrid(columns: [
+                            GridItem(
+                                .adaptive(
+                                    minimum: Self.mediaGridMinSize,
+                                    maximum: Self.mediaGridMaxSize
+                                ),
+                                spacing: Self.mediaGridSpacing
+                            )
+                        ], spacing: Self.mediaGridSpacing + 4) {
+                            ForEach(viewModel.results) { item in
+                                FocusableActionSurface(action: {
+                                    selectedItem = item
+                                    let trimmed = viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    if !trimmed.isEmpty {
+                                        StorageService.shared.addSearchHistory(trimmed)
+                                    }
+                                }, outlineShape: .roundedRectangle(cornerRadius: 18)) {
+                                    MediaPosterCard(item: item)
+                                        .overlay {
+                                            if highlightedScoutResultID == item.id {
+                                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                                    .stroke(Color.accentColor.opacity(0.9), lineWidth: 2.5)
+                                                    .background(
+                                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                                            .fill(Color.accentColor.opacity(0.08))
+                                                    )
+                                                    .shadow(color: Color.accentColor.opacity(0.22), radius: 16)
+                                            }
+                                        }
+                                        .scaleEffect(highlightedScoutResultID == item.id ? 1.02 : 1.0)
+                                        .animation(.spring(response: 0.42, dampingFraction: 0.82), value: highlightedScoutResultID)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, Self.contentHorizontalPadding)
+                    
+                        // Load more
+                        if viewModel.hasMorePages {
+                            FocusableActionSurface(action: {
+                                Task {
+                                    await viewModel.loadMore()
+                                }
+                            }, outlineShape: .roundedRectangle(cornerRadius: 16)) {
+                                if viewModel.isLoadingMore {
+                                    ProgressView()
+                                } else {
+                                    SearchActionButtonLabel(title: "Load More")
+                                }
+                            }
+                            .padding()
+                        }
+                    }
+                    .padding(.top, Self.filterChipSpacing > 15 ? 20 : 8)
+                }
+            }
+    }
+
+    private var appleIntelligenceSearchButton: some View {
+        Button {
+            useNaturalLanguageForNextSearch.toggle()
+        } label: {
+            Image(systemName: "apple.intelligence")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(useNaturalLanguageForNextSearch ? .accentColor : .secondary)
+        }
+        .accessibilityLabel("Siri natural language search")
+        .help("Use Siri natural language search for next query")
+    }
+
+    private var inAppVisualScannerButton: some View {
+        Button {
+            isInAppVisualScannerPresented = true
+        } label: {
+            Image(systemName: "camera.viewfinder")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(.secondary)
+        }
+        .accessibilityLabel("Scan a poster")
+        .help("Scan a poster with the camera")
+    }
+
+    @ViewBuilder
+    private var scoutAgentPointerOverlay: some View {
+        if showScoutPointer {
+            Image(systemName: "cursorarrow")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundColor(.white)
+                .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
+                .offset(
+                    x: scoutPointerAtField ? 34 : 282,
+                    y: scoutPointerAtField ? 24 : 84
+                )
+                .scaleEffect(scoutPointerAtField ? 0.92 : 1.0)
+                .animation(.spring(response: 0.85, dampingFraction: 0.88), value: scoutPointerAtField)
+                .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var scoutAgentCaretOverlay: some View {
+        if showScoutCaret {
+            Rectangle()
+                .fill(Color.accentColor.opacity(0.95))
+                .frame(width: 2, height: 20)
+                .clipShape(Capsule())
+                .shadow(color: Color.accentColor.opacity(0.24), radius: 4)
+                .opacity(animateScoutCaret ? 0.32 : 1.0)
+                .offset(x: scoutCaretXOffset, y: 1)
+                .allowsHitTesting(false)
+                .onAppear {
+                    animateScoutCaret = false
+                    withAnimation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true)) {
+                        animateScoutCaret = true
+                    }
+                }
+        }
+    }
+
+    private var scoutCaretXOffset: CGFloat {
+        let approximateCharacterWidth: CGFloat = 8.2
+        let baseOffset: CGFloat = 24
+        let maxOffset: CGFloat = 250
+        return min(baseOffset + (CGFloat(viewModel.query.count) * approximateCharacterWidth), maxOffset)
+    }
+
+    @ViewBuilder
+    private var scoutAgentStatusPill: some View {
+        if let scoutAgentStep {
+            HStack(spacing: 8) {
+                Image(systemName: scoutAgentStep.iconName)
+                    .font(.caption)
+                    .foregroundColor(.accentColor)
+                Text(scoutAgentStep.title)
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(.regularMaterial, in: Capsule())
+            .overlay {
+                Capsule()
+                    .strokeBorder(Color.white.opacity(0.12))
+            }
+            .padding(.leading, 16)
+            .padding(.bottom, -10)
+            .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+            .transition(.opacity.combined(with: .scale(scale: 0.985)))
         }
     }
     
@@ -431,49 +538,403 @@ struct SearchView: View {
         useNaturalLanguageForNextSearch = false
     }
 
-    private func rerunSearchForFilterChangeIfNeeded() {
-        if viewModel.isStreamingMode && viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            viewModel.applyStreamingFilters()
-        } else if viewModel.hasSearched {
-            Task {
-                await viewModel.search(useNaturalLanguage: viewModel.usedNaturalLanguageInLastSearch)
+    private func handlePendingScoutRouteIfNeeded() async {
+        guard let route = scoutAgentRouteCenter.pendingRoute else { return }
+        guard !isHandlingScoutRoute else { return }
+
+        isHandlingScoutRoute = true
+        highlightedScoutResultID = nil
+        highlightedScoutPersonID = nil
+        await updateScoutStep(.openingSearch)
+        try? await Task.sleep(nanoseconds: 720_000_000)
+
+        viewModel.selectedType = route.searchType
+        viewModel.selectedGenre = nil
+        viewModel.selectedYear = nil
+        viewModel.selectedProductionLanguage = nil
+        viewModel.selectedProductionRegion = nil
+        useNaturalLanguageForNextSearch = false
+        selectedItem = nil
+        selectedPerson = nil
+
+        viewModel.query = ""
+        await updateScoutStep(.tappingField, emphasizeField: true)
+        isSearchFocused = true
+        try? await Task.sleep(nanoseconds: 920_000_000)
+
+        await updateScoutStep(.typing, emphasizeField: true)
+        for character in route.query {
+            viewModel.query.append(character)
+            let delay: UInt64 = character == " " ? 180_000_000 : 105_000_000
+            try? await Task.sleep(nanoseconds: delay)
+        }
+
+        try? await Task.sleep(nanoseconds: 520_000_000)
+
+        await updateScoutStep(.pressingEnter, emphasizeField: false)
+        try? await Task.sleep(nanoseconds: 640_000_000)
+        await viewModel.search(useNaturalLanguage: false)
+
+        if route.opensMediaDetail, let match = route.preferredItem ?? preferredScoutAgentResult(for: route.query) {
+            await updateScoutStep(.selectingResult)
+            highlightedScoutResultID = match.id
+            try? await Task.sleep(nanoseconds: 860_000_000)
+            await updateScoutStep(.openingDetails)
+            try? await Task.sleep(nanoseconds: 640_000_000)
+            selectedItem = match
+        } else if route.opensPersonPage, let person = route.preferredPerson ?? preferredScoutAgentPerson(for: route.query) {
+            await updateScoutStep(.selectingResult)
+            highlightedScoutPersonID = person.id
+            try? await Task.sleep(nanoseconds: 860_000_000)
+            await updateScoutStep(.openingDetails)
+            try? await Task.sleep(nanoseconds: 640_000_000)
+            selectedPerson = person
+        }
+
+        scoutAgentRouteCenter.consume(route.id)
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        await clearScoutPresentation()
+        isHandlingScoutRoute = false
+    }
+
+    @MainActor
+    private func updateScoutStep(_ step: ScoutAgentStep?, emphasizeField: Bool = false) {
+        withAnimation(.interactiveSpring(response: 0.44, dampingFraction: 0.9, blendDuration: 0.18)) {
+            scoutAgentStep = step
+            searchFieldEmphasis = emphasizeField
+            showScoutPointer = step == .tappingField
+            scoutPointerAtField = step == .tappingField
+            showScoutCaret = step == .typing
+        }
+    }
+
+    @MainActor
+    private func clearScoutPresentation() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            scoutAgentStep = nil
+            highlightedScoutResultID = nil
+            highlightedScoutPersonID = nil
+            searchFieldEmphasis = false
+            showScoutPointer = false
+            scoutPointerAtField = false
+            showScoutCaret = false
+        }
+    }
+
+    private func preferredScoutAgentResult(for title: String) -> MediaItem? {
+        let normalizedTitle = normalizedAgentTitle(title)
+        return viewModel.results.first(where: { normalizedAgentTitle($0.displayTitle) == normalizedTitle }) ?? viewModel.results.first
+    }
+
+    private func preferredScoutAgentPerson(for title: String) -> Person? {
+        let normalizedTitle = normalizedAgentTitle(title)
+        return viewModel.personResults.first(where: { normalizedAgentTitle($0.name) == normalizedTitle }) ?? viewModel.personResults.first
+    }
+
+    private func normalizedAgentTitle(_ title: String) -> String {
+        title
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined()
+    }
+
+    private var isAgentRoutingActive: Bool {
+        isHandlingScoutRoute || scoutAgentRouteCenter.pendingRoute != nil
+    }
+
+    @ViewBuilder
+    private var scoutOverviewSection: some View {
+        if let item = viewModel.scoutOverviewItem,
+           let overview = item.overview?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !overview.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles.rectangle.stack.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.yellow)
+
+                    Text("Atlas Overview")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(.primary)
+                }
+
+                Text(item.displayTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary.opacity(0.88))
+                    .lineLimit(2)
+
+                Text(overview)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(5)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+            .onLongPressGesture(minimumDuration: 0.35) {
+                performScoutOverviewHaptic()
+                presentScoutOverview(for: item)
+            }
+        } else if viewModel.isLoadingScoutOverview {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Atlas is preparing an overview...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
+        } else {
+            EmptyView()
+        }
+    }
+
+    private var shouldShowInlineScoutOverview: Bool {
+        #if os(tvOS)
+        return !viewModel.hasSearched || viewModel.isEmptyResults || viewModel.isLoading
+        #else
+        return true
+        #endif
+    }
+
+    private func performScoutOverviewHaptic() {
+        #if canImport(UIKit) && !os(tvOS)
+        let generator = UIImpactFeedbackGenerator(style: .soft)
+        generator.prepare()
+        generator.impactOccurred(intensity: 0.9)
+        #endif
+    }
+
+    private func presentScoutOverview(for item: MediaItem) {
+        scoutOverviewDragOffset = 0
+        isScoutOverviewExpanded = false
+        presentedScoutOverviewItem = item
+        DispatchQueue.main.async {
+            withAnimation(.interactiveSpring(response: 0.78, dampingFraction: 0.84, blendDuration: 0.24)) {
+                isScoutOverviewExpanded = true
+            }
+        }
+    }
+
+    private func dismissScoutOverview() {
+        withAnimation(.interactiveSpring(response: 0.82, dampingFraction: 0.88, blendDuration: 0.26)) {
+            isScoutOverviewExpanded = false
+            scoutOverviewDragOffset = 0
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
+            if !isScoutOverviewExpanded {
+                presentedScoutOverviewItem = nil
             }
         }
     }
 }
 
-// MARK: - Filter Chip (Liquid Glass — iOS 26 SDK)
-struct FilterChip: View {
-    let title: String
-    let isSelected: Bool
-    var showChevron: Bool = false
-    var action: (() -> Void)? = nil
-    
+private struct ScoutOverviewGlassOverlay: View {
+    let item: MediaItem
+    @Binding var dragOffset: CGFloat
+    @Binding var isExpanded: Bool
+    let onDismiss: () -> Void
+    @State private var showExpandedContent = false
+
+    private var overviewText: String {
+        item.overview?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private var clampedDownwardOffset: CGFloat {
+        max(0, dragOffset)
+    }
+
+    private var upwardStretch: CGFloat {
+        max(0, -dragOffset)
+    }
+
+    private var backdropOpacity: CGFloat {
+        let progress = min(clampedDownwardOffset / 220, 1)
+        let baseOpacity: CGFloat = isExpanded ? 0.18 : 0.04
+        return max(0.04, baseOpacity - (progress * 0.1))
+    }
+
+    private func panelWidth(for availableWidth: CGFloat) -> CGFloat {
+        let expandedPanelWidth = min(620, max(availableWidth - 24, 168))
+        let baseWidth = isExpanded ? expandedPanelWidth : 168
+        let compression = min(clampedDownwardOffset / 6, isExpanded ? 54 : 36)
+        return max(132, baseWidth - compression)
+    }
+
+    private var panelHeight: CGFloat {
+        let baseHeight: CGFloat = isExpanded ? 430 : 56
+        return baseHeight + upwardStretch
+    }
+
+    private var panelCornerRadius: CGFloat {
+        isExpanded ? 34 : 28
+    }
+
+    private var handleWidth: CGFloat {
+        42 + min(upwardStretch / 4, 18)
+    }
+
     var body: some View {
-        HStack(spacing: 4) {
-            Text(title)
-                .font(.subheadline)
-                .fontWeight(isSelected ? .semibold : .regular)
-            
-            if showChevron {
-                Image(systemName: "chevron.down")
-                    .font(.caption2)
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(backdropOpacity)
+                    .ignoresSafeArea()
+                    .onTapGesture(perform: onDismiss)
+
+                VStack(spacing: 0) {
+                    if isExpanded {
+                        Capsule()
+                            .fill(Color.primary.opacity(0.22))
+                            .frame(width: handleWidth, height: 5 + min(upwardStretch / 30, 2))
+                            .padding(.top, 12)
+                            .padding(.bottom, 16)
+
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                HStack(alignment: .top, spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "sparkles.rectangle.stack.fill")
+                                                .foregroundStyle(.yellow)
+                                            Text("Atlas Overview")
+                                                .font(.headline.weight(.bold))
+                                                .foregroundStyle(.primary)
+                                        }
+
+                                        Text(item.displayTitle)
+                                            .font(.title3.weight(.bold))
+                                            .foregroundStyle(.primary)
+
+                                        if let year = item.year {
+                                            Text(year)
+                                                .font(.subheadline.weight(.medium))
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+
+                                    Spacer()
+
+                                    Button(action: onDismiss) {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 13, weight: .bold))
+                                            .foregroundStyle(.primary)
+                                            .frame(width: 30, height: 30)
+                                    }
+                                    .buttonStyle(.glass)
+                                }
+
+                                Text(overviewText)
+                                    .font(.body)
+                                    .foregroundStyle(.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 24)
+                        .opacity(showExpandedContent ? 1 : 0)
+                        .offset(y: showExpandedContent ? 0 : 14)
+                    } else {
+                        HStack(spacing: 8) {
+                            Image(systemName: "sparkles.rectangle.stack.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.yellow)
+                            Text("Atlas Overview")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .opacity(showExpandedContent ? 0 : 1)
+                    }
+                }
+                .frame(
+                    width: panelWidth(for: proxy.size.width),
+                    height: panelHeight,
+                    alignment: .top
+                )
+                .background {
+                    RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
+                        .fill(.clear)
+                        .glassEffect(.regular, in: .rect(cornerRadius: panelCornerRadius))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                }
+                .offset(y: dragOffset)
+                .shadow(color: .black.opacity(0.18), radius: 30, y: 8)
+                #if !os(tvOS)
+                .gesture(dismissDragGesture)
+                #endif
+                .padding(.bottom, isExpanded ? 8 : 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .animation(.interactiveSpring(response: 0.86, dampingFraction: 0.86, blendDuration: 0.24), value: isExpanded)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .foregroundColor(isSelected ? .primary : .secondary)
-        .background {
-            if isSelected {
-                Capsule()
-                    .fill(Color.primary.opacity(0.12))
+        .onAppear {
+            showExpandedContent = false
+            if isExpanded {
+                revealExpandedContent()
             }
         }
-        .glassEffect(.regular, in: .capsule)
-        .onTapGesture {
-            action?()
+        .onChange(of: isExpanded) { _, newValue in
+            if newValue {
+                showExpandedContent = false
+                revealExpandedContent()
+            } else {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    showExpandedContent = false
+                }
+            }
+        }
+        .accessibilityAddTraits(.isModal)
+    }
+
+    private func revealExpandedContent() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            guard isExpanded else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                showExpandedContent = true
+            }
         }
     }
+
+    #if !os(tvOS)
+    private var dismissDragGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                let translation = value.translation.height
+                if translation >= 0 {
+                    dragOffset = translation * 0.92
+                } else {
+                    dragOffset = translation * 0.35
+                }
+            }
+            .onEnded { value in
+                let shouldDismiss = value.translation.height > 150 || value.predictedEndTranslation.height > 260
+                if shouldDismiss {
+                    onDismiss()
+                } else {
+                    withAnimation(.interactiveSpring(response: 0.88, dampingFraction: 0.84, blendDuration: 0.26)) {
+                        dragOffset = 0
+                    }
+                }
+            }
+    }
+    #endif
 }
 
 // MARK: - Streaming Service Filter Section
@@ -511,19 +972,18 @@ struct StreamingServiceFilterSection: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(services) { service in
-                        Button {
+                        FocusableActionSurface(action: {
                             if service.trendingListURL != nil, let onTrendingTap {
                                 onTrendingTap(service)
                             } else {
                                 onToggle(service)
                             }
-                        } label: {
+                        }, outlineShape: .roundedRectangle(cornerRadius: 16)) {
                             StreamingServiceCard(
                                 service: service,
                                 isSelected: selectedServiceIds.contains(service.id)
                             )
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal)
@@ -548,7 +1008,7 @@ struct StreamingServiceCard: View {
                     .fill(backgroundColor)
                     .opacity(colorScheme == .dark ? 0.85 : 1.0)
 
-                AsyncImage(url: URL(string: service.logoURL)) { phase in
+                ResilientAsyncImage(url: URL(string: service.logoURL)) { phase in
                     switch phase {
                     case .success(let image):
                         image
@@ -625,47 +1085,168 @@ struct StreamingRecommendationHeader: View {
 struct PopularTMDBCollection: Identifiable, Hashable {
     let id: Int
     let title: String
-    let posterPath: String?
-    let backdropPath: String?
-    /// If true, `id` is a TMDB *list* ID fetched via /list/{id} instead of /collection/{id}
-    let isList: Bool
-    /// Full URL for the tile backdrop (overrides backdropPath when set)
+    let logoAssetName: String?
+    let artworkAssetName: String?
+    let mdblistPath: String?
+    let companyIds: [Int]
     let customBackdropURL: String?
-    /// MDBList list ID; when set the collection is fetched from MDBList instead of TMDB
-    let mdblistId: String?
-    
-    init(id: Int, title: String, posterPath: String?, backdropPath: String?, isList: Bool = false, customBackdropURL: String? = nil, mdblistId: String? = nil) {
+    let overview: String
+    let chronologicalTitles: [String]
+    let timelineEntries: [CollectionTimelineEntry]
+
+    init(
+        id: Int,
+        title: String,
+        logoAssetName: String? = nil,
+        artworkAssetName: String? = nil,
+        mdblistPath: String? = nil,
+        companyIds: [Int],
+        customBackdropURL: String? = nil,
+        overview: String,
+        chronologicalTitles: [String],
+        timelineEntries: [CollectionTimelineEntry] = []
+    ) {
         self.id = id
         self.title = title
-        self.posterPath = posterPath
-        self.backdropPath = backdropPath
-        self.isList = isList
+        self.logoAssetName = logoAssetName
+        self.artworkAssetName = artworkAssetName
+        self.mdblistPath = mdblistPath
+        self.companyIds = companyIds
         self.customBackdropURL = customBackdropURL
-        self.mdblistId = mdblistId
+        self.overview = overview
+        self.chronologicalTitles = chronologicalTitles
+        self.timelineEntries = timelineEntries
     }
     
     /// Resolved URL for the tile backdrop image
     var tileBackdropURL: URL? {
+        guard artworkAssetName == nil else { return nil }
         if let custom = customBackdropURL, let url = URL(string: custom) {
             return url
         }
-        return TMDBService.shared.imageURL(path: backdropPath, size: .backdropSmall)
+        return nil
     }
     
-    // Well-known TMDB collection / list IDs
+    var headerBackdropURL: URL? {
+        guard artworkAssetName == nil else { return nil }
+        guard let customBackdropURL, let url = URL(string: customBackdropURL) else { return nil }
+        return url
+    }
+
     static let popular: [PopularTMDBCollection] = [
-        PopularTMDBCollection(id: 0, title: "Marvel", posterPath: nil, backdropPath: nil, isList: false, customBackdropURL: "https://i.postimg.cc/2SvGNf7s/uwp4669808.webp", mdblistId: "dualipafan01/marvel"),
-        PopularTMDBCollection(id: 1241, title: "Harry Potter", posterPath: "/x8N3yjWAoQQGbAPiZi6AjDqzqJo.jpg", backdropPath: "/bLJTjfbR1syo2VIalJtnCuE0rWp.jpg"),
-        PopularTMDBCollection(id: 10, title: "Star Wars", posterPath: "/r8Ph5MYXL04Qzu4QBbq2KjqwtkQ.jpg", backdropPath: "/d8duYyyC9J5T825Hg7grmaabfxQ.jpg"),
-        PopularTMDBCollection(id: 328, title: "Jurassic Park", posterPath: "/jcUXVtJ6s0NG0EaxllQCAUtXAaT.jpg", backdropPath: "/yg3TSwGh7VKfYmsMYAmNLENwLSS.jpg"),
-        PopularTMDBCollection(id: 86311, title: "The Avengers", posterPath: "/yFSIUVTCvgYrpalUktulvk3Gi5Y.jpg", backdropPath: "/zuW6fOiusv4X9nnW3paHGfXcSll.jpg"),
-        PopularTMDBCollection(id: 748, title: "X-Men", posterPath: "/bSMLMxEHCnOrbxPYjeMPSHTChmu.jpg", backdropPath: nil, customBackdropURL: "https://image.tmdb.org/t/p/original/roZFGw3Rg6VOYty9y4r5WvgvXoC.jpg"),
-        PopularTMDBCollection(id: 9485, title: "The Fast and the Furious", posterPath: "/z4ROnCrL77ZMzT0MsNXY5j25wS2.jpg", backdropPath: "/zIYROHKhGAYaYnEPRRpKaFGME3y.jpg"),
-        PopularTMDBCollection(id: 87359, title: "Mission: Impossible", posterPath: "/geHHOyFnEVBqfJhPZbOBDjNJJfS.jpg", backdropPath: "/hML8WPREd4KjwLSsT9gfYZBBJlm.jpg"),
-        PopularTMDBCollection(id: 2150, title: "Shrek", posterPath: "/gBkbSDJMJMXEGbEsOka3CiEfbzL.jpg", backdropPath: "/gEN2pYR4kUCHSNT7dMgY0UsLjjU.jpg"),
-        PopularTMDBCollection(id: 84, title: "Indiana Jones", posterPath: "/2gkTn4MxaEiQnFXbXXIMBG8oEBp.jpg", backdropPath: "/6TnS7sCi2GjOVXJ4HdR3aD5GpV6.jpg"),
-        PopularTMDBCollection(id: 119, title: "Lord of the Rings", posterPath: "/oENY593nKRVL2PnxXsMtlh8izb4.jpg", backdropPath: "/bccR2CGKNN4EjnXMOmGQJpwi89V.jpg"),
-        PopularTMDBCollection(id: 263, title: "The Dark Knight", posterPath: "/qfevOTIJfiyBe3BNnX6WdOJFwWF.jpg", backdropPath: nil, customBackdropURL: "https://image.tmdb.org/t/p/original/xyhrCEdB4XRkelfVsqXeUZ6rLHi.jpg"),
+        PopularTMDBCollection(
+            id: 7505,
+            title: "Marvel",
+            artworkAssetName: "Marvel",
+            mdblistPath: "dualipafan01/marvel-studios",
+            companyIds: [7505],
+            overview: "Explore Marvel movies from TMDB company 7505 with release order, MCU chronology, and box office rankings.",
+            chronologicalTitles: [
+                "Captain America: The First Avenger",
+                "Captain Marvel",
+                "Iron Man",
+                "Iron Man 2",
+                "The Incredible Hulk",
+                "Thor",
+                "The Avengers",
+                "Thor: The Dark World",
+                "Iron Man 3",
+                "Captain America: The Winter Soldier",
+                "Guardians of the Galaxy",
+                "Guardians of the Galaxy Vol. 2",
+                "Avengers: Age of Ultron",
+                "Ant-Man",
+                "Captain America: Civil War",
+                "Black Widow",
+                "Black Panther",
+                "Spider-Man: Homecoming",
+                "Doctor Strange",
+                "Thor: Ragnarok",
+                "Ant-Man and the Wasp",
+                "Avengers: Infinity War",
+                "Avengers: Endgame",
+                "WandaVision",
+                "Shang-Chi and the Legend of the Ten Rings",
+                "Eternals",
+                "Spider-Man: Far From Home",
+                "Spider-Man: No Way Home",
+                "Doctor Strange in the Multiverse of Madness",
+                "Black Panther: Wakanda Forever",
+                "The Marvels",
+                "The Fantastic Four: First Steps",
+                "Deadpool & Wolverine",
+                "Captain America: Brave New World",
+                "Thunderbolts"
+            ],
+            timelineEntries: CollectionTimelineEntry.marvelStudios
+        )
+    ]
+}
+
+struct CollectionTimelineEntry: Identifiable, Hashable {
+    enum Lane: Int, Hashable {
+        case sacredTimeline
+        case branch
+        case branchDeep
+    }
+
+    let title: String
+    let chronologyText: String
+    let universeLabel: String?
+    let branchLabel: String?
+    let lane: Lane
+
+    var id: String { title }
+
+    static let marvelStudios: [CollectionTimelineEntry] = [
+        .init(title: "Captain America: The First Avenger", chronologyText: "World War II origin", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Captain Marvel", chronologyText: "1995 cosmic awakening", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Iron Man", chronologyText: "2008, the MCU ignition point", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Iron Man 2", chronologyText: "Fury closes in", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "The Incredible Hulk", chronologyText: "Runs parallel to early Avengers setup", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Thor", chronologyText: "Asgard enters the timeline", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "The Avengers", chronologyText: "Battle of New York", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Thor: The Dark World", chronologyText: "Post-Avengers fallout", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Iron Man 3", chronologyText: "Tony after New York", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Captain America: The Winter Soldier", chronologyText: "S.H.I.E.L.D. collapses", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Guardians of the Galaxy", chronologyText: "The cosmic side opens up", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Guardians of the Galaxy Vol. 2", chronologyText: "Immediately after Vol. 1", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Avengers: Age of Ultron", chronologyText: "The team starts to fracture", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Ant-Man", chronologyText: "Quantum Realm groundwork", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Captain America: Civil War", chronologyText: "The Avengers split", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Black Widow", chronologyText: "Immediately after Civil War", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Black Panther", chronologyText: "Wakanda rises", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Spider-Man: Homecoming", chronologyText: "Peter’s first solo chapter", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Doctor Strange", chronologyText: "The mystic corner of Earth-616", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Thor: Ragnarok", chronologyText: "Asgard falls", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Ant-Man and the Wasp", chronologyText: "Right before the Snap", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Avengers: Infinity War", chronologyText: "The Snap", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Avengers: Endgame", chronologyText: "Time Heist restores the Sacred Timeline", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Loki S1", chronologyText: "A 2012 variant gets pruned off the main line", universeLabel: "TVA / Branched 2012", branchLabel: "Branches off during the Time Heist", lane: .branch),
+        .init(title: "What If…? S1", chronologyText: "The Watcher surveys alternate realities", universeLabel: "Multiverse", branchLabel: "Splits outward once Loki opens the multiverse", lane: .branchDeep),
+        .init(title: "WandaVision", chronologyText: "Late 2023, grief reshapes Westview", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Shang-Chi and the Legend of the Ten Rings", chronologyText: "Post-Blip reset", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Spider-Man: Far From Home", chronologyText: "The world reckons with Endgame", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Eternals", chronologyText: "Celestial fallout reaches Earth", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Spider-Man", chronologyText: "The original live-action Peter Parker branch", universeLabel: "Raimi Universe / Earth-96283", branchLabel: "Pulled into No Way Home from the Raimi branch", lane: .branch),
+        .init(title: "Spider-Man 2", chronologyText: "The Raimi timeline continues", universeLabel: "Raimi Universe / Earth-96283", branchLabel: "Same branch as Tobey Maguire's Peter Parker", lane: .branch),
+        .init(title: "Spider-Man 3", chronologyText: "The Raimi branch reaches its final pre-No Way Home chapter", universeLabel: "Raimi Universe / Earth-96283", branchLabel: "Continues the Raimi branch into the multiverse crossover", lane: .branch),
+        .init(title: "The Amazing Spider-Man", chronologyText: "A separate Peter Parker timeline begins", universeLabel: "Webb Universe / Earth-120703", branchLabel: "Pulled into No Way Home from Andrew Garfield's branch", lane: .branchDeep),
+        .init(title: "The Amazing Spider-Man 2", chronologyText: "Electro and Andrew's Peter leave this branch for No Way Home", universeLabel: "Webb Universe / Earth-120703", branchLabel: "Continues the Webb branch into the multiverse crossover", lane: .branchDeep),
+        .init(title: "Spider-Man: No Way Home", chronologyText: "Multiversal visitors collide with Earth-616", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Doctor Strange in the Multiverse of Madness", chronologyText: "Incursions touch the Sacred Timeline", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Black Panther: Wakanda Forever", chronologyText: "Wakanda after loss", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "The Marvels", chronologyText: "Cosmic threads converge", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "The Fantastic Four: First Steps", chronologyText: "Marvel's First Family begins in a retro-futurist parallel world", universeLabel: "Earth-828", branchLabel: "A separate Fantastic Four branch running beside Earth-616", lane: .branchDeep),
+        .init(title: "X-Men", chronologyText: "The Fox mutant timeline begins", universeLabel: "Fox X-Men Universe / Earth-10005", branchLabel: "One of the key parallel branches feeding into Deadpool & Wolverine", lane: .branch),
+        .init(title: "X2", chronologyText: "The Fox branch deepens", universeLabel: "Fox X-Men Universe / Earth-10005", branchLabel: "Continues the Fox mutant branch", lane: .branch),
+        .init(title: "X-Men: The Last Stand", chronologyText: "The original Fox trilogy concludes", universeLabel: "Fox X-Men Universe / Earth-10005", branchLabel: "Part of the Fox branch later intersecting the TVA story", lane: .branch),
+        .init(title: "Deadpool", chronologyText: "Wade Wilson’s universe spins off inside the Fox branch", universeLabel: "Fox X-Men Universe / Earth-10005", branchLabel: "Leads directly into the TVA collision in Deadpool & Wolverine", lane: .branch),
+        .init(title: "Deadpool 2", chronologyText: "Cable and time travel complicate the Fox branch", universeLabel: "Fox X-Men Universe / Earth-10005", branchLabel: "Sets up the TVA-facing branch seen later", lane: .branch),
+        .init(title: "Logan", chronologyText: "A future endpoint inside the Fox branch", universeLabel: "Fox X-Men Universe / Earth-10005", branchLabel: "A distant branch point echoed by Deadpool & Wolverine", lane: .branchDeep),
+        .init(title: "Deadpool & Wolverine", chronologyText: "Fox-era reality intersects with the TVA", universeLabel: "Earth-10005 / TVA", branchLabel: "Runs parallel to the TVA branch", lane: .branch),
+        .init(title: "Captain America: Brave New World", chronologyText: "A new Captain America era", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline),
+        .init(title: "Thunderbolts", chronologyText: "The antihero formation", universeLabel: nil, branchLabel: nil, lane: .sacredTimeline)
     ]
 }
 
@@ -673,8 +1254,12 @@ struct PopularTMDBCollection: Identifiable, Hashable {
 struct SearchSuggestionsView: View {
     @ObservedObject var viewModel: SearchViewModel
     let onSelect: (String) -> Void
-    
+    var showBanner: Bool = false
+
+    @State private var liveTrendingTitles: [String] = []
+
     private var trendingSuggestions: [String] {
+        if !liveTrendingTitles.isEmpty { return liveTrendingTitles }
         if StorageService.shared.settings.isKidsProfile {
             return ["Frozen", "Moana", "Toy Story", "Paw Patrol", "Bluey", "SpongeBob", "Encanto", "Lego Movie"]
         }
@@ -689,65 +1274,132 @@ struct SearchSuggestionsView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Text("Recent Searches")
+                                #if os(tvOS)
+                                .font(.title3)
+                                #else
                                 .font(.headline)
+                                #endif
                             Spacer()
                             Button("Clear") {
                                 StorageService.shared.clearSearchHistory()
                             }
+                            #if os(tvOS)
+                            .font(.callout)
+                            #else
                             .font(.caption)
+                            #endif
                             .foregroundColor(.secondary)
+                            .buttonStyle(.plain)
                         }
                         
-                        FlowLayout(spacing: 8) {
-                            ForEach(StorageService.shared.searchHistory.prefix(10)) { item in
-                                Button {
-                                    onSelect(item.query)
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "clock")
-                                            .font(.caption)
-                                        Text(item.query)
-                                            .font(.subheadline)
+                        #if os(tvOS)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 16) {
+                                ForEach(StorageService.shared.searchHistory.prefix(10)) { item in
+                                    FocusableActionSurface(action: {
+                                        onSelect(item.query)
+                                    }, outlineShape: .capsule) {
+                                        SearchSuggestionChip(
+                                            title: item.query,
+                                            systemImage: "clock"
+                                        )
                                     }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(Color.gray.opacity(0.18))
-                                    .cornerRadius(16)
                                 }
-                                .foregroundColor(.primary)
                             }
                         }
+                        .scrollClipDisabled()
+                        #else
+                        FlowLayout(spacing: 8) {
+                            ForEach(StorageService.shared.searchHistory.prefix(10)) { item in
+                                FocusableActionSurface(action: {
+                                    onSelect(item.query)
+                                }, outlineShape: .capsule) {
+                                    SearchSuggestionChip(
+                                        title: item.query,
+                                        systemImage: "clock"
+                                    )
+                                }
+                            }
+                        }
+                        #endif
                     }
                 }
                 
                 // Trending searches
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Trending")
+                        #if os(tvOS)
+                        .font(.title3)
+                        #else
                         .font(.headline)
+                        #endif
                     
-                    FlowLayout(spacing: 8) {
-                        ForEach(trendingSuggestions, id: \.self) { term in
-                            Button {
-                                onSelect(term)
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "flame.fill")
-                                        .font(.caption)
-                                        .foregroundColor(.orange)
-                                    Text(term)
-                                        .font(.subheadline)
+                    #if os(tvOS)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 16) {
+                            ForEach(trendingSuggestions, id: \.self) { term in
+                                FocusableActionSurface(action: {
+                                    onSelect(term)
+                                }, outlineShape: .capsule) {
+                                    SearchSuggestionChip(
+                                        title: term,
+                                        systemImage: "flame.fill",
+                                        iconColor: .orange
+                                    )
                                 }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Color.gray.opacity(0.18))
-                                .cornerRadius(16)
                             }
-                            .foregroundColor(.primary)
                         }
                     }
+                    .scrollClipDisabled()
+                    #else
+                    FlowLayout(spacing: 8) {
+                        ForEach(trendingSuggestions, id: \.self) { term in
+                            FocusableActionSurface(action: {
+                                onSelect(term)
+                            }, outlineShape: .capsule) {
+                                SearchSuggestionChip(
+                                    title: term,
+                                    systemImage: "flame.fill",
+                                    iconColor: .orange
+                                )
+                            }
+                        }
+                    }
+                    #endif
+                }
+
+                if showBanner {
+                    RemoteBannerView(placement: .search)
+                        #if os(tvOS)
+                        .frame(maxWidth: 500)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        #endif
                 }
             }
+            #if os(tvOS)
+            .padding(.horizontal, 60)
+            .padding(.vertical, 24)
+            #else
             .padding()
+            #endif
+        }
+        .task {
+            guard liveTrendingTitles.isEmpty && !StorageService.shared.settings.isKidsProfile else { return }
+            do {
+                async let moviesTask = TMDBService.shared.getTrending(mediaType: .movie)
+                async let tvTask = TMDBService.shared.getTrending(mediaType: .tv)
+                let (movies, shows) = try await (moviesTask, tvTask)
+                let movieTitles = movies.results.prefix(6).map { $0.displayTitle }
+                let tvTitles = shows.results.prefix(6).map { $0.displayTitle }
+                var combined: [String] = []
+                for (m, t) in zip(movieTitles, tvTitles) {
+                    combined.append(m)
+                    combined.append(t)
+                }
+                await MainActor.run {
+                    liveTrendingTitles = Array(combined.prefix(12))
+                }
+            } catch {}
         }
     }
 }
@@ -760,19 +1412,31 @@ struct TMDBCollectionTile: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             // Backdrop image
-            AsyncImage(url: collection.tileBackdropURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
+            Group {
+                if let artworkAssetName = collection.artworkAssetName {
+                    Image(artworkAssetName)
                         .resizable()
-                        .aspectRatio(contentMode: .fill)
-                case .empty:
-                    Color.gray.opacity(0.18)
-                        .overlay(ProgressView())
-                case .failure:
-                    Color.gray.opacity(0.18)
-                @unknown default:
-                    Color.gray.opacity(0.18)
+                        .aspectRatio(contentMode: .fit)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black.opacity(0.10))
+                } else {
+                    ResilientAsyncImage(url: collection.tileBackdropURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        case .empty:
+                            Color.gray.opacity(0.18)
+                                .overlay(ProgressView())
+                        case .failure:
+                            Color.gray.opacity(0.18)
+                        @unknown default:
+                            Color.gray.opacity(0.18)
+                        }
+                    }
                 }
             }
             .frame(height: 100)
@@ -786,12 +1450,21 @@ struct TMDBCollectionTile: View {
             )
             
             // Title
-            Text(collection.title)
-                .font(.caption)
-                .fontWeight(.bold)
-                .foregroundColor(.white)
-                .lineLimit(2)
-                .padding(10)
+            VStack(alignment: .leading, spacing: 8) {
+                if let logoAssetName = collection.logoAssetName, collection.artworkAssetName == nil {
+                    Image(logoAssetName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 22)
+                }
+
+                Text(collection.title)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .lineLimit(2)
+            }
+            .padding(10)
         }
         .frame(height: 100)
         .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -806,20 +1479,33 @@ struct TMDBCollectionTile: View {
 
 // MARK: - TMDB Collection Sheet
 struct TMDBCollectionSheet: View {
+    private enum CollectionSubview: String, CaseIterable, Identifiable {
+        case release = "Release"
+        case chronological = "Chronological"
+        case boxOffice = "Box Office"
+
+        var id: String { rawValue }
+    }
+
+    private struct BoxOfficeEntry: Identifiable {
+        let item: MediaItem
+        let revenue: Int
+
+        var id: Int { item.id }
+    }
+
     let collection: PopularTMDBCollection
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var title: String = "Collection"
-    @State private var overview: String?
-    @State private var backdropPath: String?
     @State private var items: [MediaItem] = []
+    @State private var selectedSubview: CollectionSubview = .release
     @State private var isLoading = true
     @State private var error: String?
     @State private var selectedItem: MediaItem?
-    @State private var currentPage = 1
-    @State private var hasMorePages = false
-    @State private var isLoadingMore = false
+    @State private var boxOfficeEntries: [BoxOfficeEntry] = []
+    @State private var isLoadingBoxOffice = false
+    @State private var didLoadBoxOffice = false
     
     private var columns: [GridItem] {
         [
@@ -831,6 +1517,40 @@ struct TMDBCollectionSheet: View {
                 spacing: 16
             )
         ]
+    }
+
+    private var releaseItems: [MediaItem] {
+        items.sorted { lhs, rhs in
+            (lhs.releaseDate ?? "9999-99-99", lhs.displayTitle) < (rhs.releaseDate ?? "9999-99-99", rhs.displayTitle)
+        }
+    }
+
+    private var chronologicalItems: [MediaItem] {
+        let titleRanks = Dictionary(
+            uniqueKeysWithValues: collection.chronologicalTitles.enumerated().map { offset, title in
+                (Self.normalizedCollectionTitle(title), offset)
+            }
+        )
+
+        return items.sorted { lhs, rhs in
+            let lhsRank = titleRanks[Self.normalizedCollectionTitle(lhs.displayTitle)] ?? Int.max
+            let rhsRank = titleRanks[Self.normalizedCollectionTitle(rhs.displayTitle)] ?? Int.max
+
+            if lhsRank != rhsRank {
+                return lhsRank < rhsRank
+            }
+
+            return (lhs.releaseDate ?? "9999-99-99", lhs.displayTitle) < (rhs.releaseDate ?? "9999-99-99", rhs.displayTitle)
+        }
+    }
+
+    private var timelineItemsByTitle: [String: MediaItem] {
+        items.reduce(into: [String: MediaItem]()) { partialResult, item in
+            let key = Self.normalizedCollectionTitle(item.displayTitle)
+            if partialResult[key] == nil {
+                partialResult[key] = item
+            }
+        }
     }
     
     var body: some View {
@@ -861,9 +1581,17 @@ struct TMDBCollectionSheet: View {
                 } else {
                     ScrollView {
                         VStack(spacing: 16) {
-                            // Collection backdrop header
-                            if let bp = backdropPath {
-                                AsyncImage(url: TMDBService.shared.imageURL(path: bp, size: .backdrop)) { phase in
+                            if let artworkAssetName = collection.artworkAssetName {
+                                Image(artworkAssetName)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(height: 120)
+                                    .frame(maxWidth: .infinity)
+                                    .background(Color.black.opacity(0.08))
+                                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                    .padding(.horizontal)
+                            } else if let headerBackdropURL = collection.headerBackdropURL {
+                                ResilientAsyncImage(url: headerBackdropURL) { phase in
                                     switch phase {
                                     case .success(let image):
                                         image
@@ -871,51 +1599,53 @@ struct TMDBCollectionSheet: View {
                                             .aspectRatio(contentMode: .fill)
                                             .frame(height: 180)
                                             .clipped()
-                                    default:
+                                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                    case .empty:
+                                        ProgressView()
+                                            .frame(height: 180)
+                                            .frame(maxWidth: .infinity)
+                                            .background(Color.gray.opacity(0.16))
+                                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                    case .failure:
+                                        EmptyView()
+                                    @unknown default:
                                         EmptyView()
                                     }
                                 }
+                                .padding(.horizontal)
                             }
-                            
-                            // Overview
-                            if let overview = overview, !overview.isEmpty {
-                                Text(overview)
+
+                            VStack(alignment: .leading, spacing: 12) {
+                                if let logoAssetName = collection.logoAssetName, collection.artworkAssetName == nil {
+                                    Image(logoAssetName)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(height: 30)
+                                }
+
+                                Text(collection.overview)
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
-                                    .padding(.horizontal)
+
+                                collectionSubviewPicker
                             }
-                            
-                            // Movies grid
-                            LazyVGrid(columns: columns, spacing: 20) {
-                                ForEach(items) { item in
-                                    MediaPosterCard(item: item)
-                                        .onTapGesture {
-                                            selectedItem = item
-                                        }
-                                }
-                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal)
-                            
-                            // Load more for list-based collections
-                            if hasMorePages {
-                                Button {
-                                    Task { await loadMorePages() }
-                                } label: {
-                                    if isLoadingMore {
-                                        ProgressView()
-                                    } else {
-                                        Text("Load More")
-                                            .font(.subheadline)
-                                            .fontWeight(.medium)
-                                    }
-                                }
-                                .padding()
+
+                            switch selectedSubview {
+                            case .release:
+                                collectionGrid(items: releaseItems)
+                            case .chronological:
+                                chronologicalContent
+                            case .boxOffice:
+                                boxOfficeContent
                             }
                         }
+                        .padding(.vertical)
                     }
                 }
             }
-            .navigationTitle(title)
+            .navigationTitle(collection.title)
             .inlineNavTitleIfSupported()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -924,11 +1654,14 @@ struct TMDBCollectionSheet: View {
                     }
                 }
             }
-            .sheet(item: $selectedItem) { item in
-                MediaDetailView(item: item)
-            }
+            .mediaDetailPresentation(item: $selectedItem)
             .task {
                 await loadCollection()
+            }
+            .task(id: selectedSubview) {
+                if selectedSubview == .boxOffice {
+                    await loadBoxOfficeIfNeeded()
+                }
             }
         }
     }
@@ -936,74 +1669,577 @@ struct TMDBCollectionSheet: View {
     private func loadCollection() async {
         isLoading = true
         error = nil
-        
-        if let mdblistId = collection.mdblistId {
-            await loadFromMDBList(listId: mdblistId)
-        } else if collection.isList {
-            await loadFromList(page: 1)
-        } else {
-            await loadFromCollection()
+
+        do {
+            if let mdblistPath = collection.mdblistPath, !mdblistPath.isEmpty {
+                items = try await MDBListService.shared.fetchMultipleListsAsMediaItems(
+                    inputs: [mdblistPath],
+                    preferTMDBDetails: false
+                )
+            } else {
+                items = try await loadCompanyMovies()
+            }
+        } catch let loadError {
+            self.error = loadError.localizedDescription
+            print("Collection load error for \(collection.title): \(loadError)")
         }
-        
+
         isLoading = false
     }
-    
-    private func loadFromMDBList(listId: String) async {
-        do {
-            let savedItems = try await MDBListService.shared.fetchListItemsAsSavedMedia(listId: listId)
-            title = collection.title
-            backdropPath = nil // MDBList collections use customBackdropURL on the tile, no header backdrop needed
-            items = savedItems.map { $0.toMediaItem() }
-            hasMorePages = false
-        } catch let loadError {
-            self.error = loadError.localizedDescription
-            print("MDBList load error for \(listId): \(loadError)")
+
+    private func loadCompanyMovies() async throws -> [MediaItem] {
+        var page = 1
+        var allItems: [MediaItem] = []
+        var totalPages = 1
+
+        repeat {
+            let response = try await TMDBService.shared.discoverMoviesByCompany(
+                companyIds: collection.companyIds,
+                sortBy: "primary_release_date.asc",
+                page: page
+            )
+
+            allItems.append(contentsOf: response.results)
+            totalPages = min(response.totalPages ?? 1, 10)
+            page += 1
+        } while page <= totalPages
+
+        var uniqueItems: [Int: MediaItem] = [:]
+        for item in allItems {
+            uniqueItems[item.id] = item
+        }
+
+        return uniqueItems.values.sorted { lhs, rhs in
+            (lhs.releaseDate ?? "9999-99-99", lhs.displayTitle) < (rhs.releaseDate ?? "9999-99-99", rhs.displayTitle)
         }
     }
-    
-    private func loadFromCollection() async {
-        do {
-            let details = try await TMDBService.shared.getCollectionDetails(id: collection.id)
-            title = details.name
-            overview = details.overview
-            backdropPath = details.backdropPath
-            items = details.parts.sorted { ($0.releaseDate ?? "") < ($1.releaseDate ?? "") }
-        } catch let loadError {
-            self.error = loadError.localizedDescription
-            print("Collection load error for id \(collection.id): \(loadError)")
+
+    private func loadBoxOfficeIfNeeded() async {
+        guard !didLoadBoxOffice, !isLoadingBoxOffice, !items.isEmpty else { return }
+        isLoadingBoxOffice = true
+
+        defer {
+            isLoadingBoxOffice = false
+            didLoadBoxOffice = true
         }
-    }
-    
-    private func loadFromList(page: Int) async {
-        do {
-            let listResponse = try await TMDBService.shared.getListDetails(listId: collection.id, page: page)
-            title = listResponse.name ?? collection.title
-            overview = listResponse.description
-            backdropPath = collection.backdropPath
-            
-            if page == 1 {
-                items = listResponse.items.sorted { ($0.releaseDate ?? "") < ($1.releaseDate ?? "") }
-            } else {
-                let newItems = listResponse.items.sorted { ($0.releaseDate ?? "") < ($1.releaseDate ?? "") }
-                items.append(contentsOf: newItems)
+
+        let movieItems = items.filter { $0.resolvedMediaType == .movie }
+        var entries: [BoxOfficeEntry] = []
+
+        await withTaskGroup(of: BoxOfficeEntry?.self) { group in
+            for item in movieItems {
+                group.addTask {
+                    do {
+                        let details = try await TMDBService.shared.getMovieDetails(id: item.id)
+                        guard let revenue = details.revenue, revenue > 0 else { return nil }
+                        return BoxOfficeEntry(item: item, revenue: revenue)
+                    } catch {
+                        return nil
+                    }
+                }
             }
-            
-            // TMDB lists can have many pages; if we got a full page of 20 items, assume more
-            hasMorePages = listResponse.items.count >= 20
-            currentPage = page
-        } catch let loadError {
-            if page == 1 {
-                self.error = loadError.localizedDescription
+
+            for await entry in group {
+                if let entry {
+                    entries.append(entry)
+                }
             }
-            print("List load error for id \(collection.id): \(loadError)")
+        }
+
+        boxOfficeEntries = entries.sorted { lhs, rhs in
+            if lhs.revenue != rhs.revenue {
+                return lhs.revenue > rhs.revenue
+            }
+
+            return lhs.item.displayTitle < rhs.item.displayTitle
         }
     }
-    
-    private func loadMorePages() async {
-        guard !isLoadingMore else { return }
-        isLoadingMore = true
-        await loadFromList(page: currentPage + 1)
-        isLoadingMore = false
+
+    @ViewBuilder
+    private func collectionGrid(items: [MediaItem]) -> some View {
+        LazyVGrid(columns: columns, spacing: 20) {
+            ForEach(items) { item in
+                MediaPosterCard(item: item)
+                    .onTapGesture {
+                        selectedItem = item
+                    }
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    @ViewBuilder
+    private var chronologicalContent: some View {
+        if !collection.timelineEntries.isEmpty {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Sacred Timeline")
+                        .font(.title3.weight(.semibold))
+
+                    Text("Follow the MCU in story order. Branch markers show when the path splits into alternate universes, TVA detours, or deeper multiverse threads.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 10) {
+                        TimelineLegendChip(title: "Earth-616", systemImage: "circle.fill", tint: .red)
+                        TimelineLegendChip(title: "Branch", systemImage: "point.3.filled.connected.trianglepath.dotted", tint: .orange)
+                        TimelineLegendChip(title: "Deep Branch", systemImage: "sparkles", tint: .blue)
+                    }
+
+                    HStack(spacing: 12) {
+                        timelineStatCard(
+                            title: "Entries",
+                            value: "\(collection.timelineEntries.count)",
+                            tint: .red
+                        )
+                        timelineStatCard(
+                            title: "Playable",
+                            value: "\(collection.timelineEntries.filter { timelineItemsByTitle[Self.normalizedCollectionTitle($0.title)] != nil }.count)",
+                            tint: .green
+                        )
+                    }
+                }
+                .padding(18)
+                .background(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.red.opacity(0.16),
+                                    Color.black.opacity(0.04)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                )
+                .padding(.horizontal)
+
+                VStack(spacing: 14) {
+                    ForEach(Array(collection.timelineEntries.enumerated()), id: \.element.id) { index, entry in
+                        CollectionTimelineRow(
+                            entry: entry,
+                            item: timelineItemsByTitle[Self.normalizedCollectionTitle(entry.title)],
+                            accentColor: .red,
+                            chronologyIndex: index + 1
+                        ) {
+                            if let item = timelineItemsByTitle[Self.normalizedCollectionTitle(entry.title)] {
+                                selectedItem = item
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        } else {
+            collectionGrid(items: chronologicalItems)
+        }
+    }
+
+    @ViewBuilder
+    private var boxOfficeContent: some View {
+        if isLoadingBoxOffice && boxOfficeEntries.isEmpty {
+            ProgressView("Loading box office")
+                .padding(.top, 24)
+        } else if boxOfficeEntries.isEmpty {
+            Text("No box office results available.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .padding(.top, 24)
+        } else {
+            VStack(spacing: 12) {
+                ForEach(Array(boxOfficeEntries.enumerated()), id: \.element.id) { index, entry in
+                    FocusableActionSurface(action: {
+                        selectedItem = entry.item
+                    }, outlineShape: .roundedRectangle(cornerRadius: 18)) {
+                        HStack(spacing: 12) {
+                            Text("\(index + 1)")
+                                .font(.headline)
+                                .foregroundColor(.secondary)
+                                .frame(width: 28)
+
+                            MediaPosterThumbnail(item: entry.item)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(entry.item.displayTitle)
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                                    .multilineTextAlignment(.leading)
+
+                                if let releaseDate = entry.item.releaseDate, !releaseDate.isEmpty {
+                                    Text(releaseDate)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Text(Self.currencyFormatter.string(from: NSNumber(value: entry.revenue)) ?? "$0")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.green)
+                            }
+
+                            Spacer()
+                        }
+                        .padding(14)
+                        .background(Color.gray.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+
+    @ViewBuilder
+    private var collectionSubviewPicker: some View {
+        HStack(spacing: 10) {
+            ForEach(CollectionSubview.allCases) { subview in
+                let isSelected = selectedSubview == subview
+
+                Button {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                        selectedSubview = subview
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(subview.rawValue)
+                            .font(.subheadline.weight(.semibold))
+                        Text(collectionSubviewSubtitle(for: subview))
+                            .font(.caption)
+                            .lineLimit(1)
+                            .foregroundStyle(isSelected ? .white.opacity(0.86) : .secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(isSelected ? AnyShapeStyle(selectedSubviewFill(for: subview)) : AnyShapeStyle(Color.gray.opacity(0.12)))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(isSelected ? .white.opacity(0.12) : .white.opacity(0.06), lineWidth: 1)
+                    )
+                    .foregroundStyle(isSelected ? .white : .primary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func collectionSubviewSubtitle(for subview: CollectionSubview) -> String {
+        switch subview {
+        case .release:
+            return "Original launch order"
+        case .chronological:
+            return "Story timeline flow"
+        case .boxOffice:
+            return "Revenue ranking"
+        }
+    }
+
+    private func selectedSubviewFill(for subview: CollectionSubview) -> some ShapeStyle {
+        switch subview {
+        case .release:
+            return LinearGradient(colors: [Color.red.opacity(0.78), Color.orange.opacity(0.72)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .chronological:
+            return LinearGradient(colors: [Color.red.opacity(0.82), Color.pink.opacity(0.68)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .boxOffice:
+            return LinearGradient(colors: [Color.green.opacity(0.78), Color.teal.opacity(0.68)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+    }
+
+    @ViewBuilder
+    private func timelineStatCard(title: String, value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.headline.weight(.bold))
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(tint.opacity(0.12))
+        )
+    }
+
+    private static let currencyFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.maximumFractionDigits = 0
+        return formatter
+    }()
+
+    private static func normalizedCollectionTitle(_ title: String) -> String {
+        title
+            .lowercased()
+            .replacingOccurrences(of: "&", with: "and")
+            .replacingOccurrences(of: ":", with: "")
+            .replacingOccurrences(of: ".", with: "")
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "-", with: " ")
+            .components(separatedBy: .alphanumerics.inverted)
+            .joined()
+    }
+}
+
+private struct CollectionTimelineRow: View {
+    let entry: CollectionTimelineEntry
+    let item: MediaItem?
+    let accentColor: Color
+    let chronologyIndex: Int
+    let action: () -> Void
+
+    private var laneOffset: CGFloat {
+        switch entry.lane {
+        case .sacredTimeline:
+            return 0
+        case .branch:
+            return 26
+        case .branchDeep:
+            return 52
+        }
+    }
+
+    private var isInteractive: Bool {
+        item != nil
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack(alignment: .topLeading) {
+                    Rectangle()
+                        .fill(accentColor.opacity(0.18))
+                        .frame(width: 2)
+                        .frame(maxHeight: .infinity)
+                        .offset(x: 13)
+
+                    if entry.lane != .sacredTimeline {
+                        Rectangle()
+                            .fill(accentColor.opacity(0.18))
+                            .frame(width: laneOffset + 1, height: 2)
+                            .offset(x: 13, y: 14)
+                    }
+
+                    Circle()
+                        .fill(nodeFill)
+                        .frame(width: 28, height: 28)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(nodeStroke, lineWidth: 1)
+                        )
+                        .overlay(
+                            Image(systemName: nodeSymbol)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(nodeForeground)
+                        )
+                        .offset(x: 0)
+                }
+                .frame(width: 28 + laneOffset, alignment: .leading)
+
+                if let item {
+                    MediaPosterThumbnail(item: item)
+                } else {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.gray.opacity(0.12))
+                        .frame(width: 58, height: 86)
+                        .overlay(
+                            Image(systemName: "film")
+                                .foregroundStyle(.secondary)
+                        )
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Step \(chronologyIndex)")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(nodeForeground)
+                            #if !os(tvOS)
+                                .textCase(.uppercase)
+                            #endif
+
+                            Text(entry.title)
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+
+                            Text(entry.chronologyText)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        if isInteractive {
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 4)
+                        }
+                    }
+
+                    if let universeLabel = entry.universeLabel {
+                        Text(universeLabel)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(chipForeground)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(chipFill)
+                            )
+                    }
+
+                    if let branchLabel = entry.branchLabel {
+                        Label(branchLabel, systemImage: "arrow.triangle.branch")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(cardBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isInteractive)
+    }
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.08),
+                        Color.white.opacity(0.03)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+    }
+
+    private var nodeSymbol: String {
+        switch entry.lane {
+        case .sacredTimeline:
+            return "circle.fill"
+        case .branch:
+            return "point.3.filled.connected.trianglepath.dotted"
+        case .branchDeep:
+            return "sparkles"
+        }
+    }
+
+    private var nodeFill: Color {
+        switch entry.lane {
+        case .sacredTimeline:
+            return accentColor.opacity(0.16)
+        case .branch:
+            return .orange.opacity(0.16)
+        case .branchDeep:
+            return .blue.opacity(0.16)
+        }
+    }
+
+    private var nodeStroke: Color {
+        switch entry.lane {
+        case .sacredTimeline:
+            return accentColor.opacity(0.35)
+        case .branch:
+            return .orange.opacity(0.35)
+        case .branchDeep:
+            return .blue.opacity(0.35)
+        }
+    }
+
+    private var nodeForeground: Color {
+        switch entry.lane {
+        case .sacredTimeline:
+            return accentColor
+        case .branch:
+            return .orange
+        case .branchDeep:
+            return .blue
+        }
+    }
+
+    private var chipFill: Color {
+        switch entry.lane {
+        case .sacredTimeline:
+            return accentColor.opacity(0.12)
+        case .branch:
+            return .orange.opacity(0.14)
+        case .branchDeep:
+            return .blue.opacity(0.14)
+        }
+    }
+
+    private var chipForeground: Color {
+        switch entry.lane {
+        case .sacredTimeline:
+            return accentColor
+        case .branch:
+            return .orange
+        case .branchDeep:
+            return .blue
+        }
+    }
+}
+
+private struct TimelineLegendChip: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.12))
+            )
+    }
+}
+
+private struct MediaPosterThumbnail: View {
+    let item: MediaItem
+
+    var body: some View {
+        ResilientAsyncImage(url: TMDBService.shared.imageURL(path: item.posterPath, size: .small)) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            case .empty:
+                Color.gray.opacity(0.2)
+            case .failure:
+                Color.gray.opacity(0.2)
+            @unknown default:
+                Color.gray.opacity(0.2)
+            }
+        }
+        .frame(width: 46, height: 68)
+        // Deliberately tighter than `sharedPosterCornerRadius`: at 46pt wide the
+        // shared 14pt radius eats a third of the thumbnail and reads as a blob.
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -1057,6 +2293,7 @@ class SearchViewModel: ObservableObject {
     @Published var query = ""
     @Published var results: [MediaItem] = []
     @Published var personResults: [Person] = []
+    @Published var scoutOverviewItem: MediaItem?
     @Published var selectedType: MediaType?
     @Published var selectedGenre: Genre?
     @Published var selectedYear: Int?
@@ -1065,6 +2302,7 @@ class SearchViewModel: ObservableObject {
     @Published var genres: [Genre] = []
     @Published var isLoading = false
     @Published var isLoadingMore = false
+    @Published var isLoadingScoutOverview = false
     @Published var hasSearched = false
     @Published var currentPage = 1
     @Published var totalPages = 1
@@ -1207,6 +2445,7 @@ class SearchViewModel: ObservableObject {
         guard !trimmedQuery.isEmpty else {
             results = []
             personResults = []
+            scoutOverviewItem = nil
             hasSearched = false
             activeSearchQuery = ""
             usedNaturalLanguageInLastSearch = false
@@ -1230,6 +2469,7 @@ class SearchViewModel: ObservableObject {
                 totalPages = response.totalPages ?? 1
                 personResults = response.results
                 results = []
+                scoutOverviewItem = nil
             } else if selectedGenre != nil || selectedYear != nil || selectedProductionLanguage != nil || selectedProductionRegion != nil {
                 usedNaturalLanguageInLastSearch = false
                 // Use discover endpoint for filters
@@ -1269,10 +2509,13 @@ class SearchViewModel: ObservableObject {
                     totalPages = 1
                 }
             }
+
+            await refreshScoutOverview(for: trimmedQuery)
         } catch {
             print("Search error: \(error)")
             results = []
             personResults = []
+            scoutOverviewItem = nil
         }
         
         isLoading = false
@@ -1890,14 +3133,8 @@ class SearchViewModel: ObservableObject {
     }
 
     private func effectiveProviderRegion(for providerNames: [String]) -> String {
-        let region = StorageService.shared.settings.region
-        let lowered = providerNames.map { $0.lowercased() }
-
-        // Match existing Disney+ ZA behavior used in browse rows.
-        if region == "ZA", lowered.contains(where: { $0.contains("disney") }) {
-            return "GB"
-        }
-        return region
+        // Disney+ ZA→GB mapping is handled centrally in TMDBService.effectiveProviderRegion
+        return StorageService.shared.settings.region
     }
 
     private func companyScore(name: String, query: String, wantsTV: Bool) -> Int {
@@ -2052,11 +3289,61 @@ class SearchViewModel: ObservableObject {
         query = ""
         results = []
         personResults = []
+        scoutOverviewItem = nil
         hasSearched = false
         usedNaturalLanguageInLastSearch = false
         activeSearchQuery = ""
         selectedStreamingServiceIds.removeAll()
         streamingBaseResults = []
+    }
+
+    private func refreshScoutOverview(for query: String) async {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty, selectedType != .person else {
+            scoutOverviewItem = nil
+            isLoadingScoutOverview = false
+            return
+        }
+
+        if let exactResult = bestScoutOverviewMatch(for: trimmedQuery) {
+            scoutOverviewItem = exactResult
+            isLoadingScoutOverview = false
+            return
+        }
+
+        isLoadingScoutOverview = true
+        defer { isLoadingScoutOverview = false }
+
+        let preferredType: MediaType?
+        switch selectedType {
+        case .movie, .tv:
+            preferredType = selectedType
+        default:
+            preferredType = nil
+        }
+
+        scoutOverviewItem = await ScoutAgentService.shared.resolveMediaItem(
+            for: trimmedQuery,
+            preferredType: preferredType
+        )
+    }
+
+    private func bestScoutOverviewMatch(for query: String) -> MediaItem? {
+        let normalizedQuery = normalizedScoutSearchTitle(query)
+        if let exactMatch = results.first(where: {
+            normalizedScoutSearchTitle($0.displayTitle) == normalizedQuery
+        }) {
+            return exactMatch
+        }
+        return results.first
+    }
+
+    private func normalizedScoutSearchTitle(_ title: String) -> String {
+        title
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined()
     }
 }
 
@@ -2064,24 +3351,41 @@ class SearchViewModel: ObservableObject {
 struct PersonSearchCard: View {
     let person: Person
     @State private var isPressed = false
-    
+    @Environment(\.isFocused) private var isFocused
+
+    #if os(tvOS)
+    private let profileSize: CGFloat = 160
+    private let labelWidth: CGFloat = 180
+    #else
+    private let profileSize: CGFloat = 90
+    private let labelWidth: CGFloat = 100
+    #endif
+
     var body: some View {
-        VStack(spacing: 10) {
-            ProfileImageView(profilePath: person.profilePath, size: 90)
+        VStack(spacing: tvOSSizing(tv: 14, mobile: 10)) {
+            ProfileImageView(profilePath: person.profilePath, size: profileSize)
                 .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
                 .scaleEffect(isPressed ? 0.95 : 1.0)
                 .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
             
-            VStack(spacing: 3) {
+            VStack(spacing: tvOSSizing(tv: 6, mobile: 3)) {
                 Text(person.name)
+                    #if os(tvOS)
+                    .font(.callout)
+                    #else
                     .font(.caption)
+                    #endif
                     .fontWeight(.semibold)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                 
                 if let dept = person.knownForDepartment, !dept.isEmpty {
                     Text(dept)
+                        #if os(tvOS)
+                        .font(.caption)
+                        #else
                         .font(.caption2)
+                        #endif
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
@@ -2089,17 +3393,128 @@ struct PersonSearchCard: View {
                 // Show top known-for title
                 if let knownFor = person.knownFor?.first, let title = knownFor.displayTitle as String? {
                     Text(title)
+                        #if os(tvOS)
+                        .font(.caption)
+                        #else
                         .font(.caption2)
+                        #endif
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .italic()
                 }
             }
-            .frame(width: 100)
+            .frame(width: labelWidth)
+        }
+        .padding(.vertical, tvOSSizing(tv: 16, mobile: 8))
+        #if os(tvOS)
+        .padding(.horizontal, 12)
+        #endif
+        .overlay {
+            RoundedRectangle(cornerRadius: tvOSSizing(tv: 24, mobile: 18), style: .continuous)
+                .stroke(Color.white.opacity(isFocused ? 0.9 : 0), lineWidth: 0.75)
         }
         .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
             isPressed = pressing
         }, perform: {})
+    }
+
+    private func tvOSSizing(tv: CGFloat, mobile: CGFloat) -> CGFloat {
+        #if os(tvOS)
+        return tv
+        #else
+        return mobile
+        #endif
+    }
+}
+
+struct SearchSuggestionChip: View {
+    let title: String
+    let systemImage: String
+    var iconColor: Color = .secondary
+
+    var body: some View {
+        HStack(spacing: chipSpacing) {
+            Image(systemName: systemImage)
+                .font(iconFont)
+                .foregroundColor(iconColor)
+            Text(title)
+                .font(titleFont)
+                .foregroundColor(.primary)
+        }
+        .padding(.horizontal, horizontalPad)
+        .padding(.vertical, verticalPad)
+        .background(
+            Capsule(style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.14),
+                            Color.white.opacity(0.08)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+        )
+        .overlay {
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.14), lineWidth: 0.8)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+    }
+
+    #if os(tvOS)
+    private var chipSpacing: CGFloat { 10 }
+    private var iconFont: Font { .body }
+    private var titleFont: Font { .body }
+    private var horizontalPad: CGFloat { 24 }
+    private var verticalPad: CGFloat { 14 }
+    #else
+    private var chipSpacing: CGFloat { 6 }
+    private var iconFont: Font { .caption }
+    private var titleFont: Font { .subheadline }
+    private var horizontalPad: CGFloat { 12 }
+    private var verticalPad: CGFloat { 8 }
+    #endif
+}
+
+struct SearchActionButtonLabel: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            #if os(tvOS)
+            .font(.body)
+            #else
+            .font(.subheadline)
+            #endif
+            .fontWeight(.semibold)
+            .foregroundColor(.primary)
+            #if os(tvOS)
+            .padding(.horizontal, 32)
+            .padding(.vertical, 16)
+            #else
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            #endif
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.16),
+                                Color.white.opacity(0.08)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.14), lineWidth: 0.8)
+            }
+            .shadow(color: .black.opacity(0.14), radius: 12, y: 5)
     }
 }
 
@@ -2157,9 +3572,7 @@ struct NetworkTrendingPopup: View {
                     Button("Close") { dismiss() }
                 }
             }
-            .sheet(item: $detailItem) { item in
-                MediaDetailView(item: item)
-            }
+            .mediaDetailPresentation(item: $detailItem)
         }
         .presentationDetents([.large])
         .task {
@@ -2213,7 +3626,7 @@ struct NetworkTrendingPopup: View {
     private var serviceHeader: some View {
         VStack(spacing: 8) {
             // Logo
-            AsyncImage(url: URL(string: service.logoURL)) { phase in
+            ResilientAsyncImage(url: URL(string: service.logoURL)) { phase in
                 switch phase {
                 case .success(let image):
                     image
@@ -2259,12 +3672,11 @@ struct NetworkTrendingPopup: View {
                     .padding(.top, 8)
             } else {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    Button {
+                    FocusableActionSurface(action: {
                         detailItem = item
-                    } label: {
+                    }, outlineShape: .roundedRectangle(cornerRadius: 16)) {
                         TrendingItemRow(item: item, rank: index + 1, brandColor: brandColor)
                     }
-                    .buttonStyle(.plain)
                     
                     if index < items.count - 1 {
                         Divider()
@@ -2321,37 +3733,23 @@ private struct TrendingItemRow: View {
     
     var body: some View {
         HStack(spacing: 10) {
-            // Rank number
-            Text("\(rank)")
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundColor(rank <= 3 ? brandColor : .secondary)
-                .frame(width: 22, alignment: .center)
-            
             // Poster thumbnail
-            let posterURL = TMDBService.shared.imageURL(path: item.posterPath, size: .small)
-            AsyncImage(url: posterURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .empty:
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.18))
-                        .overlay { ProgressView().scaleEffect(0.6) }
-                default:
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.18))
-                        .overlay {
-                            Image(systemName: "film")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                }
+            ZStack(alignment: .topLeading) {
+                PosterImageView(posterPath: item.posterPath, size: .small)
+                    .frame(width: 36, height: 54)
+
+                Text("\(rank)")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(rank <= 3 ? brandColor : .primary)
+                    .frame(minWidth: 24, minHeight: 24)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .stroke(Color.white.opacity(colorScheme == .dark ? 0.18 : 0.3), lineWidth: 0.8)
+                    )
+                    .shadow(color: Color.black.opacity(0.16), radius: 6, x: 0, y: 2)
+                    .padding(4)
             }
-            .frame(width: 36, height: 54)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
             
             // Title and year
             VStack(alignment: .leading, spacing: 2) {
@@ -2373,46 +3771,6 @@ private struct TrendingItemRow: View {
     }
 }
 
-private extension View {
-    @ViewBuilder
-    func inlineNavTitleIfSupported() -> some View {
-#if os(macOS)
-        self
-#else
-        self.navigationBarTitleDisplayMode(.inline)
-#endif
-    }
-}
-
-private extension Color {
-    init(hex: String) {
-        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: cleaned).scanHexInt64(&int)
-
-        let r, g, b: UInt64
-        switch cleaned.count {
-        case 6:
-            (r, g, b) = (int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 3:
-            (r, g, b) = (
-                ((int >> 8) & 0xF) * 17,
-                ((int >> 4) & 0xF) * 17,
-                (int & 0xF) * 17
-            )
-        default:
-            (r, g, b) = (128, 128, 128)
-        }
-
-        self.init(
-            .sRGB,
-            red: Double(r) / 255.0,
-            green: Double(g) / 255.0,
-            blue: Double(b) / 255.0,
-            opacity: 1.0
-        )
-    }
-}
 
 #Preview {
     SearchView(selectedItem: .constant(nil))
