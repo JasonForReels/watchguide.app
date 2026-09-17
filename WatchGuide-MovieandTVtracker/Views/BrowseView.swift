@@ -461,7 +461,6 @@ struct BrowseView: View {
                     TonightInviteCard(posters: tonightInvitePosters)
                         .padding(.horizontal)
                 }
-                RecentStubsRow()
                 #endif
 
                 ForEach(orderedSections) { section in
