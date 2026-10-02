@@ -20,7 +20,10 @@ actor TrailerAddonService {
     // MARK: - Public API
 
     /// Fetches direct-playback trailer `Video` objects from the given add-ons.
+    /// Add-ons (Trailerio etc.) are internal-only: nothing is returned outside Debug builds
+    /// with the Admin toggle on.
     func fetchTrailers(imdbID: String, mediaType: MediaType, addons: [TrailerAddon]) async -> [Video] {
+        guard ScoutSubscriptionService.areTrailerAddonsAvailable else { return [] }
         var allVideos: [Video] = []
 
         await withTaskGroup(of: [Video].self) { group in

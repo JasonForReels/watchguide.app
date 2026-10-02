@@ -7,9 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7C4E19A22F8E5D0100B3A6F1 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 7C4E19A12F8E5D0100B3A6F1 /* RevenueCat */; };
+		7C4E19A42F8E5D0100B3A6F1 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; platformFilter = ios; productRef = 7C4E19A32F8E5D0100B3A6F1 /* RevenueCatUI */; };
 		02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; platformFilters = (ios, macos, ); productRef = B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */; };
 		5BE2372F3C8A663BE4C076C0 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		968EA9D62FCED26600C5A0C2 /* ComingSoonWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 968EA9D52FCED26600C5A0C2 /* ComingSoonWidget.swift */; };
+		1519245603D6E6B1FB07B3EE /* WidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183203BC28C3A6AA6D576609 /* WidgetShared.swift */; };
+		F2AA4044B56202EB07C200A0 /* UpNextWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B905A3B0B3B17F739E5329C /* UpNextWidget.swift */; };
 		CF3A53FBEE56856AA8DA83E8 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97E6A83F51243F7CD71ADD17 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift */; };
 /* End PBXBuildFile section */
 
@@ -74,6 +78,8 @@
 .xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "\n\n\n.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = "WatchGuide-MovieandTVtrackerWidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		968EA9D52FCED26600C5A0C2 /* ComingSoonWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComingSoonWidget.swift; sourceTree = "<group>"; };
+		183203BC28C3A6AA6D576609 /* WidgetShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetShared.swift; sourceTree = "<group>"; };
+		5B905A3B0B3B17F739E5329C /* UpNextWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpNextWidget.swift; sourceTree = "<group>"; };
 		97E6A83F51243F7CD71ADD17 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift */ = {isa = PBXFileReference; explicitFileType = sourcecode.swift; path = "WatchGuide-MovieandTVtrackerWidgetExtension.swift"; sourceTree = "<group>"; };
 		ABAFBFC0370DED87737A2023 /* WatchGuide-MovieandTVtrackerWidgetExtension.entitlements */ = {isa = PBXFileReference; explicitFileType = text.plist.entitlements; path = "WatchGuide-MovieandTVtrackerWidgetExtension.entitlements"; sourceTree = "<group>"; };
 		C4C9BD98E1B110381A6482B2 /* Info.plist */ = {isa = PBXFileReference; explicitFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -116,6 +122,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */,
+				7C4E19A22F8E5D0100B3A6F1 /* RevenueCat in Frameworks */,
+				7C4E19A42F8E5D0100B3A6F1 /* RevenueCatUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -211,6 +219,8 @@
 				C4C9BD98E1B110381A6482B2 /* Info.plist */,
 				ABAFBFC0370DED87737A2023 /* WatchGuide-MovieandTVtrackerWidgetExtension.entitlements */,
 				968EA9D52FCED26600C5A0C2 /* ComingSoonWidget.swift */,
+				183203BC28C3A6AA6D576609 /* WidgetShared.swift */,
+				5B905A3B0B3B17F739E5329C /* UpNextWidget.swift */,
 			);
 			path = "WatchGuide-MovieandTVtrackerWidgetExtension";
 			sourceTree = "<group>";
@@ -239,6 +249,8 @@
 			name = "WatchGuide-MovieandTVtracker";
 			packageProductDependencies = (
 				B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */,
+				7C4E19A12F8E5D0100B3A6F1 /* RevenueCat */,
+				7C4E19A32F8E5D0100B3A6F1 /* RevenueCatUI */,
 			);
 			productName = "WatchGuide-MovieandTVtracker";
 			productReference = 184F590C2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker.app */;
@@ -355,6 +367,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				33069E29849577834425E2AD /* XCLocalSwiftPackageReference "Frameworks/YouTubePlayerKit" */,
+				7C4E19A02F8E5D0100B3A6F1 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 184F590D2E6ACF1E00FBE038 /* Products */;
@@ -410,6 +423,8 @@
 			files = (
 				CF3A53FBEE56856AA8DA83E8 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift in Sources */,
 				968EA9D62FCED26600C5A0C2 /* ComingSoonWidget.swift in Sources */,
+				1519245603D6E6B1FB07B3EE /* WidgetShared.swift in Sources */,
+				F2AA4044B56202EB07C200A0 /* UpNextWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -910,7 +925,28 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		7C4E19A02F8E5D0100B3A6F1 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios-spm.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.92.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		7C4E19A12F8E5D0100B3A6F1 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7C4E19A02F8E5D0100B3A6F1 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
+		};
+		7C4E19A32F8E5D0100B3A6F1 /* RevenueCatUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7C4E19A02F8E5D0100B3A6F1 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCatUI;
+		};
 		B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 33069E29849577834425E2AD /* XCLocalSwiftPackageReference "Frameworks/YouTubePlayerKit" */;

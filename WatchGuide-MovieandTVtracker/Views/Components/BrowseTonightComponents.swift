@@ -60,39 +60,6 @@ struct TonightInviteCard: View {
     }
 }
 
-// MARK: - Recent stubs row
-
-struct RecentStubsRow: View {
-    @ObservedObject private var store = TicketStubStore.shared
-    @State private var showStubBox = false
-
-    var body: some View {
-        if !store.stubs.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Button { showStubBox = true } label: {
-                    RowHeaderLabel(title: "Your Ticket Stubs")
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 12) {
-                        ForEach(store.stubs.prefix(10)) { stub in
-                            StubCard(stub: stub)
-                                .frame(width: 300)
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-                .scrollClipDisabled()
-            }
-            .sheet(isPresented: $showStubBox) {
-                NavigationStack { StubBoxView() }
-            }
-        }
-    }
-}
-
 /// The App Store / Apple TV style section header: a bold title with an inline
 /// chevron that signals the whole title is tappable.
 struct RowHeaderLabel: View {

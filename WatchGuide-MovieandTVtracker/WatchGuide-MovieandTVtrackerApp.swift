@@ -215,7 +215,9 @@ struct WatchGuide_MovieandTVtrackerApp: App {
             return
         }
 
-        let pathComponents = url.pathComponents.filter { $0 != "/" }
+        // `watchguide://media/tv/123` parses with "media" as the host, not the
+        // path, so put the host back in front before matching.
+        let pathComponents = ([url.host].compactMap { $0 } + url.pathComponents).filter { $0 != "/" }
         // Expected: ["media", "movie" or "tv", "123"]
         guard pathComponents.count >= 3,
               pathComponents[0] == "media",

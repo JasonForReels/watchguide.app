@@ -1,5 +1,6 @@
 import WidgetKit
 import SwiftUI
+import AppIntents
 
 // MARK: - Shared Model
 
@@ -11,6 +12,8 @@ private struct ComingSoonWidgetItem: Codable, Identifiable {
     let releaseDate: Date
     let mediaType: String
     let posterPath: String?
+    /// TMDB id. Optional so items cached by older app builds still decode.
+    let mediaId: Int?
     var posterImageData: Data?
 
     var daysUntil: Int {
@@ -40,16 +43,9 @@ private struct ComingSoonWidgetItem: Codable, Identifiable {
 
     var isMovie: Bool { mediaType == "movie" }
 
-    var posterImage: Image? {
-        guard let data = posterImageData else { return nil }
-        #if os(macOS)
-        guard let ns = NSImage(data: data) else { return nil }
-        return Image(nsImage: ns)
-        #else
-        guard let ui = UIImage(data: data) else { return nil }
-        return Image(uiImage: ui)
-        #endif
-    }
+    var posterImage: Image? { widgetImage(from: posterImageData) }
+
+    var url: URL? { WidgetShared.mediaURL(mediaType: mediaType, mediaId: mediaId) }
 }
 
 // MARK: - Minimal TMDB response models
@@ -74,103 +70,86 @@ private struct TMDBResult: Decodable {
     }
 }
 
+// MARK: - Configuration
+
+enum ComingSoonStyle: String, AppEnum {
+    case poster
+    case countdown
+    case list
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Style"
+    static let caseDisplayRepresentations: [ComingSoonStyle: DisplayRepresentation] = [
+        .poster: "Poster",
+        .countdown: "Countdown",
+        .list: "List"
+    ]
+}
+
+struct ComingSoonConfigurationIntent: WidgetConfigurationIntent {
+    static let title: LocalizedStringResource = "Coming Soon"
+    static let description = IntentDescription("Choose how upcoming releases are shown.")
+
+    @Parameter(title: "Style", default: .poster)
+    var style: ComingSoonStyle
+}
+
 // MARK: - Timeline Entry
 
 private struct ComingSoonEntry: TimelineEntry {
     let date: Date
     let items: [ComingSoonWidgetItem]
+    let style: ComingSoonStyle
     var nextItem: ComingSoonWidgetItem? { items.first }
 }
 
 // MARK: - Provider
 
-private struct ComingSoonProvider: TimelineProvider {
-    private static let appGroupID = "group.com.JasonSmith.WatchGuide-MovieandTVtracker.shared"
+private struct ComingSoonProvider: AppIntentTimelineProvider {
     private static let storageKey = "comingSoonWidgetItems"
-    private static let tmdbKeyStorageKey = "widgetTMDBApiKey"
-
-    private static var posterCacheDir: URL? {
-        FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
-            .appendingPathComponent("PosterCache", isDirectory: true)
-    }
 
     func placeholder(in context: Context) -> ComingSoonEntry {
-        ComingSoonEntry(date: Date(), items: Self.placeholders)
+        ComingSoonEntry(date: Date(), items: Self.placeholders, style: .poster)
     }
 
-    // getSnapshot MUST return quickly — disk cache only, zero network calls.
-    func getSnapshot(in context: Context, completion: @escaping (ComingSoonEntry) -> Void) {
+    // Snapshots MUST return quickly — disk cache only, zero network calls.
+    func snapshot(for configuration: ComingSoonConfigurationIntent, in context: Context) async -> ComingSoonEntry {
+        let style = configuration.style
         if context.isPreview {
-            completion(ComingSoonEntry(date: Date(), items: Self.placeholders))
-            return
+            return ComingSoonEntry(date: Date(), items: Self.placeholders, style: style)
         }
         var items = loadCachedItems()
         if items.isEmpty { items = Self.placeholders }
-        let limit = context.family == .systemSmall ? 1 : 3
-        for i in 0..<min(limit, items.count) {
+        for i in 0..<min(Self.posterLimit(style, context.family), items.count) {
             guard let path = items[i].posterPath else { continue }
-            items[i].posterImageData = readCachedPoster(for: path)
+            items[i].posterImageData = WidgetPosterCache.cached(path)
         }
-        completion(ComingSoonEntry(date: Date(), items: items))
+        return ComingSoonEntry(date: Date(), items: items, style: style)
     }
 
-    // getTimeline does the full async work — TMDB fetch + poster downloads.
-    func getTimeline(in context: Context, completion: @escaping (Timeline<ComingSoonEntry>) -> Void) {
-        Task {
-            var items = await resolvedItems()
-            await attachPosters(to: &items, limit: context.family == .systemSmall ? 1 : 3)
-            let entry = ComingSoonEntry(date: Date(), items: items)
-            let timeline = Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(6 * 3600)))
-            completion(timeline)
-        }
-    }
-
-    // MARK: - Poster helpers
-
-    private func attachPosters(to items: inout [ComingSoonWidgetItem], limit: Int) async {
-        prepareCacheDir()
-        for i in 0..<min(limit, items.count) {
+    // The timeline does the full async work — TMDB fetch + poster downloads.
+    func timeline(for configuration: ComingSoonConfigurationIntent, in context: Context) async -> Timeline<ComingSoonEntry> {
+        var items = await resolvedItems()
+        for i in 0..<min(Self.posterLimit(configuration.style, context.family), items.count) {
             guard let path = items[i].posterPath else { continue }
-            if let cached = readCachedPoster(for: path) {
-                items[i].posterImageData = cached
-            } else if let downloaded = await downloadPoster(path: path) {
-                writeCachedPoster(downloaded, for: path)
-                items[i].posterImageData = downloaded
-            }
+            items[i].posterImageData = await WidgetPosterCache.load(path)
         }
+        let entry = ComingSoonEntry(date: Date(), items: items, style: configuration.style)
+        // Refresh just after midnight so "Tomorrow" becomes "Today" on time.
+        let midnight = Calendar.current.startOfDay(for: Date().addingTimeInterval(86400))
+        let next = min(Date().addingTimeInterval(6 * 3600), midnight.addingTimeInterval(60))
+        return Timeline(entries: [entry], policy: .after(next))
     }
 
-    private func downloadPoster(path: String) async -> Data? {
-        guard let url = URL(string: "https://image.tmdb.org/t/p/w342\(path)"),
-              let (data, response) = try? await URLSession.shared.data(from: url),
-              (response as? HTTPURLResponse)?.statusCode == 200,
-              !data.isEmpty else { return nil }
-        return data
-    }
-
-    // MARK: - Disk cache
-
-    private func prepareCacheDir() {
-        guard let dir = Self.posterCacheDir else { return }
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    }
-
-    private func cacheURL(for posterPath: String) -> URL? {
-        let safe = posterPath
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            .replacingOccurrences(of: "/", with: "_")
-        return Self.posterCacheDir?.appendingPathComponent(safe)
-    }
-
-    private func readCachedPoster(for posterPath: String) -> Data? {
-        guard let url = cacheURL(for: posterPath) else { return nil }
-        return try? Data(contentsOf: url)
-    }
-
-    private func writeCachedPoster(_ data: Data, for posterPath: String) {
-        guard let url = cacheURL(for: posterPath) else { return }
-        try? data.write(to: url)
+    /// How many posters each layout actually draws — no point downloading more.
+    private static func posterLimit(_ style: ComingSoonStyle, _ family: WidgetFamily) -> Int {
+        switch (style, family) {
+        case (_, .accessoryCircular), (_, .accessoryRectangular), (_, .accessoryInline): return 0
+        case (.poster, .systemSmall): return 1
+        case (.poster, _): return 3
+        case (.countdown, _): return 1
+        case (.list, .systemSmall): return 0
+        case (.list, _): return 4
+        }
     }
 
     // MARK: - Data
@@ -182,8 +161,7 @@ private struct ComingSoonProvider: TimelineProvider {
     }
 
     private func loadCachedItems() -> [ComingSoonWidgetItem] {
-        guard let defaults = UserDefaults(suiteName: Self.appGroupID),
-              let data = defaults.data(forKey: Self.storageKey),
+        guard let data = WidgetShared.defaults?.data(forKey: Self.storageKey),
               let decoded = try? JSONDecoder().decode([ComingSoonWidgetItem].self, from: data)
         else { return [] }
         let today = Calendar.current.startOfDay(for: Date())
@@ -191,8 +169,7 @@ private struct ComingSoonProvider: TimelineProvider {
     }
 
     private func fetchFromTMDB() async -> [ComingSoonWidgetItem] {
-        guard let defaults = UserDefaults(suiteName: Self.appGroupID),
-              let apiKey = defaults.string(forKey: Self.tmdbKeyStorageKey),
+        guard let apiKey = WidgetShared.defaults?.string(forKey: WidgetShared.tmdbKeyStorageKey),
               !apiKey.isEmpty else { return [] }
 
         let df = DateFormatter()
@@ -209,7 +186,8 @@ private struct ComingSoonProvider: TimelineProvider {
                       let date = df.date(from: dateStr), date >= tomorrow else { continue }
                 items.append(ComingSoonWidgetItem(
                     id: "movie-\(movie.id)", title: movie.title ?? movie.name ?? "Unknown",
-                    subtitle: nil, releaseDate: date, mediaType: "movie", posterPath: movie.posterPath
+                    subtitle: nil, releaseDate: date, mediaType: "movie",
+                    posterPath: movie.posterPath, mediaId: movie.id
                 ))
             }
         }
@@ -222,7 +200,8 @@ private struct ComingSoonProvider: TimelineProvider {
                       let date = df.date(from: dateStr), date >= tomorrow else { continue }
                 items.append(ComingSoonWidgetItem(
                     id: "tv-\(show.id)", title: show.name ?? show.title ?? "Unknown",
-                    subtitle: nil, releaseDate: date, mediaType: "tv", posterPath: show.posterPath
+                    subtitle: nil, releaseDate: date, mediaType: "tv",
+                    posterPath: show.posterPath, mediaId: show.id
                 ))
             }
         }
@@ -233,16 +212,18 @@ private struct ComingSoonProvider: TimelineProvider {
     private static var placeholders: [ComingSoonWidgetItem] {
         [
             ComingSoonWidgetItem(id: "ph1", title: "Upcoming Movie", subtitle: nil,
-                releaseDate: Date().addingTimeInterval(7 * 86400), mediaType: "movie", posterPath: nil),
+                releaseDate: Date().addingTimeInterval(7 * 86400), mediaType: "movie", posterPath: nil, mediaId: nil),
             ComingSoonWidgetItem(id: "ph2", title: "New TV Series", subtitle: "Season 2",
-                releaseDate: Date().addingTimeInterval(14 * 86400), mediaType: "tv", posterPath: nil),
+                releaseDate: Date().addingTimeInterval(14 * 86400), mediaType: "tv", posterPath: nil, mediaId: nil),
             ComingSoonWidgetItem(id: "ph3", title: "Coming Soon", subtitle: nil,
-                releaseDate: Date().addingTimeInterval(30 * 86400), mediaType: "movie", posterPath: nil),
+                releaseDate: Date().addingTimeInterval(30 * 86400), mediaType: "movie", posterPath: nil, mediaId: nil),
+            ComingSoonWidgetItem(id: "ph4", title: "Season Premiere", subtitle: "Season 3",
+                releaseDate: Date().addingTimeInterval(45 * 86400), mediaType: "tv", posterPath: nil, mediaId: nil),
         ]
     }
 }
 
-// MARK: - Small Widget
+// MARK: - Poster style
 
 private struct ComingSoonSmallView: View {
     let entry: ComingSoonEntry
@@ -272,36 +253,19 @@ private struct ComingSoonSmallView: View {
                 }
                 .padding(10)
             }
-            .widgetURL(URL(string: "watchguide://countdown"))
+            .widgetURL(item.url ?? comingSoonURL)
         } else {
             emptyState
         }
     }
 }
 
-// MARK: - Medium Widget
-
 private struct ComingSoonMediumView: View {
     let entry: ComingSoonEntry
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                Image(systemName: "calendar.badge.clock")
-                    .font(.caption)
-                    .foregroundColor(.accentColor)
-                Text("Coming Soon")
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.accentColor)
-                Spacer()
-                if let first = entry.items.first {
-                    Text("Next: \(first.countdownText)")
-                        .font(.caption2)
-                        .foregroundColor(first.urgencyColor)
-                        .fontWeight(.medium)
-                }
-            }
+            ComingSoonHeader(next: entry.nextItem)
 
             Divider()
 
@@ -315,7 +279,7 @@ private struct ComingSoonMediumView: View {
             } else {
                 HStack(alignment: .top, spacing: 8) {
                     ForEach(Array(entry.items.prefix(3))) { item in
-                        MediumItemCard(item: item)
+                        linked(item.url) { MediumItemCard(item: item) }
                     }
                     if entry.items.count < 3 {
                         ForEach(0..<(3 - entry.items.count), id: \.self) { _ in
@@ -326,7 +290,7 @@ private struct ComingSoonMediumView: View {
             }
         }
         .padding(12)
-        .widgetURL(URL(string: "watchguide://countdown"))
+        .widgetURL(comingSoonURL)
     }
 }
 
@@ -335,21 +299,9 @@ private struct MediumItemCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ZStack {
-                if let img = item.posterImage {
-                    img.resizable()
-                        .aspectRatio(2 / 3, contentMode: .fill)
-                        .clipShape(RoundedRectangle(cornerRadius: 5))
-                } else {
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(Color.accentColor.opacity(0.25))
-                    Image(systemName: item.isMovie ? "film" : "tv")
-                        .foregroundColor(.accentColor.opacity(0.6))
-                        .font(.title3)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .aspectRatio(2 / 3, contentMode: .fit)
+            PosterThumb(item: item, cornerRadius: 5)
+                .frame(maxWidth: .infinity)
+                .aspectRatio(2 / 3, contentMode: .fit)
 
             Text(item.title)
                 .font(.system(size: 9, weight: .medium))
@@ -361,6 +313,186 @@ private struct MediumItemCard: View {
                 .foregroundColor(item.urgencyColor)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Countdown style
+
+private struct CountdownSmallView: View {
+    let entry: ComingSoonEntry
+
+    var body: some View {
+        if let item = entry.nextItem {
+            VStack(alignment: .leading, spacing: 0) {
+                Label("COMING SOON", systemImage: item.isMovie ? "film" : "tv")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.accentColor)
+                Spacer(minLength: 0)
+                CountdownFigure(item: item, size: 50)
+                Text(item.title)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .lineLimit(2)
+                    .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .widgetURL(item.url ?? comingSoonURL)
+        } else {
+            emptyState
+        }
+    }
+}
+
+private struct CountdownMediumView: View {
+    let entry: ComingSoonEntry
+
+    var body: some View {
+        if let item = entry.nextItem {
+            HStack(spacing: 14) {
+                PosterThumb(item: item, cornerRadius: 8)
+                    .aspectRatio(2 / 3, contentMode: .fit)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.headline)
+                        .lineLimit(2)
+                    if let subtitle = item.subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    CountdownFigure(item: item, size: 40)
+                    Text(item.releaseDate, format: .dateTime.weekday(.abbreviated).day().month(.abbreviated))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    if entry.items.count > 1 {
+                        let after = entry.items[1]
+                        Text("Then \(after.title) · \(after.countdownText)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .padding(.top, 2)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .widgetURL(item.url ?? comingSoonURL)
+        } else {
+            emptyState
+        }
+    }
+}
+
+/// The big number: "12 days", "1 day", or just "Today".
+private struct CountdownFigure: View {
+    let item: ComingSoonWidgetItem
+    let size: CGFloat
+
+    var body: some View {
+        let days = max(item.daysUntil, 0)
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            if days == 0 {
+                Text("Today")
+                    .font(.system(size: size * 0.7, weight: .heavy, design: .rounded))
+                    .foregroundColor(item.urgencyColor)
+            } else {
+                Text("\(days)")
+                    .font(.system(size: size, weight: .heavy, design: .rounded))
+                    .foregroundColor(item.urgencyColor)
+                    .contentTransition(.numericText())
+                Text(days == 1 ? "day" : "days")
+                    .font(.system(size: size * 0.3, weight: .semibold, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
+    }
+}
+
+// MARK: - List style
+
+private struct ListSmallView: View {
+    let entry: ComingSoonEntry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ComingSoonHeader(next: nil)
+            if entry.items.isEmpty {
+                Spacer()
+                Text("Open WatchGuide to load releases")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Spacer()
+            } else {
+                ForEach(Array(entry.items.prefix(3))) { item in
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(item.title)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .lineLimit(1)
+                        Text(item.countdownText)
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundColor(item.urgencyColor)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .widgetURL(comingSoonURL)
+    }
+}
+
+private struct ListMediumView: View {
+    let entry: ComingSoonEntry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ComingSoonHeader(next: nil)
+            if entry.items.isEmpty {
+                Spacer()
+                Text("Open WatchGuide to load releases")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                Spacer()
+            } else {
+                ForEach(Array(entry.items.prefix(4))) { item in
+                    linked(item.url) { ListRow(item: item) }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .widgetURL(comingSoonURL)
+    }
+}
+
+private struct ListRow: View {
+    let item: ComingSoonWidgetItem
+
+    var body: some View {
+        HStack(spacing: 8) {
+            PosterThumb(item: item, cornerRadius: 3)
+                .frame(width: 18, height: 27)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(item.title)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                Text(item.releaseDate, format: .dateTime.weekday(.abbreviated).day().month(.abbreviated))
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
+            Spacer(minLength: 4)
+            Text(item.countdownText)
+                .font(.caption2)
+                .fontWeight(.bold)
+                .foregroundColor(item.urgencyColor)
+        }
     }
 }
 
@@ -379,6 +511,7 @@ private struct ComingSoonRectangularView: View {
                 }
                 Spacer()
             }
+            .widgetURL(item.url ?? comingSoonURL)
         } else {
             Label("Coming Soon", systemImage: "calendar.badge.clock").font(.caption)
         }
@@ -397,7 +530,7 @@ private struct ComingSoonCircularView: View {
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .minimumScaleFactor(0.5)
                         .lineLimit(1)
-                    Text("days")
+                    Text(item.daysUntil == 1 ? "day" : "days")
                         .font(.system(size: 7, weight: .medium))
                         .textCase(.uppercase)
                 }
@@ -405,6 +538,7 @@ private struct ComingSoonCircularView: View {
                 Image(systemName: "popcorn.fill").font(.callout)
             }
         }
+        .widgetURL(entry.nextItem?.url ?? comingSoonURL)
     }
 }
 
@@ -421,6 +555,60 @@ private struct ComingSoonInlineView: View {
 }
 
 // MARK: - Helpers
+
+private let comingSoonURL = URL(string: "watchguide://countdown")
+
+private struct ComingSoonHeader: View {
+    let next: ComingSoonWidgetItem?
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "calendar.badge.clock")
+                .font(.caption)
+            Text("Coming Soon")
+                .font(.caption)
+                .fontWeight(.bold)
+            Spacer()
+            if let next {
+                Text("Next: \(next.countdownText)")
+                    .font(.caption2)
+                    .foregroundColor(next.urgencyColor)
+                    .fontWeight(.medium)
+            }
+        }
+        .foregroundColor(.accentColor)
+    }
+}
+
+private struct PosterThumb: View {
+    let item: ComingSoonWidgetItem
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        ZStack {
+            if let img = item.posterImage {
+                img.resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Color.accentColor.opacity(0.25)
+                Image(systemName: item.isMovie ? "film" : "tv")
+                    .foregroundColor(.accentColor.opacity(0.6))
+                    .font(.caption)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+    }
+}
+
+/// Wraps a sub-view in a `Link` when it has somewhere specific to go.
+@ViewBuilder
+private func linked<Content: View>(_ url: URL?, @ViewBuilder _ content: () -> Content) -> some View {
+    if let url {
+        Link(destination: url, label: content)
+    } else {
+        content()
+    }
+}
 
 private func posterBackground(_ item: ComingSoonWidgetItem) -> some View {
     Group {
@@ -440,6 +628,7 @@ private var emptyState: some View {
             .font(.caption2).foregroundColor(.secondary).multilineTextAlignment(.center)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .widgetURL(comingSoonURL)
 }
 
 // MARK: - Entry View Router
@@ -450,12 +639,27 @@ private struct ComingSoonEntryView: View {
 
     var body: some View {
         switch family {
-        case .systemSmall:   ComingSoonSmallView(entry: entry)
-        case .systemMedium:  ComingSoonMediumView(entry: entry)
         case .accessoryRectangular: ComingSoonRectangularView(entry: entry)
         case .accessoryCircular:    ComingSoonCircularView(entry: entry)
         case .accessoryInline:      ComingSoonInlineView(entry: entry)
-        default:             ComingSoonMediumView(entry: entry)
+        default:
+            homeScreenView
+                // The background is always dark, so text must be too — otherwise
+                // Light Mode draws black titles on deep purple.
+                .environment(\.colorScheme, .dark)
+        }
+    }
+
+    @ViewBuilder
+    private var homeScreenView: some View {
+        let small = family == .systemSmall
+        switch entry.style {
+        case .poster:
+            if small { ComingSoonSmallView(entry: entry) } else { ComingSoonMediumView(entry: entry) }
+        case .countdown:
+            if small { CountdownSmallView(entry: entry) } else { CountdownMediumView(entry: entry) }
+        case .list:
+            if small { ListSmallView(entry: entry) } else { ListMediumView(entry: entry) }
         }
     }
 }
@@ -466,18 +670,20 @@ struct ComingSoonWidget: Widget {
     static let kind = "com.JasonSmith.WatchGuide-MovieandTVtracker.comingsoon"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: Self.kind, provider: ComingSoonProvider()) { entry in
+        // Same kind as the old StaticConfiguration, so widgets already on
+        // people's Home Screens carry over with the default Poster style.
+        AppIntentConfiguration(kind: Self.kind, intent: ComingSoonConfigurationIntent.self, provider: ComingSoonProvider()) { entry in
             ComingSoonEntryView(entry: entry)
                 .containerBackground(for: .widget) {
-                    if let item = entry.nextItem, item.posterImage != nil {
+                    if entry.style == .poster, let item = entry.nextItem, item.posterImage != nil {
                         Color.black
                     } else {
-                        Color(red: 0.10, green: 0.07, blue: 0.22)
+                        widgetBrandBackground
                     }
                 }
         }
         .configurationDisplayName("Coming Soon")
-        .description("See what's releasing soon — movies and TV shows.")
+        .description("See what's releasing soon. Touch and hold, then Edit Widget to change the style.")
         .supportedFamilies([
             .systemSmall,
             .systemMedium,

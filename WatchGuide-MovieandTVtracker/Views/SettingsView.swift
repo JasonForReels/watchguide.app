@@ -4,6 +4,9 @@
 //
 
 import SwiftUI
+#if os(iOS)
+import RevenueCatUI
+#endif
 import AuthenticationServices
 #if canImport(UIKit)
 import UIKit
@@ -41,6 +44,7 @@ struct SettingsView: View {
     @State private var showEditProfile = false
     @State private var showProfilePicker = false
     @State private var scoutIAPStatusMessage: String?
+    @State private var showCustomerCenter = false
     @State private var traktStatusMessage: String?
     
     private let communityURLString = "https://discord.watchguide.app"
@@ -206,6 +210,16 @@ struct SettingsView: View {
                         }
                     }
 
+                    #if os(iOS)
+                    // RevenueCat Customer Center: cancel, change plan, request a refund.
+                    if scoutSubscription.isProActive {
+                        Button("Manage Subscription") { showCustomerCenter = true }
+                            .presentCustomerCenter(isPresented: $showCustomerCenter) {
+                                Task { await scoutSubscription.refreshEntitlements() }
+                            }
+                    }
+                    #endif
+
                     Button("Restore Purchases") {
                         Task {
                             await scoutSubscription.restorePurchases()
@@ -234,8 +248,8 @@ struct SettingsView: View {
                         Text("WatchGuide Pro")
                             .font(.subheadline)
                             .fontWeight(.semibold)
-                        Text("\(scoutSubscription.monthlyProduct?.displayPrice ?? "$4.99")/month • \(scoutSubscription.annualProduct?.displayPrice ?? "$29.99")/year • \(scoutSubscription.lifetimeProduct?.displayPrice ?? "$79.99") lifetime")
-                        Text("Payment is charged to your Apple Account at confirmation. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period. Lifetime is a one-time purchase and does not renew. Manage or cancel in Apple Account Settings.")
+                        Text("\(scoutSubscription.monthlyProduct?.localizedPriceString ?? "$4.99")/month • \(scoutSubscription.annualProduct?.localizedPriceString ?? "$29.99")/year\(scoutSubscription.lifetimeProduct.map { " • \($0.localizedPriceString) lifetime" } ?? "")")
+                        Text("Payment is charged to your Apple Account at confirmation. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period.\(scoutSubscription.lifetimeProduct != nil ? " Lifetime is a one-time purchase and does not renew." : "") Manage or cancel in Apple Account Settings.")
                             .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -613,12 +627,15 @@ struct SettingsView: View {
                 Toggle("Auto-play Trailers", isOn: autoPlayTrailersBinding)
                 Toggle("Mute Trailers on Autoplay", isOn: autoPlayTrailersMutedBinding)
                 Toggle("Show Trailers in Media Details", isOn: showTrailersInMediaDetailBinding)
-                NavigationLink(destination: TrailerAddonsSettingsView(addons: $settings.trailerAddons)) {
-                    HStack {
-                        Text("Add-ons")
-                        Spacer()
-                        Text("\(settings.trailerAddons.filter { $0.isEnabled }.count) enabled")
-                            .foregroundColor(.secondary)
+                // Add-ons (Trailerio) are internal-only: Debug builds with the Admin toggle on.
+                if scoutSubscription.isTrailerAddonsAvailable {
+                    NavigationLink(destination: TrailerAddonsSettingsView(addons: $settings.trailerAddons)) {
+                        HStack {
+                            Text("Add-ons")
+                            Spacer()
+                            Text("\(settings.trailerAddons.filter { $0.isEnabled }.count) enabled")
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
                 
@@ -702,6 +719,20 @@ struct SettingsView: View {
             
             // Home Screen Customization
             Section("Home Screen") {
+                NavigationLink(destination: ThemePacksView()) {
+                    HStack {
+                        Image(systemName: "paintpalette")
+                            .foregroundColor(.orange)
+                            .frame(width: 24)
+                        Text("Marquee Themes")
+                        Spacer()
+                        Text(ThemePackStore.shared.activeTheme.name)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .foregroundColor(.primary)
+                }
+
                 NavigationLink(destination: BrowseRowsSettingsView()) {
                     HStack {
                         Image(systemName: "list.bullet.rectangle")
@@ -1251,17 +1282,20 @@ struct SettingsView: View {
                         Toggle("Natural Language Search", isOn: $settings.useAppleIntelligenceSearch)
                         Toggle("Compact Mode", isOn: $settings.compactMode)
                         Toggle("Ambient Mode", isOn: $settings.ambientModeEnabled)
-                        let hasEnabledAddon = settings.trailerAddons.contains { $0.isEnabled }
-                        Toggle("Auto-play Trailers", isOn: autoPlayTrailersBinding)
-                            .disabled(!hasEnabledAddon)
-                        Toggle("Mute Trailers on Autoplay", isOn: autoPlayTrailersMutedBinding)
-                            .disabled(!hasEnabledAddon)
-                        Toggle("Show Trailers in Media Details", isOn: showTrailersInMediaDetailBinding)
-                            .disabled(!hasEnabledAddon)
-                        if !hasEnabledAddon {
-                            Text("Enable a trailer add-on in Home Screen › Add-ons to use trailer playback.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                        // tvOS trailers come only from add-ons, which are internal-only.
+                        if scoutSubscription.isTrailerAddonsAvailable {
+                            let hasEnabledAddon = settings.trailerAddons.contains { $0.isEnabled }
+                            Toggle("Auto-play Trailers", isOn: autoPlayTrailersBinding)
+                                .disabled(!hasEnabledAddon)
+                            Toggle("Mute Trailers on Autoplay", isOn: autoPlayTrailersMutedBinding)
+                                .disabled(!hasEnabledAddon)
+                            Toggle("Show Trailers in Media Details", isOn: showTrailersInMediaDetailBinding)
+                                .disabled(!hasEnabledAddon)
+                            if !hasEnabledAddon {
+                                Text("Enable a trailer add-on in Home Screen › Add-ons to use trailer playback.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                         Toggle("Kids Profile", isOn: $settings.isKidsProfile)
                         Toggle("Include Adult Content (Browse)", isOn: $settings.includeAdult)
@@ -1278,8 +1312,10 @@ struct SettingsView: View {
                         NavigationLink("Hub Customisation") {
                             CustomJSONHubsSettingsView()
                         }
-                        NavigationLink("Add-ons") {
-                            TrailerAddonsSettingsView(addons: $settings.trailerAddons)
+                        if scoutSubscription.isTrailerAddonsAvailable {
+                            NavigationLink("Add-ons") {
+                                TrailerAddonsSettingsView(addons: $settings.trailerAddons)
+                            }
                         }
                     }
 
