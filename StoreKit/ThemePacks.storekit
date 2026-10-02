@@ -1,0 +1,137 @@
+{
+  "identifier": "AD4CDE94-74FA-4C0E-BCD5-3E10720F1483",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "9.99",
+      "familyShareable": true,
+      "internalID": "2059466916",
+      "localizations": [
+        {
+          "description": "Marquee Mode Cinema Pack themes",
+          "displayName": "Cinema Pack",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.JasonSmith.WatchGuideMovieandTVtracker.themes.cinema",
+      "referenceName": "Themes \u2013 Cinema Pack",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "5.99",
+      "familyShareable": true,
+      "internalID": "5064710460",
+      "localizations": [
+        {
+          "description": "Marquee Mode Holidays themes",
+          "displayName": "Holidays",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.JasonSmith.WatchGuideMovieandTVtracker.themes.holidays",
+      "referenceName": "Themes \u2013 Holidays",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "5.99",
+      "familyShareable": true,
+      "internalID": "1498189971",
+      "localizations": [
+        {
+          "description": "Marquee Mode Spring themes",
+          "displayName": "Spring",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.JasonSmith.WatchGuideMovieandTVtracker.themes.spring",
+      "referenceName": "Themes \u2013 Spring",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "5.99",
+      "familyShareable": true,
+      "internalID": "1824166211",
+      "localizations": [
+        {
+          "description": "Marquee Mode Summer themes",
+          "displayName": "Summer",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.JasonSmith.WatchGuideMovieandTVtracker.themes.summer",
+      "referenceName": "Themes \u2013 Summer",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "5.99",
+      "familyShareable": true,
+      "internalID": "2947697598",
+      "localizations": [
+        {
+          "description": "Marquee Mode Autumn themes",
+          "displayName": "Autumn",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.JasonSmith.WatchGuideMovieandTVtracker.themes.autumn",
+      "referenceName": "Themes \u2013 Autumn",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "5.99",
+      "familyShareable": true,
+      "internalID": "2108434711",
+      "localizations": [
+        {
+          "description": "Marquee Mode Winter themes",
+          "displayName": "Winter",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.JasonSmith.WatchGuideMovieandTVtracker.themes.winter",
+      "referenceName": "Themes \u2013 Winter",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "14.99",
+      "familyShareable": true,
+      "internalID": "1725317745",
+      "localizations": [
+        {
+          "description": "Marquee Mode Seasons Collection themes",
+          "displayName": "Seasons Collection",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.JasonSmith.WatchGuideMovieandTVtracker.themes.seasons",
+      "referenceName": "Themes \u2013 Seasons Collection",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "24.99",
+      "familyShareable": true,
+      "internalID": "9762100539",
+      "localizations": [
+        {
+          "description": "Marquee Mode Everything themes",
+          "displayName": "Everything",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.JasonSmith.WatchGuideMovieandTVtracker.themes.everything",
+      "referenceName": "Themes \u2013 Everything",
+      "type": "NonConsumable"
+    }
+  ],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_storeKitErrors": []
+  },
+  "subscriptionGroups": [],
+  "version": {
+    "major": 4,
+    "minor": 0
+  }
+}

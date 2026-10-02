@@ -12,6 +12,20 @@ struct ComingSoonWidgetItem: Codable {
     let releaseDate: Date
     let mediaType: String   // "movie" | "tv"
     let posterPath: String?
+    let mediaId: Int
+}
+
+// Next episode for one in-progress show.
+struct UpNextWidgetItem: Codable {
+    let id: String
+    let mediaId: Int
+    let title: String
+    let posterPath: String?
+    let seasonNumber: Int
+    let episodeNumber: Int
+    let episodeTitle: String?
+    let airDate: String?
+    let lastUpdated: Date
 }
 
 final class WidgetDataService {
@@ -20,6 +34,9 @@ final class WidgetDataService {
 
     private let appGroupID = "group.com.JasonSmith.WatchGuide-MovieandTVtracker.shared"
     private let comingSoonKey = "comingSoonWidgetItems"
+    private let upNextKey = "upNextWidgetItems"
+    private let comingSoonKind = "com.JasonSmith.WatchGuide-MovieandTVtracker.comingsoon"
+    private let upNextKind = "com.JasonSmith.WatchGuide-MovieandTVtracker.upnext"
     private let tmdbKeyStorageKey = "widgetTMDBApiKey"
 
     // Called on app launch — pushes the TMDB key into the shared container so
@@ -40,7 +57,8 @@ final class WidgetDataService {
                 subtitle: $0.subtitle,
                 releaseDate: $0.releaseDate,
                 mediaType: $0.mediaType.rawValue,
-                posterPath: $0.mediaItem.posterPath
+                posterPath: $0.mediaItem.posterPath,
+                mediaId: $0.mediaItem.id
             )
         }
 
@@ -48,12 +66,40 @@ final class WidgetDataService {
               let data = try? JSONEncoder().encode(Array(widgetItems)) else { return }
 
         defaults.set(data, forKey: comingSoonKey)
-        reloadWidget()
+        reloadWidget(kind: comingSoonKind)
     }
 
-    private func reloadWidget() {
+    // Called whenever StorageService.continueWatching changes. Skips the write
+    // and reload when nothing the widget shows has changed, so routine saves
+    // don't burn the widget's reload budget.
+    func syncUpNextItems(_ items: [ContinueWatchingItem]) {
+        let widgetItems: [UpNextWidgetItem] = items.compactMap { item in
+            guard item.status == .inProgress, item.show.mediaType == .tv,
+                  let next = item.nextEpisode else { return nil }
+            return UpNextWidgetItem(
+                id: item.id,
+                mediaId: item.show.mediaId,
+                title: item.show.title,
+                posterPath: item.show.posterPath,
+                seasonNumber: next.seasonNumber,
+                episodeNumber: next.episodeNumber,
+                episodeTitle: next.title,
+                airDate: next.airDate,
+                lastUpdated: item.lastUpdated
+            )
+        }
+
+        guard let defaults = UserDefaults(suiteName: appGroupID),
+              let data = try? JSONEncoder().encode(Array(widgetItems.prefix(10))),
+              data != defaults.data(forKey: upNextKey) else { return }
+
+        defaults.set(data, forKey: upNextKey)
+        reloadWidget(kind: upNextKind)
+    }
+
+    private func reloadWidget(kind: String) {
         #if canImport(WidgetKit)
-        WidgetCenter.shared.reloadTimelines(ofKind: "com.JasonSmith.WatchGuide-MovieandTVtracker.comingsoon")
+        WidgetCenter.shared.reloadTimelines(ofKind: kind)
         #endif
     }
 }

@@ -18,7 +18,9 @@ class StorageService: ObservableObject {
     @Published private(set) var wantToWatch: [SavedMediaItem] = []
     @Published private(set) var watched: [SavedMediaItem] = []
     @Published private(set) var liked: [SavedMediaItem] = []
-    @Published private(set) var continueWatching: [ContinueWatchingItem] = []
+    @Published private(set) var continueWatching: [ContinueWatchingItem] = [] {
+        didSet { WidgetDataService.shared.syncUpNextItems(continueWatching) }
+    }
     @Published private(set) var watchSessions: [WatchSession] = []
     @Published private(set) var watchHistory: [WatchHistoryEntry] = []
     @Published private(set) var customLists: [CustomList] = []

@@ -4,6 +4,10 @@
 //
 
 import SwiftUI
+#if os(iOS)
+import RevenueCat
+import RevenueCatUI
+#endif
 
 // MARK: - Paywall Context
 
@@ -24,7 +28,37 @@ private enum ProPlan: Hashable {
 
 // MARK: - Paywall
 
+/// The paywall every upgrade entry point presents. Once the current RevenueCat offering
+/// has a paywall published in the dashboard it is shown, so copy, layout and pricing can
+/// change without an app update. Until then (and on platforms RevenueCatUI does not
+/// cover) the built-in paywall is used.
 struct WGSubscriptionPaywallView: View {
+    var context: PaywallContext = .unlimited
+    @ObservedObject private var subscription = ScoutSubscriptionService.shared
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        #if os(iOS)
+        if let offering = subscription.currentOffering, offering.hasPaywall, !subscription.isProActive {
+            PaywallView(offering: offering, displayCloseButton: true)
+                .onPurchaseCompleted { _ in dismiss() }
+                .onRestoreCompleted { info in
+                    if info.entitlements[ScoutSubscriptionService.proEntitlementID]?.isActive == true {
+                        dismiss()
+                    }
+                }
+        } else {
+            WGBuiltInPaywallView(context: context)
+        }
+        #else
+        WGBuiltInPaywallView(context: context)
+        #endif
+    }
+}
+
+// MARK: - Built-in Paywall
+
+private struct WGBuiltInPaywallView: View {
     var context: PaywallContext = .unlimited
     @ObservedObject private var subscription = ScoutSubscriptionService.shared
     @Environment(\.dismiss) private var dismiss
@@ -34,7 +68,7 @@ struct WGSubscriptionPaywallView: View {
     // MARK: - Fallback Prices
     //
     // Shown only until StoreKit returns real localized prices. Keep these in step with
-    // App Store Connect, and never present one as final — `displayPrice` always wins.
+    // App Store Connect, and never present one as final — the live App Store price always wins.
 
     private func fallback(_ usd: String, _ zar: String, _ gbp: String, _ eur: String) -> String {
         switch Locale.current.currency?.identifier {
@@ -46,15 +80,15 @@ struct WGSubscriptionPaywallView: View {
     }
 
     private var monthlyPrice: String {
-        subscription.monthlyProduct?.displayPrice ?? fallback("$4.99", "R44.99", "£4.49", "€4.99")
+        subscription.monthlyProduct?.localizedPriceString ?? fallback("$4.99", "R44.99", "£4.49", "€4.99")
     }
 
     private var annualPrice: String {
-        subscription.annualProduct?.displayPrice ?? fallback("$29.99", "R249", "£26.99", "€29.99")
+        subscription.annualProduct?.localizedPriceString ?? fallback("$29.99", "R249", "£26.99", "€29.99")
     }
 
     private var lifetimePrice: String {
-        subscription.lifetimeProduct?.displayPrice ?? fallback("$79.99", "R699", "£69.99", "€79.99")
+        subscription.lifetimeProduct?.localizedPriceString ?? fallback("$79.99", "R699", "£69.99", "€79.99")
     }
 
     private var showsTrial: Bool {
@@ -197,11 +231,13 @@ struct WGSubscriptionPaywallView: View {
                     price: monthlyPrice,
                     period: "per month",
                     badge: nil)
-            planRow(.lifetime,
-                    title: "Lifetime",
-                    price: lifetimePrice,
-                    period: "one-time payment",
-                    badge: nil)
+            if subscription.lifetimeProduct != nil {
+                planRow(.lifetime,
+                        title: "Lifetime",
+                        price: lifetimePrice,
+                        period: "one-time payment",
+                        badge: nil)
+            }
         }
         .padding(.horizontal, 16)
     }

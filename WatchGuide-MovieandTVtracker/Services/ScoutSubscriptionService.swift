@@ -1,5 +1,5 @@
 import Foundation
-import StoreKit
+import RevenueCat
 
 @MainActor
 final class ScoutSubscriptionService: ObservableObject {
@@ -13,15 +13,15 @@ final class ScoutSubscriptionService: ObservableObject {
 
     /// WatchGuide Pro, monthly. Same subscription group as the retired products.
     static let proMonthlyProductIDs = [
-        "com.JasonSmith.WatchGuide-MovieandTVtracker.pro.monthly"
+        "com.JasonSmith.WatchGuideMovieandTVtracker.pro.monthly"
     ]
     /// WatchGuide Pro, annual. Carries the 7-day free trial as an introductory offer.
     static let proAnnualProductIDs = [
-        "com.JasonSmith.WatchGuide-MovieandTVtracker.pro.annual"
+        "com.JasonSmith.WatchGuideMovieandTVtracker.pro.annual"
     ]
     /// WatchGuide Pro, lifetime. A non-consumable, so it sits outside the subscription group.
     static let proLifetimeProductIDs = [
-        "com.JasonSmith.WatchGuide-MovieandTVtracker.pro.lifetime"
+        "com.JasonSmith.WatchGuideMovieandTVtracker.pro.lifetime"
     ]
 
     /// Retired from sale but still honored — **never remove an ID from this list.**
@@ -41,11 +41,45 @@ final class ScoutSubscriptionService: ObservableObject {
         "com.JasonSmith.WatchGuideMovieandTVtracker.wg_plus_monthly"
     ]
 
+    /// Lifetime is not on sale yet. Flip this once the product exists in App Store Connect;
+    /// the paywall and Settings show the lifetime option whenever its product loads.
+    static let isLifetimeOnSale = false
+
     /// Everything a new customer can buy today.
-    static let purchasableProductIDs = proMonthlyProductIDs + proAnnualProductIDs + proLifetimeProductIDs
+    static let purchasableProductIDs = proMonthlyProductIDs + proAnnualProductIDs
+        + (isLifetimeOnSale ? proLifetimeProductIDs : [])
 
     /// Everything that grants Pro access, current or retired.
-    static let proEntitlementProductIDs = purchasableProductIDs + legacyEntitlementProductIDs
+    static let proEntitlementProductIDs = proMonthlyProductIDs + proAnnualProductIDs
+        + proLifetimeProductIDs + legacyEntitlementProductIDs
+
+    // MARK: - RevenueCat
+
+    /// Public SDK key for the App Store app in the WatchGuide RevenueCat project.
+    private static let appStoreAPIKey = "appl_tzYinluItTHNUuHHWiiGtVfVLIS"
+    /// RevenueCat Test Store key: simulated purchases, no App Store account needed.
+    /// Debug only — the SDK deliberately crashes a Release build configured with it.
+    private static let testStoreAPIKey = "test_XJMNFMOVgDFjelJsNOtHKBpLuLn"
+    private static var revenueCatAPIKey: String {
+        #if DEBUG
+        return testStoreAPIKey
+        #else
+        return appStoreAPIKey
+        #endif
+    }
+    /// The entitlement every Pro product, current or retired, is attached to in RevenueCat.
+    static let proEntitlementID = "watchguide_pro"
+    /// Set once the pre-RevenueCat App Store purchases have been sent to RevenueCat.
+    private static let didSyncLegacyPurchasesKey = "wg_revenuecat_legacy_purchases_synced"
+
+    /// Safe to call from anywhere that is about to touch `Purchases.shared`.
+    static func configureRevenueCatIfNeeded() {
+        guard !Purchases.isConfigured else { return }
+        #if DEBUG
+        Purchases.logLevel = .debug
+        #endif
+        Purchases.configure(withAPIKey: revenueCatAPIKey)
+    }
 
     // MARK: - Keys & Notifications
 
@@ -53,7 +87,19 @@ final class ScoutSubscriptionService: ObservableObject {
     static let entitlementActiveKey = "scout_unlimited_entitlement_active"
     static let plusEntitlementActiveKey = "scout_plus_entitlement_active"
     /// Developer/admin override that simulates an active Pro entitlement for testing.
-    static let adminUnlimitedOverrideKey = "wg_admin_unlimited_override"
+    nonisolated static let adminUnlimitedOverrideKey = "wg_admin_unlimited_override"
+    /// Thread-safe read of the admin override, for gating admin-only features off the main actor.
+    nonisolated static var isAdminOverrideEnabled: Bool {
+        UserDefaults.standard.bool(forKey: adminUnlimitedOverrideKey)
+    }
+    /// Trailer add-ons (Trailerio) are internal-only: Debug builds with the admin override on.
+    nonisolated static var areTrailerAddonsAvailable: Bool {
+        #if DEBUG
+        return isAdminOverrideEnabled
+        #else
+        return false
+        #endif
+    }
     static let statusDidChangeNotification = Notification.Name("ScoutSubscriptionStatusDidChange")
 
     // MARK: - Published State
@@ -63,18 +109,21 @@ final class ScoutSubscriptionService: ObservableObject {
     /// Retained for the many call sites that only ask "is this a paying user?".
     /// Pro is now the only paid tier, so this always matches `isUnlimitedActive`.
     @Published private(set) var isPlusActive: Bool
-    @Published private(set) var monthlyProduct: Product?
-    @Published private(set) var annualProduct: Product?
-    @Published private(set) var lifetimeProduct: Product?
+    @Published private(set) var monthlyProduct: StoreProduct?
+    @Published private(set) var annualProduct: StoreProduct?
+    @Published private(set) var lifetimeProduct: StoreProduct?
     @Published private(set) var isPurchasing = false
     @Published private(set) var isLoadingProduct = false
     /// False once the user has consumed an introductory offer anywhere in this
     /// subscription group. Gate all "7 days free" copy on this — offering a trial
     /// the App Store will not grant is the fastest way to earn a refund request.
     @Published private(set) var isEligibleForIntroOffer = false
-    /// When true, Pro is treated as active regardless of real StoreKit entitlements.
+    /// When true, Pro is treated as active regardless of real App Store entitlements.
     /// Intended for internal testing only.
     @Published private(set) var isAdminUnlimitedOverride: Bool
+    /// The current RevenueCat offering. When it carries a paywall built in the dashboard,
+    /// `WGSubscriptionPaywallView` shows that instead of the built-in one.
+    @Published private(set) var currentOffering: Offering?
 
     /// Preferred name for new code.
     var isProActive: Bool { isUnlimitedActive }
@@ -90,7 +139,11 @@ final class ScoutSubscriptionService: ObservableObject {
     }
 
     private var updatesTask: Task<Void, Never>?
-    
+    /// Packages from the current offering, keyed by product ID. Purchasing through the
+    /// package (rather than the bare product) keeps offering attribution in RevenueCat.
+    private var packagesByProductID: [String: Package] = [:]
+
+
     enum PurchaseOutcome {
         case success
         case cancelled
@@ -130,7 +183,7 @@ final class ScoutSubscriptionService: ObservableObject {
         let adminOverride = UserDefaults.standard.bool(forKey: Self.adminUnlimitedOverrideKey)
         // A previous install may have stored only the Plus flag. Treat that as Pro so
         // grandfathered subscribers keep access on the very first launch after updating,
-        // before the async refreshEntitlements() confirms it against StoreKit.
+        // before the async refreshEntitlements() confirms it against RevenueCat.
         let pro = UserDefaults.standard.bool(forKey: Self.entitlementActiveKey)
             || UserDefaults.standard.bool(forKey: Self.plusEntitlementActiveKey)
             || adminOverride
@@ -143,9 +196,11 @@ final class ScoutSubscriptionService: ObservableObject {
         UserDefaults.standard.set(pro, forKey: Self.entitlementActiveKey)
         UserDefaults.standard.set(pro, forKey: Self.plusEntitlementActiveKey)
 
+        Self.configureRevenueCatIfNeeded()
+
         updatesTask = Task { [weak self] in
             guard let self else { return }
-            await self.observeTransactionUpdates()
+            await self.observeCustomerInfoUpdates()
         }
 
         Task {
@@ -158,6 +213,7 @@ final class ScoutSubscriptionService: ObservableObject {
     }
 
     func prepare() async {
+        await syncLegacyPurchasesIfNeeded()
         await loadProducts()
         await refreshEntitlements()
     }
@@ -170,43 +226,74 @@ final class ScoutSubscriptionService: ObservableObject {
         await fetchProducts(force: false)
     }
 
-    /// Only the three purchasable products are fetched. Retired products are intentionally
-    /// absent — they still grant entitlement via `Transaction.currentEntitlements`, but
-    /// `Product.products(for:)` no longer returns them once they leave sale.
+    /// Prefers the current RevenueCat offering so the line-up can be changed remotely,
+    /// and falls back to the hard-coded product IDs if the offering is missing a package.
+    /// The offering's packages are taken as they come, whatever their product IDs: under
+    /// the Test Store key they resolve to the simulated `monthly` / `yearly` products.
+    /// Retired products are intentionally absent — they still grant the entitlement,
+    /// but are no longer for sale.
     private func fetchProducts(force: Bool) async {
-        if !force, monthlyProduct != nil, annualProduct != nil, lifetimeProduct != nil { return }
+        if !force, monthlyProduct != nil, annualProduct != nil,
+           lifetimeProduct != nil || !Self.isLifetimeOnSale { return }
         isLoadingProduct = true
         defer { isLoadingProduct = false }
 
+        var monthly: StoreProduct?
+        var annual: StoreProduct?
+        var lifetime: StoreProduct?
         do {
-            let products = try await Product.products(for: Self.purchasableProductIDs)
-            print("Pro IAP: fetched \(products.count) products: \(products.map(\.id))")
-            monthlyProduct = products.first { Self.proMonthlyProductIDs.contains($0.id) }
-            annualProduct = products.first { Self.proAnnualProductIDs.contains($0.id) }
-            lifetimeProduct = products.first { Self.proLifetimeProductIDs.contains($0.id) }
-
-            if monthlyProduct == nil {
-                print("Pro IAP WARNING: no monthly product. IDs tried: \(Self.proMonthlyProductIDs)")
+            if let offering = try await Purchases.shared.offerings().current {
+                currentOffering = offering
+                let packages = [offering.monthly, offering.annual,
+                                Self.isLifetimeOnSale ? offering.lifetime : nil].compactMap { $0 }
+                packagesByProductID = Dictionary(
+                    packages.map { ($0.storeProduct.productIdentifier, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                monthly = offering.monthly?.storeProduct
+                annual = offering.annual?.storeProduct
+                lifetime = Self.isLifetimeOnSale ? offering.lifetime?.storeProduct : nil
             }
-            if annualProduct == nil {
-                print("Pro IAP WARNING: no annual product. IDs tried: \(Self.proAnnualProductIDs)")
-            }
-            if lifetimeProduct == nil {
-                print("Pro IAP WARNING: no lifetime product. IDs tried: \(Self.proLifetimeProductIDs)")
-            }
-
-            await refreshIntroOfferEligibility()
         } catch {
-            print("Pro IAP load error: \(error)")
+            print("Pro IAP offerings error: \(error)")
         }
+
+        let missing = (monthly == nil ? Self.proMonthlyProductIDs : [])
+            + (annual == nil ? Self.proAnnualProductIDs : [])
+            + (lifetime == nil && Self.isLifetimeOnSale ? Self.proLifetimeProductIDs : [])
+        if !missing.isEmpty {
+            let products = await Purchases.shared.products(missing)
+            monthly = monthly ?? products.first { Self.proMonthlyProductIDs.contains($0.productIdentifier) }
+            annual = annual ?? products.first { Self.proAnnualProductIDs.contains($0.productIdentifier) }
+            lifetime = lifetime ?? products.first { Self.proLifetimeProductIDs.contains($0.productIdentifier) }
+        }
+
+        monthlyProduct = monthly
+        annualProduct = annual
+        lifetimeProduct = lifetime
+        let loaded = [monthly, annual, lifetime].compactMap { $0?.productIdentifier }
+        print("Pro IAP: fetched \(loaded.count) products: \(loaded)")
+
+        if monthlyProduct == nil {
+            print("Pro IAP WARNING: no monthly product. IDs tried: \(Self.proMonthlyProductIDs)")
+        }
+        if annualProduct == nil {
+            print("Pro IAP WARNING: no annual product. IDs tried: \(Self.proAnnualProductIDs)")
+        }
+        if lifetimeProduct == nil, Self.isLifetimeOnSale {
+            print("Pro IAP WARNING: no lifetime product. IDs tried: \(Self.proLifetimeProductIDs)")
+        }
+
+        await refreshIntroOfferEligibility()
     }
 
     private func refreshIntroOfferEligibility() async {
-        guard let subscription = annualProduct?.subscription else {
+        guard let annualProduct else {
             isEligibleForIntroOffer = false
             return
         }
-        isEligibleForIntroOffer = await subscription.isEligibleForIntroOffer
+        let status = await Purchases.shared.checkTrialOrIntroDiscountEligibility(product: annualProduct)
+        isEligibleForIntroOffer = status == .eligible
     }
 
     // MARK: - Purchase
@@ -229,38 +316,38 @@ final class ScoutSubscriptionService: ObservableObject {
         return await purchase(product: lifetimeProduct)
     }
 
-    private func purchase(product: Product) async -> PurchaseOutcome {
+    private func purchase(product: StoreProduct) async -> PurchaseOutcome {
         isPurchasing = true
         defer { isPurchasing = false }
 
         do {
-            #if os(visionOS)
-            // visionOS requires PurchaseAction (SwiftUI) or purchase(confirmIn:options:).
-            return .failed("Purchases are not available from this flow on visionOS yet.")
-            #else
-            let result = try await product.purchase()
-            switch result {
-            case .success(let verification):
-                switch verification {
-                case .verified(let transaction):
-                    await transaction.finish()
-                    let nowPro = isUnlimitedActive || Self.proEntitlementProductIDs.contains(transaction.productID)
-                    updateEntitlementState(isProActive: nowPro)
-                    await refreshEntitlements()
-                    return .success
-                case .unverified:
-                    return .notVerified
-                }
-            case .pending:
-                return .pending
-            case .userCancelled:
-                return .cancelled
-            @unknown default:
-                return .failed("Unknown App Store purchase state.")
+            let result: PurchaseResultData
+            if let package = packagesByProductID[product.productIdentifier] {
+                result = try await Purchases.shared.purchase(package: package)
+            } else {
+                result = try await Purchases.shared.purchase(product: product)
             }
-            #endif
+            if result.userCancelled { return .cancelled }
+            apply(result.customerInfo)
+            return .success
         } catch {
-            print("Scout IAP purchase error: \(error)")
+            return Self.outcome(for: error)
+        }
+    }
+
+    /// Maps a RevenueCat purchase error onto the outcome the UI reports.
+    static func outcome(for error: Error) -> PurchaseOutcome {
+        switch error as? ErrorCode {
+        case .purchaseCancelledError:
+            return .cancelled
+        case .paymentPendingError:
+            return .pending
+        case .productNotAvailableForPurchaseError:
+            return .productNotFound
+        case .invalidReceiptError, .missingReceiptFileError:
+            return .notVerified
+        default:
+            print("IAP purchase error: \(error)")
             return .failed(error.localizedDescription)
         }
     }
@@ -269,13 +356,13 @@ final class ScoutSubscriptionService: ObservableObject {
         isPurchasing = true
         defer { isPurchasing = false }
         do {
-            try await AppStore.sync()
+            apply(try await Purchases.shared.restorePurchases())
         } catch {
-            // AppStore.sync() commonly throws in sandbox (auth prompt, network, etc.).
-            // Always fall through and check currentEntitlements regardless.
-            print("Scout IAP restore sync error: \(error)")
+            // Restore commonly throws in sandbox (auth prompt, network, etc.).
+            // Always fall through and re-check the cached entitlements regardless.
+            print("Scout IAP restore error: \(error)")
+            await refreshEntitlements()
         }
-        await refreshEntitlements()
         if isUnlimitedActive || isPlusActive { return .success }
         return .failed("No active subscription found.")
     }
@@ -283,27 +370,45 @@ final class ScoutSubscriptionService: ObservableObject {
     // MARK: - Entitlements
 
     func refreshEntitlements() async {
-        var hasPro = false
-
-        for await result in Transaction.currentEntitlements {
-            guard case .verified(let transaction) = result else { continue }
-            if transaction.revocationDate != nil { continue }
-            if let expirationDate = transaction.expirationDate, expirationDate <= Date() { continue }
-
-            // A single list covers current and retired products, so a legacy WG Plus or
-            // WG Unlimited receipt resolves to full Pro without any special-casing.
-            if Self.proEntitlementProductIDs.contains(transaction.productID) {
-                hasPro = true
-            }
+        do {
+            apply(try await Purchases.shared.customerInfo())
+        } catch {
+            // Offline or RevenueCat unreachable with nothing cached: keep the last known
+            // state rather than revoking Pro from someone who paid for it.
+            print("Pro entitlement refresh error: \(error)")
         }
-
-        updateEntitlementState(isProActive: hasPro)
         await refreshIntroOfferEligibility()
     }
 
-    private func observeTransactionUpdates() async {
-        for await _ in Transaction.updates {
-            await refreshEntitlements()
+    private func apply(_ info: CustomerInfo) {
+        updateEntitlementState(isProActive: Self.hasPro(in: info))
+    }
+
+    /// The RevenueCat entitlement is the source of truth. The product-ID check behind it
+    /// covers current and retired products alike, so a legacy WG Plus or WG Unlimited
+    /// purchase still resolves to full Pro even if a product is detached in the dashboard.
+    private static func hasPro(in info: CustomerInfo) -> Bool {
+        if info.entitlements[proEntitlementID]?.isActive == true { return true }
+        let ids = Set(proEntitlementProductIDs)
+        return !info.activeSubscriptions.isDisjoint(with: ids)
+            || info.nonSubscriptions.contains { ids.contains($0.productIdentifier) }
+    }
+
+    private func observeCustomerInfoUpdates() async {
+        for await info in Purchases.shared.customerInfoStream {
+            apply(info)
+        }
+    }
+
+    /// Purchases made before the move to RevenueCat live only in the App Store receipt.
+    /// Send them across once so existing subscribers keep Pro without tapping Restore.
+    private func syncLegacyPurchasesIfNeeded() async {
+        guard !UserDefaults.standard.bool(forKey: Self.didSyncLegacyPurchasesKey) else { return }
+        do {
+            apply(try await Purchases.shared.syncPurchases())
+            UserDefaults.standard.set(true, forKey: Self.didSyncLegacyPurchasesKey)
+        } catch {
+            print("Pro legacy purchase sync error: \(error)")
         }
     }
 
@@ -332,8 +437,17 @@ final class ScoutSubscriptionService: ObservableObject {
 
     // MARK: - Admin / Testing
 
+    /// Observable counterpart of `areTrailerAddonsAvailable` for SwiftUI views.
+    var isTrailerAddonsAvailable: Bool {
+        #if DEBUG
+        return isAdminUnlimitedOverride
+        #else
+        return false
+        #endif
+    }
+
     /// Enables or disables a developer override that simulates an active WatchGuide Pro
-    /// subscription. When disabled, the real StoreKit entitlement state is restored.
+    /// subscription. When disabled, the real RevenueCat entitlement state is restored.
     func setAdminUnlimitedOverride(_ enabled: Bool) {
         isAdminUnlimitedOverride = enabled
         UserDefaults.standard.set(enabled, forKey: Self.adminUnlimitedOverrideKey)
