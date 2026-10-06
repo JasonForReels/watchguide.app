@@ -137,6 +137,7 @@ class StorageService: ObservableObject {
         browseSections = load(from: browseSectionsURL) ?? BrowseSectionItem.defaultSections
         migrateBrowseSectionsIfNeeded()
         migrateTrailerAddonSettingsIfNeeded()
+        removeWatchAlongDataIfNeeded()
 
         // Index all saved content into Spotlight for system-wide search
         #if canImport(CoreSpotlight) && !os(tvOS)
@@ -1303,6 +1304,23 @@ class StorageService: ObservableObject {
         } else {
             syncICloudSnapshotInBackground()
         }
+    }
+
+    private func removeWatchAlongDataIfNeeded() {
+        // Watch-Along was removed; drop the song anchors and subtitles it cached on device.
+        let migrationKey = "watchAlongRemoval_v1"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+        let fileManager = FileManager.default
+        let leftovers = [
+            fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("WatchAlongSoundtrack", isDirectory: true),
+            fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("WatchAlongSubtitles", isDirectory: true),
+        ]
+        for dir in leftovers {
+            try? fileManager.removeItem(at: dir)
+        }
+        UserDefaults.standard.set(true, forKey: migrationKey)
     }
 
     private func migrateTrailerAddonSettingsIfNeeded() {
