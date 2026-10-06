@@ -28,7 +28,6 @@ struct MediaDetailView: View {
     @State private var selectedPerson: SelectedPerson?
     @State private var selectedCompanyHub: CompanyHub?
     @State private var selectedCompanyItem: MediaItem?
-    @State private var showWatchAlong = false
     @State private var selectedItem: MediaItem?
 
     @State private var selectedTrailer: Video?
@@ -188,11 +187,6 @@ struct MediaDetailView: View {
                             .padding(.horizontal)
                         }
                         
-                        #if os(iOS)
-                        WatchAlongEntryCard { showWatchAlong = true }
-                            .padding(.horizontal)
-                        #endif
-
                         #if !os(tvOS)
                         if viewModel.isMovie {
                             PostCreditsScoutSection(
@@ -386,11 +380,6 @@ struct MediaDetailView: View {
             }
         }
 #endif
-        #if os(iOS)
-        .fullScreenCover(isPresented: $showWatchAlong) {
-            WatchAlongLauncherView(item: item, seasons: viewModel.seasons ?? [])
-        }
-        #endif
         .sheet(item: $selectedSeason) { season in
             SeasonDetailSheet(
                 tvId: item.id,

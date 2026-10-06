@@ -80,9 +80,9 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Watch Guide uses your location to show nearby cinemas and distances in kilometers.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>WatchGuide uses your microphone for voice conversations with Ask Atlas and, in Watch-Along, to hear a few lines of TV dialogue on-device so it can find your place without spoilers.</string>
+	<string>WatchGuide uses your microphone for voice conversations with Ask Atlas.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Watch Guide uses speech recognition to transcribe your voice mode requests, control the app hands-free, and match TV dialogue to your place in Watch-Along.</string>
+	<string>Watch Guide uses speech recognition to transcribe your voice mode requests and control the app hands-free.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>TVTopShelfImage</key>
