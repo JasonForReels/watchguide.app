@@ -3,7 +3,8 @@
 //  WatchGuide-MovieandTVtracker
 //
 //  Scans the Want to Watch list for titles about to leave the user's
-//  streaming services (via MOTN `expiresOn`) and schedules reminders.
+//  streaming services (researched via Poe, see LeavingDateResearcher) and
+//  schedules reminders.
 //
 
 import Foundation
@@ -44,20 +45,19 @@ final class LeavingSoonService: ObservableObject {
     @Published private(set) var isScanning = false
 
     /// Only surface titles leaving within this window.
-    private let lookahead: TimeInterval = 30 * 86400
+    private let lookahead = TimeInterval(LeavingDateResearcher.lookaheadDays) * 86400
     /// Remind this many days before the title leaves.
     private let reminderLeadDays = 3
-    /// Keeps MOTN usage bounded for very long watchlists.
-    private let maxItemsPerScan = 80
+    private let maxItemsPerScan = 500
     private let scanInterval: TimeInterval = 12 * 3600
 
     private static let lastScanKey = "leaving_soon_last_scan"
     private static let notifiedKey = "leaving_soon_notified_ids"
+    private static let entriesKey = "leaving_soon_entries"
 
-    /// Entries live in memory, so the first call after launch always rescans.
-    private var hasScannedThisLaunch = false
-
-    private init() {}
+    private init() {
+        entries = Self.loadEntries().filter { $0.leavesOn > Date() }
+    }
 
     /// Providers to check: the user's StreamQ services, or every mapped
     /// service when they haven't picked any yet.
@@ -69,52 +69,57 @@ final class LeavingSoonService: ObservableObject {
 
     func scanIfNeeded() async {
         let last = UserDefaults.standard.double(forKey: Self.lastScanKey)
-        guard last == 0 || Date().timeIntervalSince1970 - last >= scanInterval || !hasScannedThisLaunch else { return }
+        guard last == 0 || Date().timeIntervalSince1970 - last >= scanInterval else { return }
         await scan()
     }
 
     func scan() async {
         guard !isScanning else { return }
         isScanning = true
-        hasScannedThisLaunch = true
         defer { isScanning = false }
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastScanKey)
 
         let region = StorageService.shared.settings.region
-        let providers = providerIds
-        let items = StorageService.shared.wantToWatch
+        let providers = Set(providerIds)
+        let items = Array(StorageService.shared.wantToWatch
             .filter { $0.mediaType != .person }
-            .prefix(maxItemsPerScan)
+            .prefix(maxItemsPerScan))
         let now = Date()
         let horizon = now.addingTimeInterval(lookahead)
 
+        // Hulu titles now live in Disney+, so Disney+ subscribers also get Hulu's list.
+        var researchedProviders = providers
+        if providers.contains(337) { researchedProviders.insert(15) }
+        let researched = await LeavingDateResearcher.shared.departures(
+            for: items,
+            providerIds: researchedProviders,
+            region: region
+        )
+        let previous = entries
+
         var found: [LeavingSoonEntry] = []
         for saved in items {
-            let links = await StreamingDeepLinkService.shared.fetchDeepLinks(
-                tmdbId: saved.mediaId,
-                mediaType: saved.mediaType,
-                country: region
-            )
+            var departures = researched.departures[saved.id] ?? []
+            // A service's list couldn't be fetched this time — keep what we knew for it.
+            departures += previous
+                .filter { $0.item.id == saved.id && researched.failed.contains($0.providerId) }
+                .map { LeavingDateResearcher.Departure(providerId: $0.providerId, date: $0.leavesOn) }
             // One entry per title: the earliest departure among the user's services.
-            let soonest = providers
-                .compactMap { id -> (Int, Date)? in
-                    guard let date = StreamingDeepLinkService.leavingDate(forTMDBProviderId: id, from: links),
-                          date > now, date <= horizon else { return nil }
-                    return (id, date)
-                }
-                .min { $0.1 < $1.1 }
-            if let (providerId, date) = soonest {
+            let soonest = departures
+                .filter { $0.date > now && $0.date <= horizon }
+                .min { $0.date < $1.date }
+            if let soonest {
                 found.append(LeavingSoonEntry(
                     item: saved,
-                    providerId: providerId,
-                    providerName: Self.providerName(for: providerId),
-                    leavesOn: date
+                    providerId: soonest.providerId,
+                    providerName: Self.providerName(for: soonest.providerId),
+                    leavesOn: soonest.date
                 ))
             }
-            try? await Task.sleep(nanoseconds: 100_000_000)
         }
 
         entries = found.sorted { $0.leavesOn < $1.leavesOn }
+        Self.saveEntries(entries)
         #if !os(tvOS)
         await scheduleReminders(for: entries)
         #endif
@@ -127,6 +132,29 @@ final class LeavingSoonService: ObservableObject {
 
     static func providerName(for providerId: Int) -> String {
         StreamingService.allServices.first { $0.id == providerId }?.name ?? "your service"
+    }
+
+    // MARK: - Persistence
+
+    /// Entries are saved so the section survives relaunches between 12h scans.
+    private struct StoredEntry: Codable {
+        let item: SavedMediaItem
+        let providerId: Int
+        let providerName: String
+        let leavesOn: Date
+    }
+
+    private static func saveEntries(_ entries: [LeavingSoonEntry]) {
+        let stored = entries.map { StoredEntry(item: $0.item, providerId: $0.providerId, providerName: $0.providerName, leavesOn: $0.leavesOn) }
+        if let data = try? JSONEncoder().encode(stored) {
+            UserDefaults.standard.set(data, forKey: entriesKey)
+        }
+    }
+
+    private static func loadEntries() -> [LeavingSoonEntry] {
+        guard let data = UserDefaults.standard.data(forKey: entriesKey),
+              let stored = try? JSONDecoder().decode([StoredEntry].self, from: data) else { return [] }
+        return stored.map { LeavingSoonEntry(item: $0.item, providerId: $0.providerId, providerName: $0.providerName, leavesOn: $0.leavesOn) }
     }
 
     // MARK: - Notifications

@@ -1,0 +1,42 @@
+# Refreshes the Leaving Soon lists in Supabase's api_cache (see scripts/leaving/update.mjs).
+# Runs daily but only refreshes lists older than 28 days, up to 40 Poe calls a run,
+# so each service/country list is refreshed about once a month.
+# Needs repo secrets POE_API_KEY, SUPABASE_URL and SUPABASE_ANON_KEY; MOTN_API_KEY lets
+# MOTN's expiring titles stand in when Poe fails or finds nothing.
+name: Leaving Soon lists
+
+on:
+  schedule:
+    - cron: "30 0 * * *" # 00:30 UTC, just after Poe's daily points grant
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Just these pairs, e.g. 8:us,384:gb (optional)"
+        required: false
+      force:
+        description: "Refresh even if the list is recent"
+        type: boolean
+        default: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Refresh due lists
+        env:
+          POE_API_KEY: ${{ secrets.POE_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          MOTN_API_KEY: ${{ secrets.MOTN_API_KEY }}
+          ONLY: ${{ inputs.only }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          args=()
+          [ -n "$ONLY" ] && args+=("--only=$ONLY")
+          [ "$FORCE" = "true" ] && args+=("--force")
+          node scripts/leaving/update.mjs "${args[@]}"
