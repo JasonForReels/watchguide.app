@@ -43,8 +43,6 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>6</string>
-	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-2982328834637681~2898016290</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.entertainment</string>
 	<key>LSApplicationQueriesSchemes</key>
