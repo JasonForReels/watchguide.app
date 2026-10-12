@@ -76,6 +76,15 @@ struct MediaDetailView: View {
                     #if os(tvOS)
                     .focusSection()
                     #endif
+
+                #if !os(tvOS)
+                // The logo sits below the video, pulled up into the fade so the
+                // trailer dissolves into it rather than being printed over it.
+                detailTitleBlock
+                    .padding(.horizontal)
+                    .padding(.top, -64)
+                    .padding(.bottom, 20)
+                #endif
                 
                 // Content
                 VStack(spacing: 24) {
@@ -504,16 +513,10 @@ struct MediaDetailView: View {
                     endPoint: .bottom
                 )
                 .frame(width: width, height: height)
-                #else
-                LinearGradient(
-                    colors: [.clear, .black.opacity(0.7), .black.opacity(0.95)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(width: width, height: height)
                 #endif
                 
-                // Layer 4: Content overlay
+                #if os(tvOS)
+                // Layer 4: Content overlay (on iOS this moves below the video)
                 VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
                     if shouldShowDetailTrailer && viewModel.preferredTrailer != nil {
                         // Trailer playing: only keep the title logo/text visible over video.
@@ -609,6 +612,7 @@ struct MediaDetailView: View {
                 }
                 .padding(isCompact ? 12 : 16)
                 .padding(.bottom, isCompact ? 4 : 8)
+                #endif
                 
                 #if os(tvOS)
                 // tvOS: transparent focusable button overlay (same pattern as HeroCarouselView)
@@ -624,6 +628,22 @@ struct MediaDetailView: View {
                 #endif
             }
             .frame(width: width, height: height)
+            #if !os(tvOS)
+            // The trailer fades out into the page itself, whatever colour that
+            // is, so the logo below reads as emerging from the picture.
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 0.55),
+                        .init(color: .black.opacity(0.35), location: 0.82),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            #endif
             .overlay(alignment: .topLeading) {
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
@@ -649,6 +669,81 @@ struct MediaDetailView: View {
         .aspectRatio(16.0/9.0, contentMode: .fit)
     }
     
+    #if !os(tvOS)
+    /// The title's logo (or name) with its key facts, directly under the video.
+    /// While a trailer plays only the logo shows, as it did over the video; with
+    /// no trailer the badge, year, runtime, score and genres join it.
+    private var detailTitleBlock: some View {
+        let trailerPlaying = shouldShowDetailTrailer && viewModel.preferredTrailer != nil
+        return VStack(alignment: .leading, spacing: 8) {
+            if !trailerPlaying {
+                Text(item.resolvedMediaType == .movie ? "MOVIE" : "TV SHOW")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .cornerRadius(4)
+            }
+
+            if let logoURL = resolvedDetailLogoURL(width: 0, height: 0) {
+                AsyncImage(url: logoURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .renderingMode(.original)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 260, maxHeight: 76, alignment: .leading)
+                            .shadow(color: .black.opacity(0.45), radius: 8, x: 0, y: 3)
+                            .transition(.opacity)
+                    default:
+                        detailTitleText
+                    }
+                }
+            } else {
+                detailTitleText
+            }
+
+            if !trailerPlaying {
+                HStack(spacing: 12) {
+                    if let year = item.year {
+                        Text(year)
+                    }
+                    if let runtime = viewModel.runtime {
+                        Text(runtime)
+                    }
+                    if let rating = item.voteAverage, rating > 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "star.fill")
+                                .foregroundColor(.yellow)
+                            Text(String(format: "%.1f", rating))
+                        }
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+                if let genres = viewModel.genres {
+                    Text(genres)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var detailTitleText: some View {
+        Text(item.displayTitle)
+            .font(.title2.weight(.bold))
+            .foregroundStyle(.primary)
+            .lineLimit(2)
+    }
+    #endif
+
     /// TMDB backdrop (used as fallback)
     private var tmdbBackdropImage: some View {
         AsyncImage(url: TMDBService.shared.imageURL(path: item.backdropPath, size: .backdrop)) { phase in
@@ -682,16 +777,6 @@ struct MediaDetailView: View {
     @ViewBuilder
     private var stubSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Button {
-                showKeepStub = true
-            } label: {
-                Label(stubsForItem.isEmpty ? "I Watched This" : "Watched Again", systemImage: "ticket.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 36)
-            }
-            .buttonStyle(.glassProminent)
-            .tint(Reel.accent)
-
             if !stubsForItem.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
@@ -1425,8 +1510,11 @@ class MediaDetailViewModel: ObservableObject {
 
     /// Earliest announced departure from a streaming service showing this title.
     /// Limited to the user's StreamQ services when they've picked any.
+    /// Uses MOTN's date when it has one, else the Poe-researched Leaving Soon scan.
     var leavingSoon: (providerName: String, date: Date)? {
-        guard let region = watchProviders else { return nil }
+        let researched = LeavingSoonService.shared.entry(mediaId: item.id, mediaType: item.resolvedMediaType)
+            .map { (providerName: $0.providerName, date: $0.leavesOn) }
+        guard let region = watchProviders else { return researched }
         let selected = Set(StorageService.shared.settings.streamqServiceIds)
         let now = Date()
         let providers = (region.flatrate ?? []) + (region.free ?? []) + (region.ads ?? [])
@@ -1437,7 +1525,7 @@ class MediaDetailViewModel: ObservableObject {
                       date > now else { return nil }
                 return (provider.providerName, date)
             }
-            .min { $0.date < $1.date }
+            .min { $0.date < $1.date } ?? researched
     }
 
     var hasQuickStats: Bool {

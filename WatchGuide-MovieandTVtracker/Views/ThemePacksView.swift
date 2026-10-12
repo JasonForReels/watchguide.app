@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Marquee Mode themes: what you own, what's in the store this season, and a
+/// Marquee Mode themes: what you own, what's in the store right now, and a
 /// one-minute try-on for anything you don't own yet.
 struct ThemePacksView: View {
     @StateObject private var store = ThemePackStore.shared
@@ -22,9 +22,9 @@ struct ThemePacksView: View {
                     }
                     .font(.subheadline)
                 }
-                Toggle("Follow the season", isOn: $store.followsSeason)
+                Toggle("Follow the holidays", isOn: $store.followsSeason)
             } footer: {
-                Text("When you own a theme for the current season or holiday where you live, Marquee Mode switches to it automatically.")
+                Text("When you own the Holidays pack, Marquee Mode switches to it automatically during the holidays.")
             }
 
             Section("Your Themes") {
@@ -53,7 +53,7 @@ struct ThemePacksView: View {
             Section {
                 Button("Restore Purchases") { Task { await store.restore() } }
             } footer: {
-                Text("Theme packs are one-time purchases, yours to keep and restore forever — even after a seasonal pack leaves the store. Family Sharing is supported.")
+                Text("Theme packs are one-time purchases, yours to keep and restore forever — even after a pack leaves the store. Family Sharing is supported.")
             }
         }
         .navigationTitle("Themes")
@@ -139,9 +139,6 @@ private struct PackHeader: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(pack.name).font(.headline)
                 Text(pack.tagline).font(.caption).foregroundStyle(.secondary)
-                if case .season = pack.availability {
-                    Text("Available this season only").font(.caption2).foregroundStyle(.secondary)
-                }
             }
             Spacer()
             Button(price, action: buy)

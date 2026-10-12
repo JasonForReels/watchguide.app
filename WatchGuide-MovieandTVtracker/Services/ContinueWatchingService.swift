@@ -74,6 +74,8 @@ final class ContinueWatchingService: ObservableObject {
             providerName: nil,
             deepLinkURL: deepLinkURL
         )
+
+        await SimklService.shared.checkIn(show, season: episode.seasonNumber, episode: episode.episodeNumber)
     }
 
     func recordMovieDeepLinkTap(
@@ -107,6 +109,8 @@ final class ContinueWatchingService: ObservableObject {
             providerName: nil,
             deepLinkURL: deepLinkURL
         )
+
+        await SimklService.shared.checkIn(movie)
     }
 
     // MARK: - Mark as Watched / Remove
@@ -117,6 +121,16 @@ final class ContinueWatchingService: ObservableObject {
             withIdentifiers: ["continue_watching_reminder_\(item.id)"]
         )
         #endif
+
+        if item.show.mediaType == .tv, let episode = item.lastEpisode {
+            await SimklService.shared.markEpisodeWatched(
+                show: item.show,
+                season: episode.seasonNumber,
+                episode: episode.episodeNumber
+            )
+        } else if item.show.mediaType == .movie {
+            await SimklService.shared.markWatched(item.show)
+        }
 
         // For TV shows with a next episode, advance to the next episode
         // instead of marking the entire show as watched.

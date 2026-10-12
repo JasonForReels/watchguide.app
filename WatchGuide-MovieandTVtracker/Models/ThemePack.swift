@@ -46,8 +46,6 @@ struct ThemePack: Identifiable, Codable, Hashable {
     enum Availability: Codable, Hashable {
         /// Always in the store.
         case always
-        /// Only while it's this season where the user lives.
-        case season(WGSeason)
         /// Roughly October to early January, everywhere.
         case holidays
     }
@@ -65,10 +63,6 @@ struct ThemePack: Identifiable, Codable, Hashable {
     var symbol: String
 
     var isBundle: Bool { !includesPackIDs.isEmpty }
-}
-
-enum WGSeason: String, Codable, CaseIterable {
-    case spring, summer, autumn, winter
 }
 
 // MARK: - Catalogue
@@ -91,27 +85,11 @@ enum ThemeCatalog {
                   productID: productPrefix + "holidays", availability: .holidays,
                   themeIDs: ["creature-feature", "festive-feature", "premiere-night"],
                   fallbackPrice: "$5.99", symbol: "gift"),
-        ThemePack(id: "spring", name: "Spring", tagline: "Fresh and hopeful.",
-                  productID: productPrefix + "spring", availability: .season(.spring),
-                  themeIDs: ["bloom"], fallbackPrice: "$5.99", symbol: "leaf"),
-        ThemePack(id: "summer", name: "Summer", tagline: "Big, bright evenings at the movies.",
-                  productID: productPrefix + "summer", availability: .season(.summer),
-                  themeIDs: ["summer-spectacular"], fallbackPrice: "$5.99", symbol: "sun.max"),
-        ThemePack(id: "autumn", name: "Autumn", tagline: "Cozy lamp-lit afternoons.",
-                  productID: productPrefix + "autumn", availability: .season(.autumn),
-                  themeIDs: ["harvest-matinee"], fallbackPrice: "$5.99", symbol: "wind"),
-        ThemePack(id: "winter", name: "Winter", tagline: "Long nights in with a film.",
-                  productID: productPrefix + "winter", availability: .season(.winter),
-                  themeIDs: ["fireside"], fallbackPrice: "$5.99", symbol: "flame"),
-        ThemePack(id: "seasons", name: "Seasons Collection", tagline: "All four season packs.",
-                  productID: productPrefix + "seasons", availability: .always, themeIDs: [],
-                  includesPackIDs: ["spring", "summer", "autumn", "winter"],
-                  fallbackPrice: "$14.99", symbol: "circle.hexagongrid"),
         ThemePack(id: "everything", name: "Everything",
-                  tagline: "Cinema Pack, every season and Holidays — as they exist today.",
+                  tagline: "Cinema Pack and Holidays — as they exist today.",
                   productID: productPrefix + "everything", availability: .always, themeIDs: [],
-                  includesPackIDs: ["cinema", "seasons", "holidays"],
-                  fallbackPrice: "$24.99", symbol: "star.square.on.square"),
+                  includesPackIDs: ["cinema", "holidays"],
+                  fallbackPrice: "$14.99", symbol: "star.square.on.square"),
     ]
 
     static let themes: [WGTheme] = [
@@ -147,19 +125,6 @@ enum ThemeCatalog {
               ["FBF6EA", "FFFFFF", "9C7A1E", "8E1B2B", "151515"],
               ["0B0B0B", "1A1714", "E6C35C", "D0344A", "F7E9C8"], radius: 8, frame: .marquee),
 
-        // Seasons
-        theme("bloom", "Bloom", "A soft morning after rain.",
-              ["FFF7F4", "FFFFFF", "D9537A", "4E9E5A", "2B2226"],
-              ["1E1A1D", "2A2428", "FF8FAE", "8FD98F", "FBF1EC"], radius: 22, frame: .hairline),
-        theme("summer-spectacular", "Summer Spectacular", "A warm evening at the movies.",
-              ["FFF6EC", "FFFFFF", "E4571B", "0B7A7A", "241410"],
-              ["0E2426", "15343A", "FF8A3D", "FFD24A", "FFF3E6"], radius: 18, frame: .glow),
-        theme("harvest-matinee", "Harvest Matinee", "A cozy lamp-lit afternoon.",
-              ["FBF3E6", "FFFFFF", "B8501E", "8A5A2B", "2A1C12"],
-              ["1E140E", "2C1E15", "E8773A", "D9A83A", "F7EBDD"], radius: 14, frame: .filmStrip),
-        theme("fireside", "Fireside", "A long night in with a film.",
-              ["F2F3F6", "FFFFFF", "C2571E", "5A6272", "141A2A"],
-              ["0D1222", "171E33", "FF8A3D", "8C94A6", "F4ECDF"], radius: 16, frame: .marquee),
     ]
 
     static func theme(id: String) -> WGTheme? { themes.first { $0.id == id } }
@@ -193,61 +158,7 @@ enum ThemeCatalog {
     }
 }
 
-// MARK: - Seasons & hemispheres
-
-enum Hemisphere {
-    case northern, southern, equatorial
-
-    /// Timezones near enough to the equator that seasons don't mean much.
-    private static let equatorialZones: Set<String> = [
-        "Asia/Singapore", "Asia/Kuala_Lumpur", "Asia/Jakarta", "Asia/Pontianak", "Asia/Makassar",
-        "Asia/Jayapura", "Asia/Brunei", "Asia/Colombo", "Indian/Maldives",
-        "Africa/Nairobi", "Africa/Kampala", "Africa/Kigali", "Africa/Lagos", "Africa/Accra",
-        "Africa/Abidjan", "Africa/Douala", "Africa/Libreville", "Africa/Kinshasa", "Africa/Mogadishu",
-        "Africa/Addis_Ababa", "Africa/Dar_es_Salaam",
-        "America/Bogota", "America/Guayaquil", "America/Caracas", "America/Panama",
-        "America/Manaus", "America/Belem", "America/Paramaribo", "America/Cayenne", "America/Guyana",
-        "Pacific/Galapagos", "Pacific/Nauru", "Pacific/Tarawa", "Pacific/Majuro",
-    ]
-
-    private static let southernZones: Set<String> = [
-        "Africa/Johannesburg", "Africa/Maputo", "Africa/Harare", "Africa/Lusaka", "Africa/Windhoek",
-        "Africa/Gaborone", "Africa/Maseru", "Africa/Mbabane", "Africa/Luanda", "Africa/Blantyre",
-        "Indian/Mauritius", "Indian/Reunion", "Indian/Antananarivo",
-        "America/Sao_Paulo", "America/Argentina/Buenos_Aires", "America/Buenos_Aires",
-        "America/Santiago", "America/Montevideo", "America/Asuncion", "America/La_Paz", "America/Lima",
-        "Pacific/Auckland", "Pacific/Chatham", "Pacific/Fiji", "Pacific/Tongatapu", "Pacific/Apia",
-        "Pacific/Noumea", "Pacific/Port_Moresby", "Pacific/Tahiti", "Pacific/Efate",
-    ]
-
-    static func current(timeZone: TimeZone = .current) -> Hemisphere {
-        let id = timeZone.identifier
-        if equatorialZones.contains(id) { return .equatorial }
-        if southernZones.contains(id)
-            || id.hasPrefix("Australia/") || id.hasPrefix("Antarctica/")
-            || id.hasPrefix("America/Argentina/") {
-            return .southern
-        }
-        return .northern
-    }
-
-    /// Meteorological seasons. Nil at the equator.
-    func season(on date: Date = .now, calendar: Calendar = .current) -> WGSeason? {
-        let month = calendar.component(.month, from: date)
-        let northern: WGSeason = switch month {
-        case 3...5: .spring
-        case 6...8: .summer
-        case 9...11: .autumn
-        default: .winter
-        }
-        switch self {
-        case .equatorial: return nil
-        case .northern: return northern
-        case .southern:
-            return ([.spring: .autumn, .summer: .winter, .autumn: .spring, .winter: .summer] as [WGSeason: WGSeason])[northern]
-        }
-    }
-}
+// MARK: - Availability
 
 extension ThemePack.Availability {
     /// Holidays run from 1 October to 7 January, everywhere.
@@ -257,11 +168,10 @@ extension ThemePack.Availability {
         return month >= 10 || (month == 1 && day <= 7)
     }
 
-    func isOnSale(on date: Date = .now, hemisphere: Hemisphere = .current()) -> Bool {
+    func isOnSale(on date: Date = .now) -> Bool {
         switch self {
         case .always: return true
         case .holidays: return Self.isHolidayWindow(date)
-        case .season(let season): return hemisphere.season(on: date) == season
         }
     }
 }

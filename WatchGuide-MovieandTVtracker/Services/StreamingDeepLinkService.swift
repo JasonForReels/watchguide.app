@@ -69,14 +69,14 @@ actor StreamingDeepLinkService {
             cache = cache.filter { now.timeIntervalSince($0.value.timestamp) < cacheTTL }
         }
         
-        // L2: Supabase shared cache
+        // L2: Supabase shared cache. A hit with no links is still a hit — the
+        // title just isn't streaming in this country (or MOTN doesn't know it),
+        // and asking MOTN again won't change that before the entry expires.
         let supabaseKey = SupabaseCacheService.deepLinkCacheKey(mediaType: mediaPath, tmdbId: tmdbId, country: normalizedCountry)
         if let cachedData = await SupabaseCacheService.shared.get(key: supabaseKey) {
             let links = parseDeepLinks(from: cachedData, country: normalizedCountry)
-            if !links.isEmpty {
-                cache[cacheKey] = CacheEntry(links: links, timestamp: Date())
-                return links
-            }
+            cache[cacheKey] = CacheEntry(links: links, timestamp: Date())
+            return links
         }
 
         guard let key = apiKey, !key.isEmpty else {
@@ -94,8 +94,18 @@ actor StreamingDeepLinkService {
         request.setValue(key, forHTTPHeaderField: "X-API-Key")
 
         do {
-            let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let (responseData, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return [] }
+
+            // 404 means MOTN has no record of this title. Cache that as an empty
+            // result so it isn't requested again on every view. Other errors
+            // (rate limits, outages) aren't cached and are retried later.
+            let data: Data
+            if (200...299).contains(http.statusCode) {
+                data = responseData
+            } else if http.statusCode == 404 {
+                data = Data("{}".utf8)
+            } else {
                 return []
             }
 
@@ -199,55 +209,6 @@ actor StreamingDeepLinkService {
             results.append(StreamingDeepLink(serviceId: serviceId, type: type, addonId: addonId, link: link, videoLink: videoLink, expiresOn: expiresOn))
         }
         return results
-    }
-
-    // MARK: - Daily Cache Warm-Up
-
-    private static let lastWarmUpKey = "motn_last_warmup_date"
-    private static let warmUpInterval: TimeInterval = 86400 // 24 hours
-
-    /// Call once on app launch. Requires a WatchGuide Pro subscription.
-    /// Checks if 24h have passed since the last warm-up, and if so,
-    /// prefetches deep links for all items in the user's lists
-    /// (Want to Watch, Watched, Liked). Runs in the background without blocking UI.
-    func warmCacheIfNeeded() async {
-        // Only available for WatchGuide Pro subscribers
-        let isUnlimited = await MainActor.run { ScoutSubscriptionService.shared.isUnlimitedActive }
-        guard isUnlimited else { return }
-
-        let now = Date()
-        let lastWarmUp = UserDefaults.standard.double(forKey: Self.lastWarmUpKey)
-        guard lastWarmUp == 0 || now.timeIntervalSince1970 - lastWarmUp >= Self.warmUpInterval else {
-            return
-        }
-
-        // Mark immediately so concurrent launches don't duplicate work
-        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: Self.lastWarmUpKey)
-
-        let region = await MainActor.run { StorageService.shared.settings.region }
-
-        // Gather unique (mediaId, mediaType) pairs from all user lists
-        let allItems: [(id: Int, type: MediaType)] = await MainActor.run {
-            let storage = StorageService.shared
-            var seen = Set<String>()
-            var items: [(id: Int, type: MediaType)] = []
-            for saved in storage.wantToWatch + storage.watched + storage.liked {
-                guard saved.mediaType != .person else { continue }
-                let key = "\(saved.mediaType.rawValue)_\(saved.mediaId)"
-                if seen.insert(key).inserted {
-                    items.append((id: saved.mediaId, type: saved.mediaType))
-                }
-            }
-            return items
-        }
-
-        guard !allItems.isEmpty else { return }
-
-        // Fetch sequentially with a small delay to respect rate limits
-        for item in allItems {
-            _ = await fetchDeepLinks(tmdbId: item.id, mediaType: item.type, country: region)
-            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms between requests
-        }
     }
 
     // MARK: - TMDB Provider ID → MOTN Service ID Mapping

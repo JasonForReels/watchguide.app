@@ -9,3 +9,23 @@
 # Local build output / per-user Xcode state
 .codex/
 xcuserdata/
+
+# fastlane
+fastlane/.env
+fastlane/screenshots_upload/
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output/
+
+# App Store media tooling: dependencies and generated output
+node_modules/
+AppStoreScreenshots/**/*.png
+AppStoreScreenshots/**/*.jpg
+AppStoreScreenshots/**/*.mp4
+AppStoreScreenshots/tools/
+AppStoreScreenshots/es-MX
+fastlane/report.xml
+fastlane/screenshots_upload/
+fastlane/screenshots/
+fastlane/metadata-tvos/
+AppStoreScreenshots/source/node_modules

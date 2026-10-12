@@ -1,0 +1,260 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Social ad (TikTok / Reels / Shorts), 1080x1920, Apple-style, cut to music.
+     Photosensitive-safe by design: no flashes, no strobing, no colour flicker, no cuts faster than a beat.
+     Scenes cross-dissolve on the beat. Change BPM to re-time everything to a different track.
+     Deterministic: window.render(t) draws the frame at t seconds. `node render.mjs ad <dir>` then encode.swift.
+     (ad-bold.html is the colour-block cut.) Copy stays inside the safe zone (top 200, bottom 420, right 140). -->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; background: #000; }
+  body { font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif; color: #f5f5f7;
+         -webkit-font-smoothing: antialiased; position: relative; }
+  .scene { position: absolute; inset: 0; opacity: 0; overflow: hidden; perspective: 2400px; perspective-origin: 50% 45%; }
+  /* each scene is lit by a soft colour field taken from its own screen */
+  .amb { position: absolute; inset: -60px; background-size: 100% 100%; opacity: .62; filter: saturate(1.2); }
+  .vig { position: absolute; inset: 0;
+         background: radial-gradient(90% 60% at 50% 45%, rgba(0,0,0,0) 30%, rgba(0,0,0,.75) 100%),
+                     linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 25%, rgba(0,0,0,0) 70%, rgba(0,0,0,.8) 100%); }
+  .brandAmb { position: absolute; inset: 0;
+              background: radial-gradient(70% 38% at 50% 0%, rgba(98,74,214,.55), rgba(64,47,153,0) 70%),
+                          radial-gradient(45% 26% at 50% 40%, rgba(255,140,100,.30), rgba(255,122,85,0) 70%); }
+  .halo { position: absolute; width: 900px; height: 900px; margin: -450px 0 0 -450px; border-radius: 50%;
+          background: radial-gradient(closest-side, rgba(255,150,105,.42), rgba(255,110,80,.12) 55%, rgba(255,110,80,0)); }
+  .txt { position: absolute; left: 70px; right: 70px; text-align: center; }
+  .big { font-size: 112px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; }
+  .head { top: 230px; font-size: 128px; font-weight: 800; letter-spacing: -0.04em; }
+  .sub { font-size: 48px; font-weight: 600; letter-spacing: -0.01em; color: #a1a1a6; line-height: 1.25; }
+  .grad { background: linear-gradient(95deg, #FFE6CC 0%, #FFA474 40%, #FF5A45 100%);
+          -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .wall { position: absolute; left: -260px; right: -260px; top: -500px; height: 3200px; transform-origin: 50% 40%; }
+  .tile { position: absolute; width: 250px; height: 375px; border-radius: 18px; background-repeat: no-repeat;
+          box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 20px 50px rgba(0,0,0,.6); }
+  .wallWrap { position: absolute; inset: 0; perspective: 1600px; perspective-origin: 50% 40%; }
+  .wallFade { position: absolute; inset: 0;
+              background: linear-gradient(180deg, #000 0%, rgba(0,0,0,.4) 30%, rgba(0,0,0,.4) 70%, #000 100%),
+                          radial-gradient(60% 30% at 50% 47%, rgba(0,0,0,.85), rgba(0,0,0,0)); }
+  .phone { position: absolute; left: 240px; top: 540px; width: 600px; padding: 16px; border-radius: 92px;
+           transform-origin: 50% 40%;
+           background: linear-gradient(135deg, #a1a1a6 0%, #48484d 18%, #1d1d20 50%, #3a3a3e 80%, #8e8e93 100%);
+           box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.35), inset 0 0 0 4px rgba(0,0,0,.35), 0 80px 140px rgba(0,0,0,.8); }
+  /* side buttons */
+  .phone::before { content: ""; position: absolute; left: -6px; top: 250px; width: 7px; height: 64px; border-radius: 4px;
+                   background: linear-gradient(90deg, #8e8e93, #3a3a3e); box-shadow: 0 110px 0 0 #5c5c61, 0 230px 0 0 #5c5c61; }
+  .phone::after { content: ""; position: absolute; right: -6px; top: 380px; width: 7px; height: 190px; border-radius: 4px;
+                  background: linear-gradient(270deg, #8e8e93, #3a3a3e); }
+  .phone.back { filter: brightness(.38) blur(3px); }
+  .screen { position: relative; width: 568px; height: 1235px; border-radius: 76px; overflow: hidden; background: #000;
+            box-shadow: 0 0 0 7px #050505; }
+  .screen > img { position: absolute; left: 0; top: 0; width: 568px; }
+  .island { position: absolute; left: 50%; top: 22px; width: 160px; height: 46px; margin-left: -80px; border-radius: 23px; background: #000; }
+  .glare { position: absolute; inset: -20%; border-radius: 76px;
+           background: linear-gradient(115deg, rgba(255,255,255,0) 30%, rgba(255,255,255,.09) 42%, rgba(255,255,255,0) 54%); }
+  .glow { position: absolute; left: -100px; right: -100px; top: 500px; height: 1300px; }
+  .chip { position: absolute; background-repeat: no-repeat;
+          box-shadow: 0 0 0 1.5px rgba(255,255,255,.16), 0 30px 80px rgba(0,0,0,.7), 0 0 70px rgba(255,140,90,.16); }
+  .icon { position: absolute; overflow: hidden; box-shadow: 0 0 0 1px rgba(255,255,255,.12);
+          -webkit-box-reflect: below 26px linear-gradient(transparent 62%, rgba(255,255,255,.22)); }
+  .icon img { width: 100%; height: 100%; display: block; }
+  .pill { display: inline-block; padding: 28px 62px; border-radius: 999px; background: #f5f5f7; color: #000;
+          font-size: 46px; font-weight: 600; letter-spacing: -0.01em; }
+  #grain { position: absolute; inset: 0; opacity: .04; mix-blend-mode: overlay; z-index: 11;
+           background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+</style>
+</head>
+<body>
+<!-- CSS backgrounds in hidden scenes aren't fetched until shown, so load every image up front -->
+<div style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0">
+  <img src="tonight.png"><img src="detail.png"><img src="streamq.png"><img src="lists.png"><img src="themes.png"><img src="icon.png"><img src="amb_tonight.png"><img src="amb_detail.png"><img src="amb_streamq.png"><img src="amb_lists.png"><img src="amb_themes.png">
+</div>
+<div id="scenes"></div>
+<div id="grain"></div>
+
+<script>
+const FPS = 30;
+const BPM = 100, BEAT = 60 / BPM, BAR = 4 * BEAT;   // 100 BPM: a beat is 0.6s, a bar is 2.4s
+const XF = .3;                                       // cross-dissolve between scenes
+const K = 568 / 1206;                                // source screens are 1206 wide; the phone screen is 568
+
+// Exact rects in the 1206x2622 source screenshots
+const CHIPS = [[48,1936,158,182], [237,1936,191,182], [459,1936,225,182], [715,1936,237,182]];   // detail.png
+const LOGOS = [48, 204, 360, 516, 672, 828].map(x => [x, 552, 126, 102]);                       // streamq.png
+const CARD = [72, 655, 1061, 1592];                                                               // tonight.png
+const POSTERS = [
+  ["lists", 216,806,361,541], ["tonight", 72,655,1061,1592], ["lists", 628,806,360,541],
+  ["lists", 216,1408,361,540], ["lists", 628,1408,360,540],
+];
+
+// Scene lengths in beats: two for the opening lines and logo, three per feature, a bar for the end card
+const SCENES = [
+  { id: "open1", beats: 2 }, { id: "open2", beats: 2 }, { id: "logo", beats: 2 },
+  { id: "swipe", head: "Swipe.", sub: "One pick at a time." },
+  { id: "rate", head: "Rate.", sub: "Every score in one place." },
+  { id: "stream", head: "Stream.", sub: "Only what's on your services." },
+  { id: "save", head: "Save.", sub: "Your watchlist, always with you." },
+  { id: "style", head: "Style.", sub: "Make it feel like your cinema." },
+  { id: "end", beats: 4 },
+];
+let T = 0;
+SCENES.forEach(s => { s.start = T; s.dur = (s.beats || 3) * BEAT; T += s.dur; });
+window.TIMELINE = { total: T, fps: FPS };
+
+// ---------- helpers
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const eio = x => x < .5 ? 4*x*x*x : 1 - Math.pow(-2*x + 2, 3) / 2;
+const eo = x => 1 - Math.pow(1 - x, 3);
+const lerp = (a, b, x) => a + (b - a) * x;
+const crop = (img, [x, y], s) =>
+  `background-image:url(${img}.png);background-size:${1206 * s}px auto;background-position:-${x * s}px -${y * s}px;`;
+const phone = (img, extra = "") =>
+  `<div class="phone"><div class="screen"><img src="${img}.png">${extra}<div class="island"></div><div class="glare"></div></div></div>`;
+// gentle text entrance: fades and rises, resolving out of a soft blur
+function textIn(el, lt, at) {
+  const k = eo(seg(lt, at, at + .45));
+  el.style.opacity = k; el.style.transform = `translateY(${(1 - k) * 24}px)`; el.style.filter = `blur(${(1 - k) * 8}px)`;
+}
+
+// ---------- build
+SCENES.forEach(s => {
+  const el = document.createElement("div"); el.className = "scene"; s.el = el;
+  let h = "";
+  if (s.id === "open1" || s.id === "open2") {
+    h = `<div class="wallWrap"><div class="wall"></div></div><div class="wallFade"></div>`;
+    h += `<div class="txt big" style="top:850px">${s.id === "open1" ? "So much to watch." : "So little time."}</div>`;
+  }
+  if (s.id === "logo") {
+    h = `<div class="brandAmb"></div><div class="halo" style="left:540px;top:770px"></div>` +
+        `<div class="icon" style="left:370px;top:600px;width:340px;height:340px;border-radius:76px"><img src="icon.png"></div>` +
+        `<div class="txt big" style="top:1030px;font-size:128px;font-weight:800;letter-spacing:-0.045em"><span class="grad">Watch Guide</span></div>`;
+  }
+  const AMB = { swipe: "tonight", rate: "detail", stream: "streamq", save: "lists", style: "themes" };
+  if (s.head) h = `<div class="amb" style="background-image:url(amb_${AMB[s.id]}.png)"></div><div class="vig"></div>` +
+                  `<div class="txt head grad">${s.head}</div><div class="txt sub" style="top:390px">${s.sub}</div>`;
+  if (s.id === "swipe") {
+    const [x, y, w, hh] = CARD.map(v => v * K), [pimg, ...pr] = POSTERS[2], ps = w / pr[2];
+    // the next card waits underneath, so the swipe reveals something new
+    h += phone("tonight",
+      `<div class="next" style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${hh}px;border-radius:28px;` +
+      `background-repeat:no-repeat;${crop(pimg, pr, ps)}box-shadow:0 0 0 1px rgba(255,255,255,.08)"></div>` +
+      `<div class="card" style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${hh}px;border-radius:28px;` +
+      `transform-origin:50% 140%;box-shadow:0 30px 60px rgba(0,0,0,.5);background-repeat:no-repeat;${crop("tonight", CARD, K)}"></div>`);
+  }
+  if (s.id === "rate" || s.id === "stream") h += phone(s.id === "rate" ? "detail" : "streamq").replace('class="phone"', 'class="phone back"');
+  if (s.id === "rate") {
+    const sc = 1.75, gap = 40, rows = [[0, 1], [2, 3]];
+    rows.forEach((row, ri) => {
+      const total = row.reduce((a, j) => a + CHIPS[j][2] * sc, 0) + gap;
+      let x = 540 - total / 2;
+      row.forEach(j => {
+        const [, , w, hh] = CHIPS[j];
+        h += `<div class="chip" data-j="${j}" style="left:${x}px;top:${600 + ri * 380}px;width:${w * sc}px;height:${hh * sc}px;` +
+             `border-radius:${26 * sc}px;${crop("detail", CHIPS[j], sc)}"></div>`;
+        x += w * sc + gap;
+      });
+    });
+  }
+  if (s.id === "stream") {
+    const sc = 2.0, cw = 126 * sc, ch = 102 * sc, gap = 36, left = 540 - (3 * cw + 2 * gap) / 2;
+    LOGOS.forEach((r, j) => {
+      h += `<div class="chip" data-j="${j}" style="left:${left + (j % 3) * (cw + gap)}px;top:${640 + Math.floor(j / 3) * (ch + 60)}px;` +
+           `width:${cw}px;height:${ch}px;border-radius:${ch / 2}px;${crop("streamq", r, sc)}"></div>`;
+    });
+  }
+  if (s.id === "save") h += phone("lists");
+  if (s.id === "style") h = h.replace('<div class="vig"></div>', '<div class="glow"></div><div class="vig"></div>') + phone("themes");
+  if (s.id === "end") {
+    h = `<div class="brandAmb"></div><div class="halo" style="left:540px;top:660px"></div>` +
+        `<div class="icon" style="left:400px;top:520px;width:280px;height:280px;border-radius:63px"><img src="icon.png"></div>` +
+        `<div class="txt big" style="top:880px;font-size:128px;font-weight:800;letter-spacing:-0.045em">Watch Guide</div>` +
+        `<div class="txt sub" style="top:1030px;font-size:54px">Know what to watch.</div>` +
+        `<div class="txt" style="top:1170px"><span class="pill">Download free</span></div>` +
+        `<div class="txt sub" style="top:1330px;font-size:34px;color:#6e6e73">iPhone · iPad · Apple TV</div>`;
+  }
+  el.innerHTML = h;
+  document.getElementById("scenes").appendChild(el);
+});
+
+// slow poster wall for the opening
+document.querySelectorAll(".wall").forEach(wall => {
+  for (let c = 0; c < 6; c++) for (let r = 0; r < 9; r++) {
+    const [img, x, y, w] = POSTERS[(r * 2 + c * 3) % POSTERS.length], s = 250 / w;
+    const el = document.createElement("div"); el.className = "tile";
+    el.style.cssText += `left:${c * 278}px;top:${r * 400 + (c % 2) * 200}px;` + crop(img, [x, y], s);
+    wall.appendChild(el);
+  }
+});
+
+// ---------- render
+const GLOW = [[232, 163, 58], [176, 75, 208], [46, 159, 184]];   // amber → violet → teal, blended slowly
+window.render = function (t) {
+  SCENES.forEach((s, i) => {
+    const lt = t - s.start, last = i === SCENES.length - 1;
+    // cross-dissolve centred on the bar line; the first scene fades up from black, the last one holds
+    const fin = i === 0 ? eo(seg(lt, 0, .35)) : eio(seg(lt, -XF / 2, XF / 2));
+    const fout = last ? 0 : eio(seg(lt, s.dur - XF / 2, s.dur + XF / 2));
+    const op = fin * (1 - fout);
+    s.el.style.opacity = op;
+    s.el.style.display = op > 0 ? "block" : "none";
+    if (op <= 0) return;
+    const q = s.el.querySelector.bind(s.el), qa = sel => [...s.el.querySelectorAll(sel)];
+
+    if (s.id === "open1" || s.id === "open2") {
+      // one continuous, tilted wall drifting under both lines; the second line sits on a softer, darker take
+      q(".wall").style.transform = `rotateX(32deg) rotateZ(-14deg) translateY(${-t * 60}px)`;
+      q(".wall").style.filter = s.id === "open1" ? "brightness(.62)" : "brightness(.4) blur(5px)";
+    }
+    if (s.id === "open1" || s.id === "open2") textIn(q(".big"), lt, i === 0 ? .1 : .05);
+    if (s.id === "logo") {
+      const k = eo(seg(lt, 0, .5));
+      q(".icon").style.opacity = k;
+      q(".icon").style.transform = `scale(${lerp(.85, 1, k)})`;
+      q(".halo").style.opacity = k; q(".halo").style.transform = `scale(${lerp(.7, 1, k)})`;
+      textIn(q(".big"), lt, BEAT * .5);
+    }
+    if (s.head) { textIn(q(".head"), lt, .02); textIn(q(".sub"), lt, .2); }
+
+    const ph = q(".phone");
+    if (ph) {
+      // the device eases up into place, then drifts slowly closer
+      const k = eo(seg(lt, 0, .55));
+      const side = i % 2 ? 1 : -1, back = ph.classList.contains("back");
+      ph.style.transform = `translateY(${(1 - k) * 160}px) rotateY(${side * lerp(16, 6, eo(seg(lt, 0, s.dur)))}deg) ` +
+                           `rotateX(${lerp(6, 2, k)}deg) scale(${(back ? .94 : 1) * lerp(.97, 1.04, seg(lt, 0, s.dur))})`;
+      q(".glare").style.transform = `translateX(${lerp(-30, 30, seg(lt, 0, s.dur))}%)`;
+    }
+    if (s.id === "swipe") {
+      const sw = eio(seg(lt, BEAT, BEAT * 1.8));
+      q(".card").style.transform = `translateX(${-sw * 620}px) rotate(${-sw * 16}deg)`;
+      q(".card").style.opacity = 1 - seg(sw, .7, 1);
+      q(".next").style.transform = `scale(${lerp(.94, 1, sw)})`;
+    }
+    if (s.id === "rate" || s.id === "stream") {
+      const step = s.id === "rate" ? BEAT / 3 : BEAT / 5;
+      qa(".chip").forEach(el => {
+        const j = +el.dataset.j, k = eo(seg(lt, .25 + j * step, .25 + j * step + .4));
+        el.style.opacity = k;
+        el.style.transform = `translateY(${(1 - k) * 40}px) scale(${lerp(.96, 1, k)})`;
+      });
+    }
+    if (s.id === "style") {
+      // a soft light behind the device slowly changes hue; brightness stays constant
+      const f = seg(lt, 0, s.dur) * (GLOW.length - 1), a = Math.min(Math.floor(f), GLOW.length - 2), m = eio(f - a);
+      const c = GLOW[a].map((v, j) => Math.round(lerp(v, GLOW[a + 1][j], m)));
+      q(".glow").style.background = `radial-gradient(45% 40% at 50% 50%, rgba(${c},.38), rgba(${c},0))`;
+    }
+    if (s.id === "end") {
+      const k = eo(seg(lt, 0, .5));
+      q(".icon").style.opacity = k; q(".icon").style.transform = `scale(${lerp(.88, 1, k)})`;
+      q(".halo").style.opacity = k; q(".halo").style.transform = `scale(${lerp(.7, 1, k)})`;
+      const t2 = qa(".txt");
+      textIn(t2[0], lt, BEAT * .5); textIn(t2[1], lt, BEAT); textIn(t2[2], lt, BEAT * 1.5); textIn(t2[3], lt, BEAT * 2);
+    }
+  });
+};
+window.render(0);
+</script>
+</body>
+</html>

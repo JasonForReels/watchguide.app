@@ -17,6 +17,9 @@ struct LeavingSoonEntry: Identifiable, Hashable {
     let providerId: Int
     let providerName: String
     let leavesOn: Date
+    /// False when nothing on the watchlist was leaving and the row shows what's
+    /// leaving the user's services instead.
+    var fromWatchlist = true
 
     var id: String { "\(item.id)_\(providerId)" }
 
@@ -51,7 +54,8 @@ final class LeavingSoonService: ObservableObject {
     private let maxItemsPerScan = 500
     private let scanInterval: TimeInterval = 12 * 3600
 
-    private static let lastScanKey = "leaving_soon_last_scan"
+    // v2: lists are now per service, so scans from the old per-title version are stale.
+    private static let lastScanKey = "leaving_soon_last_scan_v2"
     private static let notifiedKey = "leaving_soon_notified_ids"
     private static let entriesKey = "leaving_soon_entries"
 
@@ -118,10 +122,30 @@ final class LeavingSoonService: ObservableObject {
             }
         }
 
-        entries = found.sorted { $0.leavesOn < $1.leavesOn }
+        // Reminders only for titles the user saved.
+        let watchlistEntries = found.sorted { $0.leavesOn < $1.leavesOn }
+
+        if watchlistEntries.isEmpty {
+            let upcoming = await LeavingDateResearcher.shared.upcoming(
+                providerIds: researchedProviders,
+                region: region,
+                until: horizon
+            )
+            entries = upcoming.map {
+                LeavingSoonEntry(
+                    item: $0.item,
+                    providerId: $0.providerId,
+                    providerName: Self.providerName(for: $0.providerId),
+                    leavesOn: $0.date,
+                    fromWatchlist: false
+                )
+            }
+        } else {
+            entries = watchlistEntries
+        }
         Self.saveEntries(entries)
         #if !os(tvOS)
-        await scheduleReminders(for: entries)
+        await scheduleReminders(for: watchlistEntries)
         #endif
     }
 
@@ -142,10 +166,11 @@ final class LeavingSoonService: ObservableObject {
         let providerId: Int
         let providerName: String
         let leavesOn: Date
+        var fromWatchlist: Bool?
     }
 
     private static func saveEntries(_ entries: [LeavingSoonEntry]) {
-        let stored = entries.map { StoredEntry(item: $0.item, providerId: $0.providerId, providerName: $0.providerName, leavesOn: $0.leavesOn) }
+        let stored = entries.map { StoredEntry(item: $0.item, providerId: $0.providerId, providerName: $0.providerName, leavesOn: $0.leavesOn, fromWatchlist: $0.fromWatchlist) }
         if let data = try? JSONEncoder().encode(stored) {
             UserDefaults.standard.set(data, forKey: entriesKey)
         }
@@ -154,7 +179,7 @@ final class LeavingSoonService: ObservableObject {
     private static func loadEntries() -> [LeavingSoonEntry] {
         guard let data = UserDefaults.standard.data(forKey: entriesKey),
               let stored = try? JSONDecoder().decode([StoredEntry].self, from: data) else { return [] }
-        return stored.map { LeavingSoonEntry(item: $0.item, providerId: $0.providerId, providerName: $0.providerName, leavesOn: $0.leavesOn) }
+        return stored.map { LeavingSoonEntry(item: $0.item, providerId: $0.providerId, providerName: $0.providerName, leavesOn: $0.leavesOn, fromWatchlist: $0.fromWatchlist ?? true) }
     }
 
     // MARK: - Notifications

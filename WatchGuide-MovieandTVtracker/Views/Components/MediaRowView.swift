@@ -11,6 +11,24 @@ struct MediaRowView: View {
         case standard
         /// Landscape backdrop cards — used to break up visual monotony
         case featured
+        /// Large portrait posters that let the artwork carry the row
+        case spotlight
+        /// Smaller, denser posters with the score on the artwork
+        case compact
+        /// One wide 16:9 card per swipe, snapping, with the synopsis
+        case cinematic
+
+        /// The look a Browse row gets from what it shows. Each category has its
+        /// own shape so neighbouring rows never read as the same strip twice.
+        static func forBrowse(_ endpoint: BrowseRowConfig.BrowseEndpoint?) -> RowStyle {
+            switch endpoint {
+            case .popularMovies, .latestCertifiedFresh: return .spotlight
+            case .nowPlayingMovies, .airingTodayTV: return .featured
+            case .topRatedMovies, .onTheAirTV: return .compact
+            case .upcomingMovies: return .cinematic
+            default: return .standard
+            }
+        }
     }
 
     let title: String
@@ -75,16 +93,24 @@ struct MediaRowView: View {
 
             // Scrolling content
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: isRegular ? 16 : 12) {
+                LazyHStack(alignment: .top, spacing: isRegular ? 16 : 12) {
                     ForEach(Array(displayedItems.enumerated()), id: \.element.id) { index, item in
                         let zoomID = WGZoomID.media(item.id, context: title)
                         FocusableActionSurface(action: {
                             WGZoom.willPresent(zoomID)
                             onItemTap(item)
                         }, outlineShape: .roundedRectangle(cornerRadius: 18)) {
-                            if rowStyle == .featured {
+                            switch rowStyle {
+                            case .featured:
                                 FeaturedBackdropCard(item: item, appearanceIndex: index)
-                            } else {
+                            case .cinematic:
+                                CinematicWideCard(item: item, appearanceIndex: index,
+                                                  sideInset: horizontalPadding(isRegular: isRegular))
+                            case .spotlight:
+                                MediaPosterCard(item: item, appearanceIndex: index, scale: 1.45)
+                            case .compact:
+                                MediaPosterCard(item: item, appearanceIndex: index, scale: 0.78, showsScore: true)
+                            case .standard:
                                 MediaPosterCard(
                                     item: item,
                                     rank: isRankedTrendingRow ? index + 1 : nil,
@@ -96,11 +122,13 @@ struct MediaRowView: View {
                         .wgZoomSource(id: zoomID)
                     }
                 }
+                .scrollTargetLayout()
                 .padding(.horizontal, horizontalPadding(isRegular: isRegular))
                 #if os(tvOS)
                 .padding(.vertical, 4)
                 #endif
             }
+            .modifier(CardSnapping(isEnabled: rowStyle == .cinematic))
             .scrollClipDisabled()
             #if os(tvOS)
             .focusSection()
@@ -116,7 +144,7 @@ struct MediaRowView: View {
     private func legacyHeader(displayedCount: Int, isRegular: Bool) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(isRegular ? .title2 : .title3)
                     .fontWeight(.bold)
                     .foregroundStyle(rowTitleColor)
@@ -186,14 +214,21 @@ struct MediaPosterCard: View {
     let item: MediaItem
     let rank: Int?
     let appearanceIndex: Int
+    /// Poster size relative to the standard row; spotlight and compact rows set it.
+    let scale: CGFloat
+    /// Puts the TMDB score on the artwork, for dense rows where it is the point.
+    let showsScore: Bool
     @State private var isHovered = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.isFocused) private var isFocused
 
-    init(item: MediaItem, rank: Int? = nil, appearanceIndex: Int = 0) {
+    init(item: MediaItem, rank: Int? = nil, appearanceIndex: Int = 0,
+         scale: CGFloat = 1, showsScore: Bool = false) {
         self.item = item
         self.rank = rank
         self.appearanceIndex = appearanceIndex
+        self.scale = scale
+        self.showsScore = showsScore
     }
 
     private var contentBadgeText: String? {
@@ -214,9 +249,10 @@ struct MediaPosterCard: View {
     var body: some View {
         let basePosterSize = ResponsiveSizing.posterSize(horizontalSizeClass: horizontalSizeClass)
         // Ranked rows get taller posters for visual emphasis
-        let posterSize = rank != nil
-            ? CGSize(width: basePosterSize.width * 1.15, height: basePosterSize.height * 1.15)
-            : basePosterSize
+        let sizeFactor = rank != nil ? 1.15 : scale
+        let posterSize = CGSize(width: basePosterSize.width * sizeFactor,
+                                height: basePosterSize.height * sizeFactor)
+        let isLarge = scale > 1.2
         let isEngaged = isHovered || isFocused
 
         HStack(alignment: .bottom, spacing: rank != nil ? -8 : 0) {
@@ -268,23 +304,41 @@ struct MediaPosterCard: View {
                                 .padding(6)
                         }
                     }
+                    .overlay(alignment: .bottomLeading) {
+                        if showsScore, let score = item.voteAverage, score > 0 {
+                            HStack(spacing: 3) {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(.yellow)
+                                Text(score, format: .number.precision(.fractionLength(1)))
+                                    .font(.system(size: 11, weight: .bold))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.white)
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.6), in: Capsule())
+                            .padding(6)
+                        }
+                    }
                     .overlay {
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .stroke(Color.white.opacity(isFocused ? 0.9 : 0), lineWidth: 0.75)
                     }
-                    .shadow(color: .black.opacity(0.2), radius: isEngaged ? 10 : 5, y: isEngaged ? 5 : 2)
+                    .shadow(color: .black.opacity(isLarge ? 0.35 : 0.2),
+                            radius: isEngaged ? 14 : (isLarge ? 10 : 5), y: isEngaged ? 6 : (isLarge ? 5 : 2))
                     .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isEngaged)
                 }
 
                 // Title + metadata below poster (Disney+ style)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.displayTitle)
-                        .font(.caption2.weight(.semibold))
+                        .font(isLarge ? .subheadline.weight(.semibold) : .caption2.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     if let year = item.year {
                         Text(year)
-                            .font(.caption2)
+                            .font(isLarge ? .caption : .caption2)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -398,6 +452,102 @@ struct FeaturedBackdropCard: View {
     }
 }
 
+// MARK: - Cinematic Wide Card
+/// Nearly full-width 16:9 card for `.cinematic` rows: one title per swipe, with
+/// its synopsis, so a row like Coming Soon reads as a set of trailers to flip
+/// through rather than another strip of posters. The next card peeks in at the
+/// edge so it's obvious the row continues.
+struct CinematicWideCard: View {
+    let item: MediaItem
+    let appearanceIndex: Int
+    let sideInset: CGFloat
+    @Environment(\.isFocused) private var isFocused
+
+    private static let parser: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    /// "In cinemas 24 Oct" for a title that hasn't opened yet; otherwise its type.
+    private var eyebrow: String {
+        if let raw = item.displayDate, let date = Self.parser.date(from: raw), date > Date() {
+            let day = date.formatted(.dateTime.day().month(.abbreviated))
+            return item.resolvedMediaType == .tv ? "Premieres \(day)" : "In cinemas \(day)"
+        }
+        return item.resolvedMediaType == .tv ? "Series" : "Movie"
+    }
+
+    var body: some View {
+        Color.clear
+            .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            .overlay {
+                BackdropImageView(
+                    backdropPath: item.backdropPath,
+                    size: .backdropSmall,
+                    mediaId: item.id,
+                    mediaType: item.resolvedMediaType,
+                    displayWidth: 420
+                )
+            }
+            .overlay {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0.3),
+                        .init(color: .black.opacity(0.55), location: 0.62),
+                        .init(color: .black.opacity(0.9), location: 1.0)
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
+            }
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(eyebrow.uppercased())
+                        .font(.caption2.weight(.heavy))
+                        .tracking(1)
+                        .foregroundStyle(.white.opacity(0.75))
+                    Text(item.displayTitle)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if let overview = item.overview, !overview.isEmpty {
+                        Text(overview)
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.8))
+                            .lineLimit(2)
+                    }
+                }
+                .padding(16)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.white.opacity(isFocused ? 0.9 : 0), lineWidth: 0.75)
+            }
+            .shadow(color: .black.opacity(0.3), radius: 10, y: 5)
+            .containerRelativeFrame(.horizontal) { length, _ in
+                min(length - sideInset * 2 - 20, 560)
+            }
+            .contentShape(Rectangle())
+            .wgStaggeredAppear(index: appearanceIndex)
+    }
+}
+
+/// Snaps a row to whole cards. Only the cinematic row uses it: one card per
+/// swipe is the point there, while poster rows are for free browsing.
+private struct CardSnapping: ViewModifier {
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.scrollTargetBehavior(.viewAligned)
+        } else {
+            content
+        }
+    }
+}
+
 // MARK: - Saved Media Row
 struct SavedMediaRowView: View {
     let title: String
@@ -418,7 +568,7 @@ struct SavedMediaRowView: View {
         VStack(alignment: .leading, spacing: isRegular ? 16 : 12) {
             // Header
             HStack {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(isRegular ? .title2 : .title3)
                     .fontWeight(.bold)
                     .foregroundStyle(rowTitleColor)

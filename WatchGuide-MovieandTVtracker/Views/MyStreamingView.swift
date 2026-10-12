@@ -27,9 +27,9 @@ struct StreamingService: Identifiable, Codable, Hashable {
 extension StreamingService {
     /// A curated list of popular streaming services with their TMDB provider IDs.
     static let allServices: [StreamingService] = [
-        StreamingService(id: 8,   name: "Netflix",       logoPath: "/pbpMk2JmcoNnQwB5JGpXAbmQpe.jpg"),
+        StreamingService(id: 8,   name: "Netflix",       logoPath: "/rK1KljqmbvO9HQa1PBFLILWah72.png"),
         StreamingService(id: 337, name: "Disney+",       logoPath: "/97yvRBw1GzX7fXprcF80er19ot.jpg"),
-        StreamingService(id: 384, name: "Max",           logoPath: "/aS2zvJWn9mwiCOeaaCkIh4wleZS.jpg"),
+        StreamingService(id: 384, name: "HBO Max",       logoPath: "/skypuy7SXuugIQeYg0IglmzoKaS.png"),
         StreamingService(id: 15,  name: "Hulu",          logoPath: "/zxrVdFjIjLqkfnwyghnfywTn3Lh.jpg"),
         StreamingService(id: 531, name: "Paramount+",    logoPath: "/xbhHHa1YgtpwhC8lb1NQ3ACVcLd.jpg"),
         StreamingService(id: 386, name: "Peacock",       logoPath: "/xTHltMrZPAJFLQ6qyCBjAnXSmZt.jpg"),

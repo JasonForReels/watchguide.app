@@ -297,6 +297,84 @@ struct AtlasHUDOrb: View {
     }
 }
 
+// MARK: - Rail button
+
+/// The orb, fixed in place, for screens that give Atlas a spot in their own
+/// controls instead of letting it float — Pops puts it at the top of each
+/// clip's action rail. Same glass, mark and gestures: tap to chat, hold for voice.
+struct AtlasRailButton: View {
+    var diameter: CGFloat = 48
+    /// Replaces the default tap (engaging the dock bar), for screens that
+    /// present Atlas their own way — Pops opens it as a comment sheet.
+    var onTap: (() -> Void)? = nil
+
+    @AppStorage(AtlasPersona.storageKey) private var personaRaw = AtlasPersona.default.rawValue
+    @ObservedObject private var proactive = AtlasProactiveEngine.shared
+    @ObservedObject private var viewModel = AIAssistantViewModel.shared
+    @State private var isPressed = false
+
+    private var persona: AtlasPersona {
+        AtlasPersona(rawValue: personaRaw) ?? .default
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(.clear)
+                .frame(width: diameter, height: diameter)
+                .modifier(OrbGlassBackground(tint: persona.accentColor))
+                .overlay(
+                    Circle().strokeBorder(
+                        LinearGradient(colors: [.white.opacity(0.5), .white.opacity(0.05)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: 0.8
+                    )
+                )
+                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+
+            AtlasMark(size: diameter * 0.42, tint: .white, isThinking: viewModel.isThinking)
+                .shadow(color: .black.opacity(0.55), radius: 3, y: 1)
+
+            if proactive.hasUnseenBriefing {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 10, height: 10)
+                    .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1.5))
+                    .offset(x: diameter * 0.34, y: -diameter * 0.34)
+            }
+        }
+        .scaleEffect(isPressed ? 0.88 : 1)
+        .animation(.spring(response: 0.28, dampingFraction: 0.68), value: isPressed)
+        .contentShape(Circle())
+        .onTapGesture {
+            impact(heavy: false)
+            proactive.markBriefingSeen()
+            if let onTap {
+                onTap()
+            } else {
+                AtlasDockState.shared.engage()
+            }
+        }
+        .onLongPressGesture(minimumDuration: 0.45) {
+            impact(heavy: true)
+            proactive.markBriefingSeen()
+            AtlasDockState.shared.requestVoice()
+        } onPressingChanged: { pressing in
+            isPressed = pressing
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Atlas")
+        .accessibilityHint("Double tap to chat. Touch and hold for voice.")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private func impact(heavy: Bool) {
+        #if canImport(UIKit) && !os(watchOS)
+        UIImpactFeedbackGenerator(style: heavy ? .medium : .light).impactOccurred()
+        #endif
+    }
+}
+
 // MARK: - Glass background
 
 /// Clear Liquid Glass where it exists, a thin material everywhere else. The
@@ -347,7 +425,7 @@ struct AtlasHUDModifier: ViewModifier {
         // macOS opens Atlas from its own button beside the tab bar instead.
         false
         #else
-        isHUDEnabled && !dock.isEngaged
+        isHUDEnabled && !dock.isEngaged && !dock.isOrbSuppressed
         #endif
     }
 
@@ -390,6 +468,9 @@ struct AtlasHUDModifier: ViewModifier {
             }
             .onChange(of: showVoice) { _, presented in
                 if presented { dock.dismiss() }
+            }
+            .onChange(of: dock.voiceRequestID) { _, _ in
+                showVoice = true
             }
             #endif
     }

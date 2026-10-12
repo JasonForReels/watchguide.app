@@ -402,7 +402,7 @@ actor TMDBService {
     }
     
     func getMovieWatchProviders(id: Int) async throws -> WatchProvidersResponse {
-        try await request("/movie/\(id)/watch/providers")
+        Self.borrowingMirroredProviders(try await request("/movie/\(id)/watch/providers"))
     }
     
     func getSimilarMovies(id: Int, page: Int = 1) async throws -> TMDBResponse<MediaItem> {
@@ -453,7 +453,7 @@ actor TMDBService {
     }
     
     func getTVShowWatchProviders(id: Int) async throws -> WatchProvidersResponse {
-        try await request("/tv/\(id)/watch/providers")
+        Self.borrowingMirroredProviders(try await request("/tv/\(id)/watch/providers"))
     }
     
     func getSimilarTVShows(id: Int, page: Int = 1) async throws -> TMDBResponse<MediaItem> {
@@ -700,18 +700,24 @@ actor TMDBService {
         )
     }
     
+    /// `excludingCompanyIds` leaves out titles made by those companies, so a
+    /// parent studio's page doesn't also carry the labels that sit under it.
     func discoverMoviesByCompany(
         companyIds: [Int],
         sortBy: String = "popularity.desc",
-        page: Int = 1
+        page: Int = 1,
+        excludingCompanyIds: [Int] = []
     ) async throws -> TMDBResponse<MediaItem> {
         let adult = await includeAdultValue()
-        let queryItems = [
+        var queryItems = [
             URLQueryItem(name: "with_companies", value: companyIds.map { "\($0)" }.joined(separator: "|")),
             URLQueryItem(name: "sort_by", value: sortBy),
             URLQueryItem(name: "include_adult", value: adult),
             URLQueryItem(name: "page", value: "\(page)")
         ]
+        if !excludingCompanyIds.isEmpty {
+            queryItems.append(URLQueryItem(name: "without_companies", value: excludingCompanyIds.map { "\($0)" }.joined(separator: ",")))
+        }
         return try await request("/discover/movie", queryItems: queryItems)
     }
     
@@ -729,12 +735,15 @@ actor TMDBService {
         return try await request("/discover/tv", queryItems: queryItems)
     }
     
-    func discoverTVByCompany(companyIds: [Int], page: Int = 1) async throws -> TMDBResponse<MediaItem> {
-        let queryItems = [
+    func discoverTVByCompany(companyIds: [Int], page: Int = 1, excludingCompanyIds: [Int] = []) async throws -> TMDBResponse<MediaItem> {
+        var queryItems = [
             URLQueryItem(name: "with_companies", value: companyIds.map { "\($0)" }.joined(separator: "|")),
             URLQueryItem(name: "sort_by", value: "popularity.desc"),
             URLQueryItem(name: "page", value: "\(page)")
         ]
+        if !excludingCompanyIds.isEmpty {
+            queryItems.append(URLQueryItem(name: "without_companies", value: excludingCompanyIds.map { "\($0)" }.joined(separator: ",")))
+        }
         return try await request("/discover/tv", queryItems: queryItems)
     }
     
@@ -793,13 +802,42 @@ actor TMDBService {
         return try await request("/discover/tv", queryItems: queryItems)
     }
     
+    /// Services whose catalog in one country is treated as the same as another's,
+    /// because TMDB (via JustWatch) has no data for them there. Disney+ South
+    /// Africa mirrors the UK catalog.
+    static let mirroredProviderRegions: [(providerId: Int, region: String, source: String)] = [
+        (337, "ZA", "GB")
+    ]
+
     /// Maps Disney+ South Africa requests to use UK content, since Disney+ ZA mirrors GB.
     static func effectiveProviderRegion(region: String, providerIds: [Int]) -> String {
-        let disneyPlusProviderId = 337
-        if region == "ZA", providerIds.contains(disneyPlusProviderId) {
-            return "GB"
+        let upper = region.uppercased()
+        if let mirror = mirroredProviderRegions.first(where: { $0.region == upper && providerIds.contains($0.providerId) }) {
+            return mirror.source
         }
         return region
+    }
+
+    /// Adds mirrored services to a title's providers, e.g. Disney+ to South
+    /// Africa when the title streams on Disney+ in the UK.
+    static func borrowingMirroredProviders(_ response: WatchProvidersResponse) -> WatchProvidersResponse {
+        guard var results = response.results else { return response }
+        for mirror in mirroredProviderRegions {
+            guard let borrowed = results[mirror.source]?.flatrate?.filter({ $0.providerId == mirror.providerId }),
+                  !borrowed.isEmpty else { continue }
+            let target = results[mirror.region]
+            let existing = target?.flatrate ?? []
+            guard !existing.contains(where: { $0.providerId == mirror.providerId }) else { continue }
+            results[mirror.region] = WatchProviderRegion(
+                link: target?.link ?? results[mirror.source]?.link,
+                flatrate: existing + borrowed,
+                rent: target?.rent,
+                buy: target?.buy,
+                free: target?.free,
+                ads: target?.ads
+            )
+        }
+        return WatchProvidersResponse(results: results)
     }
     
     // MARK: - Collections
@@ -849,6 +887,11 @@ actor TMDBService {
     func getCompanyDetails(id: Int) async throws -> Company {
         try await request("/company/\(id)")
     }
+
+    /// A TV network or streamer: its name and logo.
+    func getNetworkDetails(id: Int) async throws -> Network {
+        try await request("/network/\(id)")
+    }
     
     // MARK: - Person Details
     func getPersonDetails(id: Int) async throws -> Person {
@@ -861,6 +904,12 @@ actor TMDBService {
     
     func getPersonTVCredits(id: Int) async throws -> PersonCreditsResponse {
         try await request("/person/\(id)/tv_credits")
+    }
+
+    /// Movie and TV credits in one call, each tagged with `media_type` and the
+    /// person's character or job.
+    func getPersonCombinedCredits(id: Int) async throws -> PersonCombinedCredits {
+        try await request("/person/\(id)/combined_credits")
     }
 
     // MARK: - Certifications
@@ -933,6 +982,31 @@ actor TMDBService {
 struct PersonCreditsResponse: Codable {
     let cast: [MediaItem]?
     let crew: [MediaItem]?
+}
+
+struct PersonCombinedCredits: Decodable {
+    let cast: [PersonCreditEntry]?
+    let crew: [PersonCreditEntry]?
+}
+
+/// One raw credit: the title itself plus what the person did on it.
+struct PersonCreditEntry: Decodable {
+    let item: MediaItem
+    let character: String?
+    let job: String?
+    let department: String?
+
+    enum CodingKeys: String, CodingKey {
+        case character, job, department
+    }
+
+    init(from decoder: Decoder) throws {
+        item = try MediaItem(from: decoder)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        character = try container.decodeIfPresent(String.self, forKey: .character)
+        job = try container.decodeIfPresent(String.self, forKey: .job)
+        department = try container.decodeIfPresent(String.self, forKey: .department)
+    }
 }
 
 // MARK: - Find By ID Response

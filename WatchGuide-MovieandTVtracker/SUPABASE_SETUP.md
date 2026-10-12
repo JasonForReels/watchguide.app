@@ -768,20 +768,29 @@ CREATE INDEX IF NOT EXISTS idx_api_cache_created ON api_cache(created_at);
 
 -- RLS: shared cache, all roles can read/write
 ALTER TABLE api_cache ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow read for anon" ON api_cache;
 CREATE POLICY "Allow read for anon" ON api_cache FOR SELECT TO anon USING (true);
+DROP POLICY IF EXISTS "Allow insert for anon" ON api_cache;
 CREATE POLICY "Allow insert for anon" ON api_cache FOR INSERT TO anon WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow update for anon" ON api_cache;
 CREATE POLICY "Allow update for anon" ON api_cache FOR UPDATE TO anon USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow read for authenticated" ON api_cache;
 CREATE POLICY "Allow read for authenticated" ON api_cache FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Allow insert for authenticated" ON api_cache;
 CREATE POLICY "Allow insert for authenticated" ON api_cache FOR INSERT TO authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow update for authenticated" ON api_cache;
 CREATE POLICY "Allow update for authenticated" ON api_cache FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 
 -- Scheduled cleanup function: delete expired entries
-CREATE OR REPLACE FUNCTION cleanup_expired_cache()
-RETURNS void AS $$
+CREATE OR REPLACE FUNCTION public.cleanup_expired_cache()
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 BEGIN
-    DELETE FROM api_cache WHERE expires_at < NOW();
+    DELETE FROM public.api_cache WHERE expires_at < NOW();
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- Optional: schedule automatic cleanup every hour via pg_cron
 -- (Requires pg_cron extension enabled in Supabase dashboard)
@@ -816,3 +825,70 @@ $$ LANGUAGE plpgsql;
 | `thetvdb` | TheTVDBService | TheTVDB episode image responses |
 | `omdb` | OMDbService | OMDb ratings responses |
 | `deeplink` | StreamingDeepLinkService | Movie of the Night deep link responses |
+
+
+## Studio Follows Migration
+
+Run this SQL in **SQL Editor** → **New Query** to sync followed studios (the Pops *Following* feed and the Browse studio row) across a user's devices. Until it is run the app keeps working: followed studios just stay on the device, and the rest of the sync is unaffected.
+
+```sql
+-- ===================================================
+-- WatchGuide Studio Follows — Migration
+-- ===================================================
+
+-- 15. Studio Follows
+-- One row per studio the user has followed or unfollowed. Studios the user
+-- never touched have no row; the device keeps its defaults for those.
+CREATE TABLE IF NOT EXISTS studio_follows (
+    id SERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    -- The studio name, lowercased. Each device generates its own random hub
+    -- ids, so the name is what identifies the same studio across devices.
+    hub_key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    logo_path TEXT,
+    company_ids INTEGER[] NOT NULL DEFAULT '{}',
+    network_ids INTEGER[] NOT NULL DEFAULT '{}',
+    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    -- The app upserts on this pair (?on_conflict=user_id,hub_key).
+    UNIQUE(user_id, hub_key)
+);
+CREATE INDEX IF NOT EXISTS idx_studio_follows_user ON studio_follows(user_id);
+
+CREATE OR REPLACE FUNCTION public.set_studio_follows_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_studio_follows_updated_at ON studio_follows;
+CREATE TRIGGER trg_studio_follows_updated_at
+    BEFORE UPDATE ON studio_follows
+    FOR EACH ROW EXECUTE FUNCTION set_studio_follows_updated_at();
+
+ALTER TABLE studio_follows ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all operations for anon" ON studio_follows;
+CREATE POLICY "Allow all operations for anon" ON studio_follows FOR ALL TO anon USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all operations for authenticated" ON studio_follows;
+CREATE POLICY "Allow all operations for authenticated" ON studio_follows FOR ALL TO authenticated USING (true) WITH CHECK (true);
+```
+
+### After running the SQL above, verify:
+1. **Table Editor** shows `studio_follows` with `user_id`, `hub_key`, `name`, `logo_path`, `company_ids`, `network_ids`, `is_enabled`
+2. Follow or unfollow a studio in the app (signed in); a row appears within a couple of seconds
+3. Sign in on a second device and run a sync; the same studios are followed there
+
+### How it syncs
+
+- Signed-in users only, like the other home-screen settings. Apple TV does not sync studios.
+- Only the studios that change are sent (an upsert), so a new device can never overwrite what the account already follows.
+- On download, the account's choice wins for studios it has a row for, and a studio followed on another device is added.
+- The first device to sync after this migration sends up the studios the account doesn't have yet, which sets the baseline for other devices.
+- Like the other tables here, the policies are open to the anon key and rows are separated only by `user_id`. Tightening that means moving every table to per-user RLS on `auth.uid()`, and is a separate change.

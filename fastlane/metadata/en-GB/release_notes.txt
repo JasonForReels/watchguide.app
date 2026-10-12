@@ -1,0 +1,5 @@
+What's new in 5.6.1
+
+• WatchGuide now speaks Spanish.
+• Atlas replies in your language.
+• Speed and reliability improvements.

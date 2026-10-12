@@ -7,14 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1E5C0DE00000000000000A2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A1E5C0DE00000000000000A1 /* Localizable.xcstrings */; };
+		02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; platformFilters = (ios, macos, ); productRef = B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */; };
+		1519245603D6E6B1FB07B3EE /* WidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183203BC28C3A6AA6D576609 /* WidgetShared.swift */; };
+		5BE2372F3C8A663BE4C076C0 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		7C4E19A22F8E5D0100B3A6F1 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 7C4E19A12F8E5D0100B3A6F1 /* RevenueCat */; };
 		7C4E19A42F8E5D0100B3A6F1 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; platformFilter = ios; productRef = 7C4E19A32F8E5D0100B3A6F1 /* RevenueCatUI */; };
-		02A5E7BD2F40A3820068EDDF /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; platformFilters = (ios, macos, ); productRef = B1782F1A0B0AA81B06B9F283 /* YouTubePlayerKit */; };
-		5BE2372F3C8A663BE4C076C0 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		968EA9D62FCED26600C5A0C2 /* ComingSoonWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 968EA9D52FCED26600C5A0C2 /* ComingSoonWidget.swift */; };
-		1519245603D6E6B1FB07B3EE /* WidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183203BC28C3A6AA6D576609 /* WidgetShared.swift */; };
-		F2AA4044B56202EB07C200A0 /* UpNextWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B905A3B0B3B17F739E5329C /* UpNextWidget.swift */; };
 		CF3A53FBEE56856AA8DA83E8 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97E6A83F51243F7CD71ADD17 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift */; };
+		F2AA4044B56202EB07C200A0 /* UpNextWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B905A3B0B3B17F739E5329C /* UpNextWidget.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,10 +67,12 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A1E5C0DE00000000000000A1 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		0216118A2F52FBF00054D35E /* showtimes.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = showtimes.py; sourceTree = "<group>"; };
 		0243AAB22F48E59800FDE2AE /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = /System/Library/Frameworks/WidgetKit.framework; sourceTree = "<absolute>"; };
 		0243AAB42F48E59800FDE2AE /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = /System/Library/Frameworks/SwiftUI.framework; sourceTree = "<absolute>"; };
 		026E50752FB1BC150089A988 /* UnityAds.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = UnityAds.xcframework; path = Frameworks/UnityAds.xcframework; sourceTree = "<group>"; };
+		183203BC28C3A6AA6D576609 /* WidgetShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetShared.swift; sourceTree = "<group>"; };
 		184F590C2E6ACF1E00FBE038 /* WatchGuide-MovieandTVtracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "WatchGuide-MovieandTVtracker.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		184F59192E6ACF2000FBE038 /* WatchGuide-MovieandTVtrackerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "WatchGuide-MovieandTVtrackerTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		184F59232E6ACF2000FBE038 /* 
@@ -77,9 +80,8 @@
 
 .xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "\n\n\n.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5380726C08703C6AD67F6DF4 /* WatchGuide-MovieandTVtrackerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = "WatchGuide-MovieandTVtrackerWidgetExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
-		968EA9D52FCED26600C5A0C2 /* ComingSoonWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComingSoonWidget.swift; sourceTree = "<group>"; };
-		183203BC28C3A6AA6D576609 /* WidgetShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetShared.swift; sourceTree = "<group>"; };
 		5B905A3B0B3B17F739E5329C /* UpNextWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpNextWidget.swift; sourceTree = "<group>"; };
+		968EA9D52FCED26600C5A0C2 /* ComingSoonWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComingSoonWidget.swift; sourceTree = "<group>"; };
 		97E6A83F51243F7CD71ADD17 /* WatchGuide-MovieandTVtrackerWidgetExtension.swift */ = {isa = PBXFileReference; explicitFileType = sourcecode.swift; path = "WatchGuide-MovieandTVtrackerWidgetExtension.swift"; sourceTree = "<group>"; };
 		ABAFBFC0370DED87737A2023 /* WatchGuide-MovieandTVtrackerWidgetExtension.entitlements */ = {isa = PBXFileReference; explicitFileType = text.plist.entitlements; path = "WatchGuide-MovieandTVtrackerWidgetExtension.entitlements"; sourceTree = "<group>"; };
 		C4C9BD98E1B110381A6482B2 /* Info.plist */ = {isa = PBXFileReference; explicitFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -221,6 +223,7 @@
 				968EA9D52FCED26600C5A0C2 /* ComingSoonWidget.swift */,
 				183203BC28C3A6AA6D576609 /* WidgetShared.swift */,
 				5B905A3B0B3B17F739E5329C /* UpNextWidget.swift */,
+				A1E5C0DE00000000000000A1 /* Localizable.xcstrings */,
 			);
 			path = "WatchGuide-MovieandTVtrackerWidgetExtension";
 			sourceTree = "<group>";
@@ -362,6 +365,7 @@
 			knownRegions = (
 				en,
 				Base,
+				es,
 			);
 			mainGroup = 184F59032E6ACF1E00FBE038;
 			minimizedProjectReferenceProxies = 1;
@@ -411,6 +415,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1E5C0DE00000000000000A2 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -602,7 +607,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletvos*]" = "Brand Assets";
 				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletvsimulator*]" = "Brand Assets";
-				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=macosx*]" = "AppIcon macOS";
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=macosx*]" = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "WatchGuide-MovieandTVtracker/WatchGuide-MovieandTVtracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
@@ -619,7 +624,7 @@
 				"INFOPLIST_FILE[sdk=appletvos*]" = "WatchGuide-MovieandTVtracker/Info-tvOS.plist";
 				"INFOPLIST_FILE[sdk=appletvsimulator*]" = "WatchGuide-MovieandTVtracker/Info-tvOS.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Watch Guide";
-				"INFOPLIST_KEY_CFBundleIconName[sdk=macosx*]" = "AppIcon macOS";
+				"INFOPLIST_KEY_CFBundleIconName[sdk=macosx*]" = AppIcon;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -632,8 +637,8 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 5.2;
-				"MARKETING_VERSION[sdk=iphoneos*]" = 5.2;
+				MARKETING_VERSION = 5.6.1;
+				"MARKETING_VERSION[sdk=iphoneos*]" = 5.6.1;
 				OTHER_LDFLAGS = "$(inherited)";
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
@@ -670,7 +675,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletvos*]" = "Brand Assets";
 				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletvsimulator*]" = "Brand Assets";
-				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=macosx*]" = "AppIcon macOS";
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=macosx*]" = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "WatchGuide-MovieandTVtracker/WatchGuide-MovieandTVtracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
@@ -687,7 +692,7 @@
 				"INFOPLIST_FILE[sdk=appletvos*]" = "WatchGuide-MovieandTVtracker/Info-tvOS.plist";
 				"INFOPLIST_FILE[sdk=appletvsimulator*]" = "WatchGuide-MovieandTVtracker/Info-tvOS.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Watch Guide";
-				"INFOPLIST_KEY_CFBundleIconName[sdk=macosx*]" = "AppIcon macOS";
+				"INFOPLIST_KEY_CFBundleIconName[sdk=macosx*]" = AppIcon;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -700,8 +705,8 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 5.2;
-				"MARKETING_VERSION[sdk=iphoneos*]" = 5.2;
+				MARKETING_VERSION = 5.6.1;
+				"MARKETING_VERSION[sdk=iphoneos*]" = 5.6.1;
 				OTHER_LDFLAGS = "$(inherited)";
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
@@ -740,7 +745,7 @@
 				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
-				MARKETING_VERSION = 5.2;
+				MARKETING_VERSION = 5.6.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.organizationName.WatchGuide-MovieandTVtrackerTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -759,7 +764,7 @@
 				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
-				MARKETING_VERSION = 5.2;
+				MARKETING_VERSION = 5.6.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.organizationName.WatchGuide-MovieandTVtrackerTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -776,7 +781,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 5.2;
+				MARKETING_VERSION = 5.6.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.organizationName.WatchGuide-MovieandTVtrackerUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -793,7 +798,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = MZT889Z6FM;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 5.2;
+				MARKETING_VERSION = 5.6.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.organizationName.WatchGuide-MovieandTVtrackerUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -821,7 +826,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 5.2;
+				MARKETING_VERSION = 5.6.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker.watchguide-movieandtvtrackerwidgetextension";
 				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
 				PRODUCT_MODULE_NAME = WatchGuide_MovieandTVtrackerWidgetExtension;
@@ -852,7 +857,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 5.2;
+				MARKETING_VERSION = 5.6.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.JasonSmith.WatchGuide-MovieandTVtracker.watchguide-movieandtvtrackerwidgetextension";
 				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
 				PRODUCT_MODULE_NAME = WatchGuide_MovieandTVtrackerWidgetExtension;

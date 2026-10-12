@@ -41,6 +41,8 @@ actor LeavingDateResearcher {
 
     /// Researched catalogs keyed like the Supabase cache.
     private var memory: [String: [Listing]] = [:]
+    /// TMDB matches for listings shown when nothing on the watchlist is leaving.
+    private var resolved: [String: SavedMediaItem?] = [:]
     /// Catalogs being researched right now, so concurrent scans share one request.
     private var inFlight: [String: Task<[Listing]?, Never>] = [:]
 
@@ -91,9 +93,64 @@ actor LeavingDateResearcher {
         return (results, failed)
     }
 
+    /// The soonest titles leaving the given services, matched to TMDB, for when
+    /// nothing on the user's watchlist is leaving. Uses the same cached lists.
+    func upcoming(
+        providerIds: Set<Int>,
+        region: String,
+        until: Date,
+        limit: Int = 15
+    ) async -> [(item: SavedMediaItem, providerId: Int, date: Date)] {
+        let country = region.lowercased()
+        let now = Date()
+        var candidates: [(Listing, Int)] = []
+        for providerId in providerIds.sorted() {
+            for listing in await catalog(providerId: providerId, country: country) ?? []
+            where listing.date > now && listing.date <= until {
+                candidates.append((listing, providerId))
+            }
+        }
+        candidates.sort { $0.0.date < $1.0.date }
+
+        var results: [(item: SavedMediaItem, providerId: Int, date: Date)] = []
+        var seen = Set<String>()
+        // Check a few more than needed, since some titles won't match on TMDB.
+        for (listing, providerId) in candidates.prefix(limit * 2) where results.count < limit {
+            guard let item = await resolve(listing), seen.insert(item.id).inserted else { continue }
+            results.append((item, providerId, listing.date))
+        }
+        return results
+    }
+
+    /// TMDB title for a listing: by id when MOTN gave one, else by title and year.
+    private func resolve(_ listing: Listing) async -> SavedMediaItem? {
+        let cacheKey = "\(listing.title)|\(listing.year ?? 0)"
+        if let cached = resolved[cacheKey] { return cached }
+
+        var item: SavedMediaItem?
+        if let tmdbId = listing.tmdbId, let type = listing.type {
+            if type == "movie", let details = try? await TMDBService.shared.getMovieDetails(id: tmdbId) {
+                item = SavedMediaItem(from: details)
+            } else if type == "tv", let details = try? await TMDBService.shared.getTVShowDetails(id: tmdbId) {
+                item = SavedMediaItem(from: details)
+            }
+        } else {
+            let wanted = Self.normalize(listing.title)
+            let movies = (try? await TMDBService.shared.searchMovies(query: listing.title, year: listing.year))?.results ?? []
+            let shows = (try? await TMDBService.shared.searchTV(query: listing.title))?.results ?? []
+            if let match = (movies + shows).first(where: { Self.normalize($0.displayTitle) == wanted && $0.backdropPath != nil }) {
+                item = SavedMediaItem(from: match)
+            }
+        }
+        resolved[cacheKey] = item
+        return item
+    }
+
     // MARK: - Catalog cache
 
     private func catalog(providerId: Int, country: String) async -> [Listing]? {
+        // Mirrored catalogs (Disney+ South Africa = UK) share the source country's list.
+        let country = TMDBService.effectiveProviderRegion(region: country, providerIds: [providerId]).lowercased()
         let key = "leaving:catalog:\(providerId):\(country)"
         if let cached = memory[key] { return cached }
         if let shared = await SupabaseCacheService.shared.get(key: key, as: CachedCatalog.self, decoder: Self.decoder) {

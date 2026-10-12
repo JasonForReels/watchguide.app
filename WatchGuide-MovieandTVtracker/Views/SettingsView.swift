@@ -45,6 +45,7 @@ struct SettingsView: View {
     @State private var showProfilePicker = false
     @State private var scoutIAPStatusMessage: String?
     @State private var showCustomerCenter = false
+    @State private var showPaywall = false
     @State private var traktStatusMessage: String?
     
     private let communityURLString = "https://discord.watchguide.app"
@@ -196,8 +197,8 @@ struct SettingsView: View {
 
                     // Upgrade navigation — the paywall owns plan selection and pricing.
                     if !scoutSubscription.isProActive {
-                        NavigationLink {
-                            WGSubscriptionPaywallView()
+                        Button {
+                            showPaywall = true
                         } label: {
                             HStack {
                                 Image(systemName: "star.circle.fill")
@@ -208,6 +209,8 @@ struct SettingsView: View {
                                     .fontWeight(.medium)
                             }
                         }
+                        .tint(.primary)
+                        .wgUnlimitedUpgradeSheet(isPresented: $showPaywall)
                     }
 
                     #if os(iOS)
@@ -439,6 +442,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+            }
+
+            Section("Simkl") {
+                SimklSettingsContent()
             }
             
             // Active Profile Section
@@ -1077,6 +1084,7 @@ struct SettingsView: View {
         .task {
             await scoutSubscription.prepare()
             await traktService.prepare()
+            await SimklService.shared.prepare()
         }
     }
 
@@ -1261,6 +1269,10 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+
+                    tvOSSection("Simkl") {
+                        SimklSettingsContent()
+                    }
                 }
 
                 if showsSettingsSections {
@@ -1303,6 +1315,9 @@ struct SettingsView: View {
                     }
 
                     tvOSSection("Home Screen") {
+                        NavigationLink("Marquee Themes") {
+                            ThemePacksView()
+                        }
                         NavigationLink("Browse Rows") {
                             BrowseRowsSettingsView()
                         }
@@ -1368,7 +1383,7 @@ struct SettingsView: View {
         } // NavigationStack
     }
 
-    private func tvOSSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func tvOSSection<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title)
                 .font(.title3.weight(.semibold))

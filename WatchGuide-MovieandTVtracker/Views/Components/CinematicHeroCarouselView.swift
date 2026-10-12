@@ -216,6 +216,8 @@ struct CinematicHeroCarouselView: View {
                 // title's FanArt.tv record, so Layer 2 costs no extra network request.
                 await cutoutLoader.load(for: items)
             }
+            // Lets the page around the hero take on the colour of whatever is on stage.
+            .preference(key: HeroSpotlightPosterKey.self, value: currentItem?.posterPath)
     }
 
     // MARK: - Stage

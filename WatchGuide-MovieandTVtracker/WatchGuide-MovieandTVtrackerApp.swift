@@ -155,9 +155,8 @@ struct WatchGuide_MovieandTVtrackerApp: App {
                     WatchGuideShortcuts.updateAppShortcutParameters()
                     #endif
 
-                    // Daily MOTN deep link cache warm-up (background, non-blocking)
+                    // Leaving Soon research (Poe, cached in Supabase; at most every 12h)
                     Task.detached(priority: .utility) {
-                        await StreamingDeepLinkService.shared.warmCacheIfNeeded()
                         await LeavingSoonService.shared.scanIfNeeded()
                     }
                 }

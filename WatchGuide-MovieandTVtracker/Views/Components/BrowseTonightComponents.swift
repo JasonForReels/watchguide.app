@@ -83,25 +83,41 @@ struct RowHeaderLabel: View {
 
 // MARK: - Top glow
 
-/// A blurred wash of the featured artwork behind the top of a scrolling page,
-/// fading into the system background.
+/// The poster of the slide currently on stage in the hero, published upward so
+/// the page can tint itself to match. `nil` when the hero doesn't report one.
+struct HeroSpotlightPosterKey: PreferenceKey {
+    static let defaultValue: String? = nil
+    static func reduce(value: inout String?, nextValue: () -> String?) {
+        value = value ?? nextValue()
+    }
+}
+
+/// A heavily blurred wash of the current hero artwork behind the top of the page.
+/// Each new title cross-fades in over the last, so the whole screen shifts colour
+/// with the hero rather than snapping.
 struct TopArtworkGlow: View {
     let path: String?
-    var height: CGFloat = 520
+    var height: CGFloat = 620
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        AsyncImageView(url: TMDBService.shared.imageURL(path: path, size: .small), cornerRadius: 0)
-            .frame(height: height)
-            .frame(maxWidth: .infinity)
-            .clipped()
-            .blur(radius: 70)
-            .saturation(1.3)
-            .opacity(colorScheme == .dark ? 0.5 : 0.3)
-            .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .animation(.easeInOut(duration: 0.6), value: path)
+        ZStack {
+            if let path {
+                AsyncImageView(url: TMDBService.shared.imageURL(path: path, size: .small), cornerRadius: 0)
+                    .id(path)
+                    .transition(.opacity)
+            }
+        }
+        .frame(height: height)
+        .frame(maxWidth: .infinity)
+        .clipped()
+        .blur(radius: 70)
+        .saturation(1.4)
+        .opacity(colorScheme == .dark ? 0.6 : 0.32)
+        .mask(LinearGradient(colors: [.black, .black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom))
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .animation(.easeInOut(duration: 1.1), value: path)
     }
 }

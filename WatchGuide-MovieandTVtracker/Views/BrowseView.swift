@@ -35,6 +35,9 @@ struct BrowseView: View {
     @State private var activeStudioSheet: StudioSheet?
     @State private var activeStreamingSheet: StreamingSheet?
     @State private var showCustomizeSheet = false
+    /// Poster of the hero slide currently on stage; drives the page tint.
+    @State private var spotlightPoster: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showSettingsSheet = false
     @State private var showSettingsPage = false
     @State private var selectedPerson: Person?
@@ -46,6 +49,7 @@ struct BrowseView: View {
     @ObservedObject private var profileService = ProfileService.shared
     @ObservedObject private var watchHour = WatchHourService.shared
     @ObservedObject private var storage = StorageService.shared
+    @ObservedObject private var leavingSoon = LeavingSoonService.shared
     
     private var isKidsProfile: Bool {
         StorageService.shared.settings.isKidsProfile
@@ -135,7 +139,7 @@ struct BrowseView: View {
         }
     }
 
-    private static let defaultStudioLogosByName: [String: String] = [
+    static let defaultStudioLogosByName: [String: String] = [
         "Paramount Pictures": "https://cdn.brandfetch.io/idrAEeTLeo/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1757576972155",
         "Walt Disney Pictures": "https://cdn.brandfetch.io/idxASqzkm_/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1675929043591",
         "20th Century Studios": "https://cdn.brandfetch.io/id80eyhRc1/w/820/h/683/theme/dark/logo.png?c=1bxid64Mup7aczewSAYMX&t=1667562091650",
@@ -305,7 +309,10 @@ struct BrowseView: View {
         // which keeps this a value change rather than a branch in view identity.
         .ignoresSafeArea(.container, edges: heroBleedsUnderNavigationBar ? .top : [])
         .background(alignment: .top) {
-            TopArtworkGlow(path: viewModel.heroItems.first?.posterPath)
+            TopArtworkGlow(path: spotlightPoster ?? viewModel.heroItems.first?.posterPath)
+        }
+        .onPreferenceChange(HeroSpotlightPosterKey.self) { poster in
+            spotlightPoster = poster
         }
         .toolbarBackgroundVisibility(
             heroBleedsUnderNavigationBar ? .hidden : .automatic,
@@ -399,9 +406,7 @@ struct BrowseView: View {
     private var browseScrollContent: some View {
         LazyVStack(spacing: browseContentSpacing) {
             if viewModel.heroItems.isEmpty && viewModel.rows.isEmpty {
-                // Loading state matching StreamQ
-                ProgressView()
-                    .padding(.top, 40)
+                BrowseLoadingSkeleton()
             } else {
                 if !viewModel.heroItems.isEmpty {
                     ResizableHeroCarousel(
@@ -413,6 +418,8 @@ struct BrowseView: View {
                     )
                     #if os(tvOS)
                     .focusSection()
+                    #else
+                    .modifier(HeroScrollDepth(isEnabled: !reduceMotion))
                     #endif
                 }
                 
@@ -457,7 +464,7 @@ struct BrowseView: View {
                 }
                 
                 #if os(iOS)
-                if horizontalSizeClassIsCompact, !isKidsProfile {
+                if !isKidsProfile {
                     TonightInviteCard(posters: tonightInvitePosters)
                         .padding(.horizontal)
                 }
@@ -630,7 +637,6 @@ struct BrowseView: View {
                      }, onSeeAll: nil
                  )
              } else if !row.items.isEmpty {
-                 let useFeatured = row.endpoint.map { Self.featuredEndpoints.contains($0) } ?? false
                  MediaRowView(
                      title: row.title,
                      items: row.items,
@@ -638,7 +644,7 @@ struct BrowseView: View {
                          selectedItem = item
                      },
                      onSeeAll: { seeAllRow = row },
-                     rowStyle: useFeatured ? .featured : .standard
+                     rowStyle: .forBrowse(row.endpoint)
                  )
              } else {
                  EmptyView()
@@ -647,6 +653,12 @@ struct BrowseView: View {
              // Insert Continue Watching between Trending Movies and Trending TV Shows
              if row.title.lowercased().contains("trending") && row.title.lowercased().contains("movie") {
                  browseContinueWatchingSection
+
+                 if !isKidsProfile && !leavingSoon.entries.isEmpty {
+                     LeavingSoonRow(entries: leavingSoon.entries) { item in
+                         selectedItem = item
+                     }
+                 }
              }
          }
      }
@@ -2561,3 +2573,75 @@ struct AppleTVContinueWatchingCard: View {
     BrowseView(selectedItem: .constant(nil))
 }
 
+
+// MARK: - Hero Scroll Depth
+
+/// As the page scrolls, the hero falls back at a fraction of the scroll speed and
+/// dims, so the rows below glide over it like a sheet over a stage.
+private struct HeroScrollDepth: ViewModifier {
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.visualEffect { view, proxy in
+                let frame = proxy.frame(in: .scrollView)
+                let scrolled = max(0, -frame.minY)
+                let progress = min(scrolled / max(frame.height, 1), 1)
+                // Fully gone by two-thirds of the way, so the lagging stage never
+                // ghosts through the first row it is sliding behind.
+                return view
+                    .offset(y: scrolled * 0.4)
+                    .scaleEffect(1 - progress * 0.05, anchor: .bottom)
+                    .opacity(1 - min(progress * 1.5, 1))
+            }
+        } else {
+            content
+        }
+    }
+}
+
+// MARK: - Loading Skeleton
+
+/// The shape of Browse before its content arrives — a hero stage and two poster
+/// rows — so the first launch reads as the page assembling, not a spinner.
+private struct BrowseLoadingSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            Rectangle()
+                .fill(Color.gray.opacity(0.16))
+                .aspectRatio(1.5, contentMode: .fit)
+                .overlay(alignment: .bottomLeading) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Capsule().frame(width: 190, height: 28)
+                        Capsule().frame(width: 120, height: 12)
+                    }
+                    .foregroundStyle(Color.gray.opacity(0.22))
+                    .padding(20)
+                }
+                .shimmer()
+
+            ForEach(0..<2, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 12) {
+                    Capsule()
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(width: 150, height: 18)
+                        .padding(.horizontal)
+                    HStack(spacing: 12) {
+                        ForEach(0..<4, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: sharedPosterCornerRadius, style: .continuous)
+                                .fill(Color.gray.opacity(0.16))
+                                .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                                .frame(width: 120)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .shimmer()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+        .accessibilityElement()
+        .accessibilityLabel("Loading")
+    }
+}

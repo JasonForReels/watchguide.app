@@ -5,6 +5,8 @@ struct MarvelHubView: View {
     @State private var phaseItems: [String: [MediaItem]] = [:]
     @State private var loading = true
     @State private var selectedItem: MediaItem?
+    @State private var showPops = false
+    @State private var pendingItem: MediaItem?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -37,7 +39,20 @@ struct MarvelHubView: View {
                                     .shadow(color: marvelRed.opacity(0.7), radius: 25)
                                     .padding(.top, -50)
                                     .padding(.bottom, 8)
-                                
+
+                                ProfileHeaderView(
+                                    entityId: "studio-marvel",
+                                    name: "Marvel Studios",
+                                    handle: "@marvelstudios",
+                                    stats: [
+                                        .init(value: "\(movies.filter { $0.resolvedMediaType == .movie }.count)", label: "Films"),
+                                        .init(value: "\(movies.filter { $0.resolvedMediaType == .tv }.count)", label: "Series")
+                                    ],
+                                    accent: marvelRed,
+                                    onPops: { showPops = true }
+                                )
+                                .padding(.bottom, 12)
+
                                 // Cinematic red divider
                                 Rectangle()
                                     .fill(
@@ -83,6 +98,14 @@ struct MarvelHubView: View {
                     #endif
                 }
                 .mediaDetailPresentation(item: $selectedItem)
+                .fullScreenCover(isPresented: $showPops, onDismiss: {
+                    if let item = pendingItem {
+                        selectedItem = item
+                        pendingItem = nil
+                    }
+                }) {
+                    ClipsView(selectedItem: $pendingItem, scope: .titles(movies, label: "Marvel Studios"))
+                }
             }
         }
         .toolbar(.hidden, for: .navigationBar)

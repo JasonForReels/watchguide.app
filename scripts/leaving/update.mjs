@@ -41,7 +41,8 @@ const MAJOR = ["us", "gb", "ca", "au", "ie", "nz", "de", "fr", "es", "it", "nl",
 // Where each service runs, limited to the countries above.
 const REGIONS = {
   8: MAJOR,
-  337: MAJOR,
+  // Disney+ South Africa mirrors the UK; the app reads the GB list for ZA.
+  337: MAJOR.filter((c) => c !== "za"),
   384: ["us", "gb", "ie", "de", "it", "fr", "es", "nl", "se", "au", "br", "mx"],
   15: ["us"],
   531: ["us", "gb", "ie", "ca", "au", "de", "fr", "it", "br", "mx", "kr"],

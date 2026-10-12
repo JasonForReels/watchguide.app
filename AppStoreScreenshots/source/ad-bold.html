@@ -1,0 +1,293 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Social ad (TikTok / Reels / Shorts), 1080x1920. Deterministic: window.render(t) draws the frame at t seconds.
+     Same pipeline as video.html: `node render.mjs ad <dir>` then encode.swift.
+     Deliberately a different look from the App Preview: flat colour blocks, sticker-style UI, marquee type, wipe cuts.
+     Copy stays inside the platform safe zone (top 200, bottom 420, right 140) so the app UI never covers it. -->
+<style>
+  :root { --ink: #17113E; --night: #0B0820; --indigo: #402F99;
+          --coral: #FF5A45; --apricot: #FFA474; --peach: #FFE6CC; --cream: #FFF3E6; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--night); }
+  body { font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif; color: #fff;
+         -webkit-font-smoothing: antialiased; position: relative; }
+  .full { position: absolute; inset: 0; }
+  .grain { opacity: .07; mix-blend-mode: overlay; z-index: 50;
+           background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+
+  /* Hook: an endless poster feed */
+  #hook { background: #07050f; }
+  #wall { position: absolute; inset: -40px 0; }
+  .tile { position: absolute; width: 232px; height: 348px; border-radius: 22px; background-repeat: no-repeat;
+          box-shadow: 0 10px 30px rgba(0,0,0,.6); }
+  #wallShade { background: radial-gradient(80% 50% at 50% 45%, rgba(7,5,15,.25), rgba(7,5,15,.75)); }
+  .hook { position: absolute; left: 60px; right: 60px; top: 700px; text-align: center; font-weight: 800;
+          letter-spacing: -0.045em; line-height: 1; text-shadow: 0 8px 40px rgba(0,0,0,.6); }
+  .hook .line { display: block; overflow: hidden; padding-bottom: 10px; }
+  .hook .word { display: inline-block; }
+  #hookA { font-size: 118px; }
+  #hookB { font-size: 168px; top: 660px; color: var(--coral); }
+
+  /* Scenes: flat colour, marquee words, sticker UI */
+  .scene { position: absolute; inset: 0; overflow: hidden; }
+  .content { position: absolute; inset: 0; }
+  .mq { position: absolute; left: 0; white-space: nowrap; font-family: "Avenir Next Condensed", "Helvetica Neue", sans-serif;
+        font-weight: 800; font-size: 310px; line-height: 1; letter-spacing: -0.01em; text-transform: uppercase;
+        color: var(--stroke); }
+  .hl { position: absolute; left: 72px; right: 150px; top: 215px; font-size: 124px; font-weight: 900;
+        letter-spacing: -0.045em; line-height: 1.02; color: var(--fg); }
+  .hl .row { display: block; }
+  .w { display: inline-block; transform-origin: 30% 70%; }
+  .mark { padding: 0 .14em .04em; margin-left: -.06em; border-radius: 16px; background: var(--markBg); color: var(--markFg);
+          box-shadow: 8px 8px 0 var(--shadow); }
+  .phone { position: absolute; left: 540px; top: 650px; width: 560px; margin-left: -280px; padding: 14px;
+           border-radius: 92px; background: #0d0c14; border: 8px solid #fff;
+           box-shadow: 24px 24px 0 var(--shadow); }
+  .screen { position: relative; width: 516px; height: 1122px; border-radius: 76px; overflow: hidden; background: #000; }
+  .screen img.shot { position: absolute; left: 0; top: 0; width: 516px; }
+  .stk { position: absolute; border: 8px solid #fff; border-radius: 26px; background-repeat: no-repeat;
+         box-shadow: 14px 14px 0 var(--shadow); }
+  .tstk { position: absolute; padding: 18px 30px; border: 7px solid #fff; border-radius: 20px; white-space: nowrap;
+          font-family: "Avenir Next Condensed", sans-serif; font-weight: 800; font-size: 54px; text-transform: uppercase;
+          letter-spacing: .02em; box-shadow: 12px 12px 0 var(--shadow); }
+  .stamp { position: absolute; right: 26px; top: 40px; padding: 4px 22px; border: 9px solid var(--coral); border-radius: 18px;
+           color: var(--coral); font-family: "Avenir Next Condensed", sans-serif; font-weight: 800; font-size: 96px;
+           transform: rotate(14deg); background: rgba(255,255,255,.12); }
+  .iconStk { position: absolute; border: 10px solid #fff; border-radius: 96px; overflow: hidden;
+             box-shadow: 22px 22px 0 var(--shadow); }
+  .iconStk img { display: block; width: 100%; height: 100%; }
+  .pill { display: inline-block; padding: 30px 60px; border-radius: 999px; background: var(--ink); color: var(--peach);
+          font-size: 56px; font-weight: 800; letter-spacing: -0.02em; box-shadow: 12px 12px 0 var(--coral); }
+</style>
+</head>
+<body>
+<div class="full" id="hook">
+  <div id="wall"></div>
+  <div class="full" id="wallShade"></div>
+  <div class="hook" id="hookA"><span class="line"><span class="word" id="hA0">Another night</span></span><span class="line"><span class="word" id="hA1">of scrolling?</span></span></div>
+  <div class="hook" id="hookB"><span class="line"><span class="word" id="hB0">Stop</span></span><span class="line"><span class="word" id="hB1">scrolling.</span></span></div>
+</div>
+<div id="scenes"></div>
+<div class="full grain"></div>
+
+<script>
+const FPS = 30;
+const ICON = "icon.png";
+// Theme accents used by the Themes scene's colour cycle
+const THEME_BGS = ["#FF9F1A", "#FF2BD6", "#00B8D9", "#E8A33A", "#FF1E5A", "#402F99"];
+
+// Each scene: colours, marquee word, headline (*…* = highlighted), and what happens on/around the phone.
+const SCENES = [
+  { id: "brand", dur: 1.75, bg: "#FF5A45", fg: "#fff", stroke: "rgba(255,230,204,.22)", shadow: "#7a1d12",
+    mq: "Watch Guide" },
+  { id: "tonight", dur: 2.4, img: "tonight", bg: "#FFE6CC", fg: "#17113E", markBg: "#FF5A45", markFg: "#fff",
+    stroke: "rgba(255,90,69,.16)", shadow: "#17113E", mq: "Tonight", rot: -4,
+    lines: ["Swipe until", "it *clicks.*"], scroll: [0, 60] },
+  { id: "ratings", dur: 2.4, img: "detail", bg: "#120C2E", fg: "#fff", markBg: "#FF5A45", markFg: "#fff",
+    stroke: "rgba(255,164,116,.12)", shadow: "#FF5A45", mq: "Ratings", rot: 3,
+    lines: ["Every score.", "*Zero tabs.*"], scroll: [0, 640],
+    stickers: [ { r: [48,1935,158,181],  s: 1, x: 175, y: 820,  rot: -10 },
+                { r: [237,1935,191,181], s: 1, x: 905, y: 900,  rot: 8 },
+                { r: [459,1935,225,181], s: 1, x: 185, y: 1300, rot: 7 },
+                { r: [715,1935,236,181], s: 1, x: 895, y: 1380, rot: -7 } ] },
+  { id: "streamq", dur: 2.4, img: "streamq", bg: "#FFA474", fg: "#17113E", markBg: "#17113E", markFg: "#FFA474",
+    stroke: "rgba(23,17,62,.08)", shadow: "#17113E", mq: "StreamQ", rot: -3,
+    lines: ["Only what's on", "*your services.*"], scroll: [0, 140],
+    stickers: [110,266,422,578,734].map((cx, j) => ({ r: [cx-64,548,128,108], s: 1.25,
+      x: j % 2 ? 905 : 175, y: 820 + Math.floor(j / 2) * 290, rot: (j % 2 ? 1 : -1) * (6 + j) })) },
+  { id: "lists", dur: 2.4, img: "lists", bg: "#402F99", fg: "#FFE6CC", markBg: "#FFE6CC", markFg: "#17113E",
+    stroke: "rgba(255,164,116,.14)", shadow: "#0B0820", mq: "Watchlist", rot: 4,
+    lines: ["Save it now.", "*Watch it later.*"], scroll: [0, 200], drop: true,
+    stickers: [ { r: [216,806,361,541],  s: .56, x: 190, y: 1180, rot: -12 },
+                { r: [628,806,360,541],  s: .56, x: 890, y: 1100, rot: 9 },
+                { r: [216,1408,361,540], s: .56, x: 215, y: 1520, rot: 8 },
+                { r: [628,1408,360,540], s: .56, x: 870, y: 1500, rot: -9 } ] },
+  { id: "themes", dur: 2.4, img: "themes", bg: THEME_BGS[0], fg: "#fff", markBg: "#0B0820", markFg: "#fff",
+    stroke: "rgba(255,255,255,.18)", shadow: "#0B0820", mq: "Themes", rot: -3,
+    lines: ["Your app.", "*Your vibe.*"], scroll: [0, 160] },
+  { id: "cta", dur: 3.6, bg: "#FFF3E6", fg: "#17113E", markBg: "#FF5A45", markFg: "#fff",
+    stroke: "rgba(255,90,69,.12)", shadow: "#17113E", mq: "Know what to watch" },
+];
+
+const HOOK_END = 2.55, WIPE = .26;
+let t0 = HOOK_END;
+SCENES.forEach(s => { s.start = t0; t0 += s.dur; });
+const TOTAL = t0;
+window.TIMELINE = { total: TOTAL, fps: FPS };
+
+// ---------- helpers
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const eio = x => x < .5 ? 4*x*x*x : 1 - Math.pow(-2*x + 2, 3) / 2;
+const eo = x => 1 - Math.pow(1 - x, 3);
+const back = x => { const c = 1.9; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const lerp = (a, b, x) => a + (b - a) * x;
+const $ = id => document.getElementById(id);
+
+// ---------- build: hook wall (4 columns x 7 tiles)
+const POSTERS = [
+  ["lists", 216,806,361,541], ["lists", 628,806,360,541], ["tonight", 72,655,1061,1592],
+  ["lists", 216,1408,361,540], ["lists", 628,1408,360,540],
+];
+const COLS = 4, ROWS = 7, TW = 232, TH = 348, GAP = 22, PERIOD = ROWS * (TH + GAP);
+const tiles = [];
+for (let c = 0; c < COLS; c++) for (let r = 0; r < ROWS; r++) {
+  const [img, x, y, w] = POSTERS[(r * 2 + c * 3) % POSTERS.length], s = TW / w;
+  const el = document.createElement("div"); el.className = "tile";
+  el.style.cssText += `left:${(1080 - COLS * TW - (COLS - 1) * GAP) / 2 + c * (TW + GAP)}px;` +
+    `background-image:url(${img}.png);background-size:${1206 * s}px auto;background-position:-${x * s}px -${y * s}px`;
+  $("wall").appendChild(el);
+  tiles.push({ el, c, y0: r * (TH + GAP) + c * 150 });
+}
+
+// ---------- build: scenes
+const K = 516 / 1206;   // source screens are 1206 wide; the phone screen is 516
+const headline = lines => lines.map(l => `<span class="row">` + l.split(/(\*[^*]+\*)/).filter(Boolean).map(p =>
+  p.startsWith("*") ? `<span class="w mark">${p.slice(1, -1)}</span>`
+                    : p.trim().split(/\s+/).map(w => `<span class="w">${w}</span>`).join(" ")).join(" ") + `</span>`).join("");
+const crop = (img, [x, y], s) => `background-image:url(${img}.png);background-size:${1206 * s}px auto;background-position:-${x * s}px -${y * s}px;`;
+
+SCENES.forEach(s => {
+  const el = document.createElement("div"); el.className = "scene"; el.id = "sc_" + s.id;
+  el.style.cssText = `background:${s.bg};--fg:${s.fg};--stroke:${s.stroke};--shadow:${s.shadow};` +
+    `--markBg:${s.markBg || "#000"};--markFg:${s.markFg || "#fff"}`;
+  const word = (s.mq + " • ").repeat(6);
+  let html = `<div class="content">` +
+    `<div class="mq" style="top:760px">${word}</div><div class="mq" style="top:1250px">${word}</div>`;
+  if (s.img) {
+    html += `<div class="phone"><div class="screen"><img class="shot" src="${s.img}.png">`;
+    if (s.id === "tonight") {
+      const r = [72, 655, 1061, 1592];
+      html += `<div class="card" style="position:absolute;left:${r[0]*K}px;top:${r[1]*K}px;width:${r[2]*K}px;height:${r[3]*K}px;` +
+        `border-radius:26px;transform-origin:50% 130%;box-shadow:0 30px 60px rgba(0,0,0,.5);background-repeat:no-repeat;` +
+        `${crop(s.img, r, K)}"><div class="stamp">SKIP</div></div>`;
+    }
+    html += `</div></div>`;
+    (s.stickers || []).forEach(k => {
+      const [, , w, h] = k.r;
+      k.w = w * k.s; k.h = h * k.s;
+      html += `<div class="stk" style="width:${k.w + 16}px;height:${k.h + 16}px;left:${k.x - k.w / 2 - 8}px;top:${k.y - k.h / 2 - 8}px;` +
+        `background-origin:content-box;${crop(s.img, k.r, k.s)}"></div>`;
+    });
+    if (s.id === "tonight")
+      html += `<div class="tstk" style="left:440px;top:1420px;background:#17113E;color:#FFE6CC">Tonight's pick ♥</div>`;
+    html += `<div class="hl">${headline(s.lines)}</div>`;
+  }
+  if (s.id === "brand") {
+    html += `<div class="hl" style="top:500px;left:0;right:0;text-align:center;font-size:72px;color:#FFE6CC"><span class="w">Meet</span></div>` +
+      `<div class="iconStk" style="left:340px;top:640px;width:400px;height:400px"><img src="${ICON}"></div>` +
+      `<div class="hl" style="top:1130px;left:0;right:0;text-align:center;font-size:150px"><span class="w">Watch</span> <span class="w">Guide.</span></div>`;
+  }
+  if (s.id === "cta") {
+    html += `<div class="iconStk" style="left:390px;top:330px;width:300px;height:300px;border-radius:72px"><img src="${ICON}"></div>` +
+      `<div class="hl" style="top:720px;left:0;right:0;text-align:center;font-size:140px">${headline(["Know what", "*to watch.*"])}</div>` +
+      `<div style="position:absolute;left:0;right:0;top:1150px;text-align:center"><span class="w pill">↓&nbsp; Download free</span></div>` +
+      `<div class="sub" style="position:absolute;left:0;right:0;top:1310px;text-align:center;font-size:36px;font-weight:700;` +
+      `letter-spacing:.14em;text-transform:uppercase;color:rgba(23,17,62,.6)">iPhone · iPad · Apple TV</div>`;
+  }
+  el.innerHTML = html + `</div>`;
+  $("scenes").appendChild(el);
+  s.el = el; s.content = el.querySelector(".content");
+  s.mqs = [...el.querySelectorAll(".mq")]; s.words = [...el.querySelectorAll(".w")];
+  s.phone = el.querySelector(".phone"); s.shot = el.querySelector(".shot");
+  s.stks = [...el.querySelectorAll(".stk")]; s.icon = el.querySelector(".iconStk");
+});
+
+// Feed position: accelerating doom-scroll, then slammed to a stop on "Stop scrolling."
+const STOP = 1.3;
+const feedPos = t => t < STOP ? 420 * t + 820 * t * t
+  : 420 * STOP + 820 * STOP * STOP + 70 * Math.sin((t - STOP) * 14) * Math.exp(-(t - STOP) * 7);
+const feedVel = t => t < STOP ? 420 + 1640 * t : 0;
+
+// ---------- render
+window.render = function (t) {
+  // ----- hook
+  const hookOn = t < HOOK_END + WIPE;
+  $("hook").style.display = hookOn ? "block" : "none";
+  if (hookOn) {
+    const p = feedPos(t), v = feedVel(t);
+    tiles.forEach(tl => {
+      const y = ((tl.y0 - p * (tl.c % 2 ? 1.12 : 1)) % PERIOD + PERIOD) % PERIOD - (TH + GAP);
+      tl.el.style.transform = `translateY(${y}px)`;
+    });
+    const stopped = seg(t, STOP, STOP + .25);
+    $("wall").style.filter = `blur(${Math.min(v / 260, 9)}px) brightness(${lerp(.95, .42, stopped)})`;
+    $("wall").style.transform = `scale(${1 + .04 * eo(stopped)})`;
+    $("hookA").style.opacity = 1 - seg(t, STOP - .12, STOP);
+    $("hA0").style.transform = `translateY(${(1 - eo(seg(t, .05, .5))) * 110}%)`;
+    $("hA1").style.transform = `translateY(${(1 - eo(seg(t, .2, .65))) * 110}%)`;
+    const b = seg(t, STOP, STOP + .3);
+    $("hookB").style.opacity = t >= STOP ? 1 : 0;
+    $("hookB").style.transform = `scale(${lerp(1.5, 1, back(b))})`;
+    $("hookB").style.filter = `blur(${(1 - eo(b)) * 14}px)`;
+  }
+
+  // ----- scenes: each wipes in diagonally over the previous one
+  SCENES.forEach((s, i) => {
+    const lt = t - s.start, next = SCENES[i + 1];
+    const on = lt >= 0 && (!next || t < next.start + WIPE);
+    s.el.style.display = on ? "block" : "none";
+    if (!on) return;
+    const w = eio(seg(lt, 0, WIPE)), x = lerp(115, -25, w);
+    s.el.style.clipPath = `polygon(${x}% 0, 100% 0, 100% 100%, ${x - 25}% 100%)`;
+    s.content.style.transform = `translateX(${(1 - eo(seg(lt, 0, WIPE + .1))) * 260}px)`;
+
+    // marquee rows drift in opposite directions
+    s.mqs.forEach((m, j) => m.style.transform = `translateX(${j ? -900 + lt * 240 : -200 - lt * 240}px)`);
+
+    // words slam in
+    const st = s.id === "cta" ? .35 : .12;
+    s.words.forEach((el, j) => {
+      const a = seg(lt, st + j * .075, st + j * .075 + .32);
+      el.style.opacity = clamp(a * 4);
+      el.style.transform = `scale(${lerp(1.9, 1, eo(a))}) rotate(${el.classList.contains("mark") ? -2 : 0}deg)`;
+    });
+
+    if (s.phone) {
+      const a = seg(lt, .05, .62);
+      const bob = Math.sin(t * 2.2 + i) * 8;
+      s.phone.style.transform = `translateY(${(1 - back(a)) * 1150 + bob}px) rotate(${s.rot + (1 - eo(a)) * 10}deg)`;
+      s.shot.style.transform = `translateY(${-lerp(s.scroll[0], s.scroll[1], eio(seg(lt, .5, s.dur - .2))) * K}px)`;
+    }
+    // stickers: pop on (ratings, streamq) or drop into a pile (lists)
+    s.stks.forEach((el, j) => {
+      const k = s.stickers[j], a = seg(lt, .7 + j * .09, 1.1 + j * .09);
+      el.style.opacity = a > 0 ? 1 : 0;
+      el.style.transform = s.drop
+        ? `translateY(${(1 - back(a)) * -1500}px) rotate(${k.rot + (1 - a) * 40}deg)`
+        : `scale(${back(a)}) rotate(${k.rot + (1 - eo(a)) * 30}deg)`;
+    });
+
+    if (s.id === "tonight") {
+      const sw = eio(seg(lt, .85, 1.4));
+      const card = s.el.querySelector(".card");
+      card.style.transform = `translateX(${-sw * 720}px) rotate(${-sw * 24}deg)`;
+      card.querySelector(".stamp").style.opacity = seg(lt, .8, .95);
+      const p = seg(lt, 1.45, 1.8), pk = s.el.querySelector(".tstk");
+      pk.style.opacity = p > 0 ? 1 : 0;
+      pk.style.transform = `scale(${back(p)}) rotate(${6 - (1 - p) * 20}deg)`;
+    }
+    if (s.id === "themes") {
+      // hard cuts through the theme colours, about three per second
+      s.el.style.background = THEME_BGS[Math.min(THEME_BGS.length - 1, Math.floor(Math.max(0, lt - .35) / .32))];
+    }
+    if (s.icon) {
+      const a = seg(lt, s.id === "brand" ? .1 : .15, s.id === "brand" ? .65 : .6);
+      s.icon.style.opacity = a > 0 ? 1 : 0;
+      s.icon.style.transform = `scale(${back(a)}) rotate(${-6 + (1 - eo(a)) * 200}deg) translateY(${Math.sin(t * 2.4) * 6}px)`;
+    }
+    if (s.id === "cta") {
+      const p = seg(lt, 1.0, 1.4), pulse = 1 + .035 * Math.sin(Math.max(0, lt - 1.7) * 5.5) * seg(lt, 1.7, 2);
+      const pill = s.el.querySelector(".pill");
+      pill.style.opacity = p > 0 ? 1 : 0;
+      pill.style.transform = `scale(${back(p) * pulse})`;
+      s.el.querySelector(".sub").style.opacity = eo(seg(lt, 1.4, 1.9));
+    }
+  });
+};
+window.render(0);
+</script>
+</body>
+</html>

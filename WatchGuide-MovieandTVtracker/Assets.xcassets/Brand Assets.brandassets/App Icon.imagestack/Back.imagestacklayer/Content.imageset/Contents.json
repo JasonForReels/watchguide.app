@@ -1,18 +1,7 @@
 {
-  "images": [
-    {
-      "idiom": "tv",
-      "scale": "1x",
-      "filename": "Back-1x.png"
-    },
-    {
-      "filename": "ChatGPT Image Mar 26, 2026 at 06_32_34 PM.png",
-      "idiom": "tv",
-      "scale": "2x"
-    }
+  "images" : [
+    { "filename" : "Back.png", "idiom" : "tv", "scale" : "1x" },
+    { "filename" : "Back@2x.png", "idiom" : "tv", "scale" : "2x" }
   ],
-  "info": {
-    "author": "xcode",
-    "version": 1
-  }
+  "info" : { "author" : "xcode", "version" : 1 }
 }

@@ -9,7 +9,19 @@ import SwiftUI
 
 struct ContentView: View {
     @AppStorage("onboardingComplete") private var onboardingComplete = false
-    @State private var selectedTab: Tab = .browse
+    @State private var selectedTab: Tab = Self.launchTab
+
+    /// Debug builds can open on a given tab (`-WGTab 8`) so App Store
+    /// screenshots can be captured without driving the remote.
+    private static var launchTab: Tab {
+        #if DEBUG
+        if UserDefaults.standard.object(forKey: "WGTab") != nil,
+           let tab = Tab(rawValue: UserDefaults.standard.integer(forKey: "WGTab")) {
+            return tab
+        }
+        #endif
+        return .browse
+    }
     @ObservedObject private var quickRouteCenter = WatchGuideQuickRouteCenter.shared
     @State private var selectedMediaItem: MediaItem?
     @State private var showProfilePicker = false
@@ -39,20 +51,22 @@ struct ContentView: View {
         case myStreaming = 8
         case watchHour = 9
         case tonight = 10
+        case pops = 11
 
         var id: Int { rawValue }
 
         var label: String {
             switch self {
-            case .browse: return "Browse"
-            case .search: return "Search"
-            case .lists: return "Lists"
-            case .me: return "Me"
-            case .settings: return "Settings"
-            case .more: return "More"
+            case .browse: return String(localized: "Browse")
+            case .search: return String(localized: "Search")
+            case .lists: return String(localized: "Lists")
+            case .me: return String(localized: "Me")
+            case .settings: return String(localized: "Settings")
+            case .more: return String(localized: "More")
             case .myStreaming: return "StreamQ"
             case .watchHour: return "WatchHour"
-            case .tonight: return "Tonight"
+            case .tonight: return String(localized: "Tonight")
+            case .pops: return "Pops"
             }
         }
 
@@ -67,12 +81,15 @@ struct ContentView: View {
             case .myStreaming: return "play.tv.fill"
             case .watchHour: return "hourglass"
             case .tonight: return "sparkles.rectangle.stack.fill"
+            case .pops: return "flame.fill"
             }
         }
     }
     
     @State private var showPostSignInSync = false
     @State private var showAtlasSheet = false
+    @State private var showTonight = false
+    @State private var tonightDetailItem: MediaItem?
 
     #if os(macOS) || targetEnvironment(macCatalyst)
     private var isMacLike: Bool { true }
@@ -172,14 +189,19 @@ struct ContentView: View {
                 case .atlas, .tonight:
                     #if os(iOS) && !targetEnvironment(macCatalyst)
                     if route.destination == .tonight {
-                        selectedTab = .tonight
-                        visitedTabs.insert(.tonight)
+                        selectedTab = .browse
+                        showTonight = true
                         quickRouteCenter.consume()
                         return
                     }
                     #endif
                     #if os(tvOS)
-                    showAtlasSheet = true
+                    if route.destination == .tonight, visibleTabs.contains(.tonight) {
+                        selectedTab = .tonight
+                        visitedTabs.insert(.tonight)
+                    } else {
+                        showAtlasSheet = true
+                    }
                     #else
                     AtlasProactiveEngine.shared.markBriefingSeen()
                     AtlasDockState.shared.engage()
@@ -198,6 +220,19 @@ struct ContentView: View {
                     visitedTabs.insert(.search)
                 }
             }
+            #if os(iOS)
+            .fullScreenCover(isPresented: $showTonight) {
+                NavigationStack {
+                    TonightReelView(selectedItem: $tonightDetailItem)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Close") { showTonight = false }
+                            }
+                        }
+                }
+                .mediaDetailPresentation(item: $tonightDetailItem)
+            }
+            #endif
             .task {
                 aiGuideManager.presentIfNeededAfterUpdate()
                 WidgetDataService.shared.syncAPIKey()
@@ -289,13 +324,18 @@ struct ContentView: View {
         #endif
 
         #if os(tvOS)
+        // Tonight gets its own tab on TV: there's no Browse invite card to
+        // open it from, and its Skip / Watched / Save buttons suit the remote.
+        if !StorageService.shared.settings.isKidsProfile {
+            tabs.insert(.tonight, at: 1)
+        }
         return tabs
         #elseif !os(macOS)
         // On iPhone/iPad, we group secondary things into "More"
         var grouped: [Tab] = [.browse]
         if tabs.contains(.search) { grouped.append(.search) }
         if tabs.contains(.myStreaming) { grouped.append(.myStreaming) }
-        grouped.append(.tonight)
+        grouped.append(.pops)
         grouped.append(.more)
         return grouped
         #else
@@ -328,9 +368,9 @@ struct ContentView: View {
                 }
             }
 
-            if visibleTabs.contains(.tonight) {
-                SwiftUI.Tab(ContentView.Tab.tonight.label, systemImage: ContentView.Tab.tonight.iconName, value: ContentView.Tab.tonight) {
-                    tabContent(for: .tonight)
+            if visibleTabs.contains(.pops) {
+                SwiftUI.Tab(ContentView.Tab.pops.label, systemImage: ContentView.Tab.pops.iconName, value: ContentView.Tab.pops) {
+                    tabContent(for: .pops)
                 }
             }
 
@@ -603,6 +643,13 @@ struct ContentView: View {
             LazyTabContent(tab: .tonight, visitedTabs: $visitedTabs) {
                 TonightReelView(selectedItem: $selectedMediaItem)
             }
+        case .pops:
+            // Built only while selected so clips stop playing when you leave.
+            if selectedTab == .pops {
+                ClipsView(selectedItem: $selectedMediaItem, showsCloseButton: false)
+            } else {
+                Color.black.ignoresSafeArea()
+            }
         case .lists:
             LazyTabContent(tab: .lists, visitedTabs: $visitedTabs) {
                 ListsView()
@@ -635,6 +682,11 @@ private struct TVPrimaryPresentationModifier: ViewModifier {
                 NavigationStack {
                     AppleIntelligenceGuideView()
                 }
+                #if os(tvOS)
+                // A full-screen cover is transparent on tvOS; without this the
+                // page underneath shows through the guide.
+                .background(Color.black.ignoresSafeArea())
+                #endif
             }
     }
 }

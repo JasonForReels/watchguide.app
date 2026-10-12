@@ -58,10 +58,13 @@ struct ShimmerModifier: ViewModifier {
         content
             .overlay(
                 LinearGradient(
+                    // `phase` runs past 1 so the highlight slides fully out of
+                    // frame. Every stop is clamped to 0...1 so they stay in
+                    // order; an unclamped middle stop went past the last one.
                     stops: [
-                        .init(color: .clear, location: max(0, phase - 0.3)),
-                        .init(color: .white.opacity(0.18), location: phase),
-                        .init(color: .clear, location: min(1, phase + 0.3))
+                        .init(color: .clear, location: min(1, max(0, phase - 0.3))),
+                        .init(color: .white.opacity(0.18), location: min(1, max(0, phase))),
+                        .init(color: .clear, location: min(1, max(0, phase + 0.3)))
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing

@@ -1,0 +1,210 @@
+default_platform(:ios)
+
+# App Store media lives in AppStoreScreenshots/ (built from AppStoreScreenshots/source).
+MEDIA_DIR = File.expand_path("../AppStoreScreenshots", __dir__)
+LOCALE = "en-US"
+
+# Preview video → App Store Connect preview type. The 6.7" slot is the one that
+# takes 886x1920 previews for 6.9" iPhones; 1200x1600 goes in the 13" iPad slot.
+PREVIEWS = {
+  "IPHONE_67"         => "AppPreview/WatchGuide-AppPreview-6.9in.mp4",
+  "IPAD_PRO_3GEN_129" => "AppPreview/WatchGuide-AppPreview-iPad-13in.mp4",
+}
+
+# A locale with its own folder (e.g. AppStoreScreenshots/zh-Hans/) uses its own
+# screenshots and previews; every other locale uses the English set.
+def media_dir(locale)
+  dir = File.join(MEDIA_DIR, locale)
+  File.directory?(dir) ? dir : MEDIA_DIR
+end
+
+def preview_path(locale, file)
+  dir = File.join(MEDIA_DIR, locale)
+  return File.join(MEDIA_DIR, file) unless File.directory?(dir)
+  File.join(dir, File.basename(file, ".mp4") + "-#{locale.split('-').first}.mp4")
+end
+
+platform :ios do
+  # Authenticates with the App Store Connect API key named in fastlane/.env.
+  private_lane :connect do
+    app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_filepath: File.expand_path(ENV.fetch("ASC_KEY_PATH")),
+    )
+  end
+
+  desc "Replace the iPhone 6.9\" and iPad 13\" screenshots and previews for a version"
+  desc "Usage: fastlane store_media version:5.6 locale:en-GB (locale defaults to en-US)"
+  lane :store_media do |options|
+    version = options[:version] || ENV.fetch("STORE_VERSION")
+    locale = options[:locale] || LOCALE
+    connect
+
+    # deliver reads screenshots/<locale>/, picks the device size from each image's
+    # resolution and keeps alphabetical order, so 01-… is shown first.
+    staging = File.expand_path("screenshots_upload/#{locale}", __dir__)
+    FileUtils.rm_rf(File.dirname(staging))
+    FileUtils.mkdir_p(staging)
+    Dir[File.join(media_dir(locale), "iPhone-6.9in", "*.png")].each { |f| FileUtils.cp(f, File.join(staging, "iphone-#{File.basename(f)}")) }
+    Dir[File.join(media_dir(locale), "iPad-13in", "*.png")].each { |f| FileUtils.cp(f, File.join(staging, "ipad-#{File.basename(f)}")) }
+
+    deliver(
+      app_version: version,
+      screenshots_path: File.dirname(staging),
+      overwrite_screenshots: true,   # replaces only the sizes and locale uploaded here
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_app_version_update: false,
+      submit_for_review: false,
+      force: true,                   # skip the HTML preview prompt
+      precheck_include_in_app_purchases: false,
+      run_precheck_before_submit: false,
+    )
+
+    upload_previews(version: version, locale: locale)
+  end
+
+  desc "Apple TV: set the tvOS version, upload its listing text and screenshots (AppStoreScreenshots/tvOS/<locale>/)"
+  desc "Usage: fastlane tv_media version:5.6.1"
+  lane :tv_media do |options|
+    version = options[:version] || ENV.fetch("STORE_VERSION")
+    connect
+    deliver(
+      platform: "appletvos",
+      app_version: version,
+      metadata_path: File.expand_path("metadata-tvos", __dir__),  # made by scripts/finish-5.6.1.sh
+      screenshots_path: File.join(MEDIA_DIR, "tvOS"),
+      overwrite_screenshots: true,
+      skip_binary_upload: true,
+      skip_app_version_update: false,  # renames the open tvOS version to this one
+      submit_for_review: false,
+      force: true,
+      precheck_include_in_app_purchases: false,
+      run_precheck_before_submit: false,
+    )
+  end
+
+  desc "Upload the listing text in fastlane/metadata/ (description, keywords, What's New, URLs)"
+  lane :listing do |options|
+    version = options[:version] || ENV.fetch("STORE_VERSION")
+    connect
+    deliver(
+      app_version: version,
+      metadata_path: File.expand_path("metadata", __dir__),
+      skip_screenshots: true,
+      skip_binary_upload: true,
+      skip_app_version_update: true,
+      submit_for_review: false,
+      force: true,
+      precheck_include_in_app_purchases: false,
+      run_precheck_before_submit: false,
+    )
+  end
+
+  desc "Attach a build to a version and submit it for App Review"
+  desc "Usage: fastlane submit build:10 (version defaults to STORE_VERSION)"
+  lane :submit do |options|
+    version = options[:version] || ENV.fetch("STORE_VERSION")
+    UI.user_error!("Pass the build number, e.g. build:10") unless options[:build]
+    connect
+    deliver(
+      app_version: version,
+      build_number: options[:build].to_s,
+      submit_for_review: true,
+      automatic_release: false,      # you press Release once it's approved
+      skip_metadata: true,
+      skip_screenshots: true,
+      skip_binary_upload: true,
+      skip_app_version_update: true,
+      force: true,
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false,
+    )
+  end
+
+  desc "Replace the App Preview videos for a version"
+  lane :upload_previews do |options|
+    version = options[:version] || ENV.fetch("STORE_VERSION")
+    connect unless Spaceship::ConnectAPI.token
+
+    app = Spaceship::ConnectAPI::App.find(CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier))
+    store_version = app.get_app_store_versions(filter: { versionString: version, platform: "IOS" }).first
+    UI.user_error!("No App Store version #{version} — create it first (store_media does)") unless store_version
+    locale = options[:locale] || LOCALE
+    localization = store_version.get_app_store_version_localizations.find { |l| l.locale == locale }
+    UI.user_error!("Version #{version} has no #{locale} localization") unless localization
+
+    sets = localization.get_app_preview_sets
+    PREVIEWS.each do |preview_type, file|
+      path = preview_path(locale, file)
+      set = sets.find { |s| s.preview_type == preview_type } ||
+            localization.create_app_preview_set(attributes: { previewType: preview_type })
+      (set.app_previews || []).each(&:delete!)   # a newly created set comes back with none
+      UI.message("Uploading #{file} → #{preview_type}")
+      set.upload_preview(path: path, wait_for_processing: false)
+    end
+    UI.success("Previews uploaded; Apple processes them in the background (usually a few minutes).")
+  end
+end
+
+platform :ios do
+  desc "Report the screenshots and previews App Store Connect holds for a version"
+  lane :media_status do |options|
+    version = options[:version] || ENV.fetch("STORE_VERSION")
+    connect
+    app = Spaceship::ConnectAPI::App.find(CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier))
+    v = app.get_app_store_versions(filter: { versionString: version, platform: "IOS" }).first
+    UI.message("Version #{v.version_string}: #{v.app_store_state}")
+    v.get_app_store_version_localizations.each do |l|
+      l.get_app_screenshot_sets.each { |s| UI.message("#{l.locale} screenshots #{s.screenshot_display_type}: #{(s.app_screenshots || []).count}") }
+      l.get_app_preview_sets.each do |s|
+        (s.app_previews || []).each { |p| UI.message("#{l.locale} preview #{s.preview_type}: #{p.asset_delivery_state&.dig('state')}") }
+      end
+    end
+  end
+end
+
+platform :ios do
+  desc "Save the current listing text for a version into fastlane/metadata/<locale>/"
+  lane :fetch_listing do |options|
+    version = options[:version] || ENV.fetch("STORE_VERSION")
+    connect
+    app = Spaceship::ConnectAPI::App.find(CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier))
+    v = app.get_app_store_versions(filter: { versionString: version, platform: "IOS" }).first
+    base = File.expand_path("metadata", __dir__)
+    fields = { "description" => :description, "keywords" => :keywords, "release_notes" => :whats_new,
+               "promotional_text" => :promotional_text, "marketing_url" => :marketing_url, "support_url" => :support_url }
+    v.get_app_store_version_localizations.each do |l|
+      dir = File.join(base, l.locale); FileUtils.mkdir_p(dir)
+      fields.each { |file, attr| File.write(File.join(dir, "#{file}.txt"), l.send(attr).to_s) }
+    end
+    info = app.fetch_edit_app_info || app.fetch_live_app_info
+    info.get_app_info_localizations.each do |l|
+      dir = File.join(base, l.locale); FileUtils.mkdir_p(dir)
+      { "name" => :name, "subtitle" => :subtitle, "privacy_url" => :privacy_policy_url }.each { |file, attr| File.write(File.join(dir, "#{file}.txt"), l.send(attr).to_s) }
+    end
+    UI.success("Saved listing text to #{base}")
+  end
+end
+
+platform :ios do
+  desc "Report whether the app is available in a territory (default: CHN)"
+  lane :territory_status do |options|
+    code = options[:territory] || "CHN"
+    connect
+    app = Spaceship::ConnectAPI::App.find(CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier))
+    avail = Spaceship::ConnectAPI.client.tunes_request_client.get("v1/apps/#{app.id}/appAvailabilityV2") rescue nil
+    avail_id = avail && avail.body.dig("data", "id")
+    resp = avail_id && (Spaceship::ConnectAPI.client.tunes_request_client.get("v2/appAvailabilities/#{avail_id}/territoryAvailabilities", { limit: 200, include: "territory" }) rescue nil)
+    if resp.nil?
+      UI.important("Could not read availability through the API")
+      next
+    end
+    rows = resp.body["data"] || []
+    match = rows.find { |r| r.dig("relationships", "territory", "data", "id") == code }
+    total = rows.count { |r| r.dig("attributes", "available") }
+    UI.message("Available in #{total} of #{rows.count} territories listed")
+    UI.message(match ? "#{code}: available=#{match.dig('attributes', 'available')}" : "#{code}: not listed")
+  end
+end

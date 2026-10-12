@@ -90,13 +90,7 @@ struct ListsView: View {
                         customListsContent
                     }
                 }
-                
-                #if !os(tvOS)
-                RemoteBannerView(placement: .lists)
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
-                #endif
-            }
+                            }
             #if os(tvOS)
             .background(TVOSAmbientBackdrop())
             #endif
@@ -398,6 +392,12 @@ struct ListsView: View {
                     }
                 }
                 .padding()
+
+                #if !os(tvOS)
+                RemoteBannerView(placement: .lists)
+                    .padding(.horizontal)
+                    .padding(.bottom, 24)
+                #endif
             }
         }
     }

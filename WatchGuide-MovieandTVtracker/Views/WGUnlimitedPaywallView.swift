@@ -125,98 +125,220 @@ private struct WGBuiltInPaywallView: View {
                 detail: "Your watching, properly measured"),
         Benefit(icon: "link",
                 title: "Instant deep links",
-                detail: "Jump straight into the right app"),
-        Benefit(icon: "rectangle.slash",
-                title: "No ads",
-                detail: "Nothing between you and what's next")
+                detail: "Jump straight into the right app")
     ]
 
     // MARK: - Body
 
+    @State private var snapshot = PaywallLibrarySnapshot(
+        posterURLs: [], trackedCount: 0, watchedCount: 0, hoursWatched: 0,
+        tonightPick: nil, tonightPickDaysWaiting: 0
+    )
+    @State private var trendingPosterURLs: [URL] = []
+    @State private var showsWelcome = false
+
+    /// The user's own posters where there are enough to fill the wall, topped up
+    /// with what's trending so a brand-new library still gets a full wall.
+    private var wallURLs: [URL] {
+        let own = snapshot.posterURLs
+        guard own.count < 16 else { return own }
+        let ownSet = Set(own)
+        return own + trendingPosterURLs.filter { !ownSet.contains($0) }
+    }
+
+    /// Length of the annual plan's free trial, read from the App Store offer.
+    private var trialDays: Int {
+        #if os(iOS)
+        if let period = subscription.annualProduct?.introductoryDiscount?.subscriptionPeriod {
+            switch period.unit {
+            case .day:   return period.value
+            case .week:  return period.value * 7
+            case .month: return period.value * 30
+            case .year:  return period.value * 365
+            @unknown default: break
+            }
+        }
+        #endif
+        return 7
+    }
+
     var body: some View {
-        NavigationStack {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            PaywallPosterWall(urls: wallURLs)
+                .opacity(wallURLs.isEmpty ? 0 : 0.6)
+                .animation(.easeIn(duration: 0.8), value: wallURLs.isEmpty)
+                .ignoresSafeArea()
+
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.15), location: 0),
+                    .init(color: .black.opacity(0.55), location: 0.28),
+                    .init(color: .black.opacity(0.92), location: 0.5),
+                    .init(color: .black, location: 1)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: 28) {
                     header
-                    benefitList
+                        .padding(.top, 150)
+                    if snapshot.isPersonal {
+                        statsRow.wgStaggeredAppear(index: 1)
+                    }
+                    PaywallAtlasPreview(snapshot: snapshot)
+                        .wgStaggeredAppear(index: 2)
+                    benefitGrid
                     if !subscription.isProActive {
                         planPicker
-                        purchaseButton
-                    }
-                    restoreButton
-                    if subscription.isProActive {
+                        if showsTrial && selectedPlan == .annual {
+                            PaywallTrialTimeline(trialDays: trialDays, renewalPrice: annualPrice)
+                                .padding(18)
+                                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                    } else {
                         Label("WatchGuide Pro is active", systemImage: "checkmark.seal.fill")
-                            .foregroundColor(.green)
+                            .foregroundStyle(.green)
                             .font(.subheadline.weight(.semibold))
                     }
                     if let purchaseMessage {
                         Text(purchaseMessage)
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.white.opacity(0.7))
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, 16)
                     }
                     legal
                 }
+                .padding(.horizontal, 20)
+                .animation(WGMotion.smooth, value: selectedPlan)
             }
-            .background(Color.groupedBackground)
-            .navigationTitle("WatchGuide Pro")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
+            .scrollIndicators(.hidden)
+            .safeAreaInset(edge: .bottom) {
+                if !subscription.isProActive { purchaseDock }
             }
-            .task { await subscription.loadProducts() }
+
+            if showsWelcome {
+                PaywallWelcomeView(posterURLs: wallURLs) { dismiss() }
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
         }
+        .overlay(alignment: .topTrailing) {
+            if !showsWelcome {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .padding(.trailing, 16)
+                .padding(.top, 8)
+                .accessibilityLabel("Close")
+            }
+        }
+        .foregroundStyle(.white)
+        .preferredColorScheme(.dark)
+        #if os(iOS)
+        .sensoryFeedback(.selection, trigger: selectedPlan)
+        #endif
+        .task {
+            snapshot = PaywallLibrarySnapshot.current()
+            await subscription.loadProducts()
+        }
+        .task { await loadTrendingPosters() }
     }
 
     // MARK: - Sections
 
     private var header: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "star.circle.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(.yellow, .orange)
+        VStack(spacing: 14) {
+            HStack(spacing: 6) {
+                Image(systemName: "play.tv.fill")
+                Text("WATCHGUIDE PRO")
+            }
+            .font(.caption.weight(.heavy))
+            .tracking(2.4)
+            .foregroundStyle(LinearGradient(colors: [.yellow, .orange],
+                                            startPoint: .leading, endPoint: .trailing))
 
-            Text("WatchGuide Pro")
-                .font(.title.bold())
-
-            Text(showsTrial
-                 ? "Try everything free for 7 days"
-                 : "Everything WatchGuide can do")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            Text(snapshot.isPersonal ? "Your taste,\nsupercharged." : "Never wonder\nwhat's next.")
+                .font(.system(size: 40, weight: .bold, design: .rounded))
                 .multilineTextAlignment(.center)
-        }
-        .padding(.top, 24)
-    }
+                .shadow(color: .black.opacity(0.6), radius: 16)
 
-    private var benefitList: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(benefits.enumerated()), id: \.element.id) { index, benefit in
-                if index > 0 { Divider().padding(.leading, 48) }
-                HStack(spacing: 12) {
-                    Image(systemName: benefit.icon)
-                        .font(.body)
-                        .foregroundColor(.accentColor)
-                        .frame(width: 24)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(benefit.title)
-                            .font(.subheadline.weight(.semibold))
-                        Text(benefit.detail)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+            Text(snapshot.isPersonal
+                 ? "You've built a library worth bragging about. Pro gives it superpowers."
+                 : "Ask anything, plan every cinema trip, and see your watching like never before.")
+                .font(.body)
+                .foregroundStyle(.white.opacity(0.75))
+                .multilineTextAlignment(.center)
+
+            if showsTrial && !subscription.isProActive {
+                Text("\(trialDays) days free")
+                    .font(.subheadline.weight(.bold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(Color.orange.gradient, in: Capsule())
+                    .padding(.top, 2)
             }
         }
-        .background(Color.secondaryGroupedBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 16)
+    }
+
+    private var statsRow: some View {
+        HStack(spacing: 0) {
+            PaywallStat(value: snapshot.trackedCount, label: "Tracked")
+            PaywallStat(value: snapshot.watchedCount, label: "Watched")
+            if snapshot.hoursWatched > 0 {
+                PaywallStat(value: snapshot.hoursWatched, label: "Hours")
+            }
+        }
+        .padding(.vertical, 14)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    /// Atlas has its own preview card above, so the grid starts after it.
+    private var benefitGrid: some View {
+        let cards = Array(benefits.dropFirst())
+        let rows = stride(from: 0, to: cards.count, by: 2).map { Array(cards[$0..<min($0 + 2, cards.count)]) }
+        return Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
+                GridRow {
+                    ForEach(Array(row.enumerated()), id: \.element.id) { column, benefit in
+                        benefitCard(benefit)
+                            .wgStaggeredAppear(index: rowIndex * 2 + column + 3)
+                    }
+                }
+            }
+        }
+    }
+
+    private func benefitCard(_ benefit: Benefit) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: benefit.icon)
+                .font(.title3)
+                .foregroundStyle(LinearGradient(colors: [.yellow, .orange],
+                                                startPoint: .topLeading, endPoint: .bottomTrailing))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(benefit.title)
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(benefit.detail)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(14)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 
     private var planPicker: some View {
@@ -224,7 +346,8 @@ private struct WGBuiltInPaywallView: View {
             planRow(.annual,
                     title: "Annual",
                     price: annualPrice,
-                    period: "per year",
+                    period: subscription.annualProduct?.localizedPricePerMonth.map { "Just \($0)/month, billed yearly" }
+                        ?? "per year",
                     badge: subscription.annualSavingsPercent.map { "SAVE \($0)%" })
             planRow(.monthly,
                     title: "Monthly",
@@ -239,7 +362,6 @@ private struct WGBuiltInPaywallView: View {
                         badge: nil)
             }
         }
-        .padding(.horizontal, 16)
     }
 
     private func planRow(_ plan: ProPlan, title: String, price: String, period: String, badge: String?) -> some View {
@@ -248,69 +370,138 @@ private struct WGBuiltInPaywallView: View {
             selectedPlan = plan
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? Color.orange : Color.white.opacity(0.35))
+                    .contentTransition(.symbolEffect(.replace))
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(title)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.headline)
                         if let badge {
                             Text(badge)
-                                .font(.caption2.weight(.bold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.green.opacity(0.2))
-                                .foregroundColor(.green)
-                                .clipShape(Capsule())
+                                .font(.caption2.weight(.heavy))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Color.green.gradient, in: Capsule())
+                                .foregroundStyle(.black)
                         }
                     }
                     Text(period)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.white.opacity(0.6))
                 }
                 Spacer(minLength: 0)
                 Text(price)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.headline)
                     .monospacedDigit()
             }
-            .padding(14)
-            .background(Color.secondaryGroupedBackground)
+            .padding(16)
+            .background(isSelected ? Color.orange.opacity(0.14) : .clear,
+                        in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(isSelected ? Color.orange : Color.white.opacity(0.12), lineWidth: isSelected ? 2 : 1)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .scaleEffect(isSelected ? 1 : 0.98)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.wgPress)
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
     }
 
-    private var purchaseButton: some View {
-        VStack(spacing: 6) {
+    /// The purchase button stays pinned above the home indicator, so the offer is
+    /// always one tap away however far the user scrolls.
+    private var purchaseDock: some View {
+        VStack(spacing: 8) {
             Button {
                 Task { await buy() }
             } label: {
-                HStack {
+                HStack(spacing: 8) {
                     if subscription.isPurchasing {
                         ProgressView().tint(.white)
                     }
                     Text(callToAction)
-                        .fontWeight(.semibold)
+                        .font(.headline)
+                        .contentTransition(.interpolate)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .padding(.vertical, 17)
+                .background(LinearGradient(colors: [Color(red: 1, green: 0.62, blue: 0.1), .orange,
+                                                     Color(red: 0.95, green: 0.35, blue: 0.1)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing))
+                .modifier(PaywallSheen())
+                .clipShape(Capsule())
+                .shadow(color: .orange.opacity(0.45), radius: 18, y: 6)
+                .foregroundStyle(.white)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.orange)
+            .buttonStyle(.wgPress)
             .disabled(subscription.isPurchasing)
+            .animation(WGMotion.snappy, value: selectedPlan)
 
             Text(priceCaption)
                 .font(.caption2)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.white.opacity(0.65))
                 .multilineTextAlignment(.center)
+
+            restoreButton
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 4)
+        .background {
+            LinearGradient(stops: [.init(color: .black.opacity(0), location: 0),
+                                   .init(color: .black.opacity(0.94), location: 0.3),
+                                   .init(color: .black, location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+                .padding(.top, -28)
+                .ignoresSafeArea()
+        }
+    }
+
+    private var restoreButton: some View {
+        Button {
+            Task {
+                let outcome = await subscription.restorePurchases()
+                switch outcome {
+                case .success:
+                    purchaseMessage = "WatchGuide Pro restored."
+                default:
+                    purchaseMessage = outcome.message
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                if subscription.isPurchasing {
+                    ProgressView().controlSize(.mini)
+                }
+                Text("Restore Purchases")
+            }
+        }
+        .font(.footnote)
+        .foregroundStyle(.white.opacity(0.7))
+        .disabled(subscription.isPurchasing)
+    }
+
+    private var legal: some View {
+        VStack(spacing: 4) {
+            Text(legalText)
+            HStack(spacing: 16) {
+                if let url = URL(string: "https://www.watchguide.app/#/privacy") {
+                    Link("Privacy Policy", destination: url)
+                }
+                if let url = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/") {
+                    Link("Terms of Use", destination: url)
+                }
+            }
+            .tint(.white)
+            .padding(.top, 4)
+        }
+        .font(.caption2)
+        .foregroundStyle(.white.opacity(0.5))
+        .multilineTextAlignment(.center)
+        .padding(.bottom, 24)
     }
 
     private var callToAction: String {
@@ -334,49 +525,6 @@ private struct WGBuiltInPaywallView: View {
         }
     }
 
-    private var restoreButton: some View {
-        Button {
-            Task {
-                let outcome = await subscription.restorePurchases()
-                switch outcome {
-                case .success:
-                    purchaseMessage = "WatchGuide Pro restored."
-                default:
-                    purchaseMessage = outcome.message
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                if subscription.isPurchasing {
-                    ProgressView().controlSize(.mini)
-                }
-                Text("Restore Purchases")
-            }
-        }
-        .font(.subheadline)
-        .disabled(subscription.isPurchasing)
-    }
-
-    private var legal: some View {
-        VStack(spacing: 4) {
-            Text(legalText)
-            HStack(spacing: 16) {
-                if let url = URL(string: "https://www.watchguide.app/#/privacy") {
-                    Link("Privacy Policy", destination: url)
-                }
-                if let url = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/") {
-                    Link("Terms of Use", destination: url)
-                }
-            }
-            .padding(.top, 4)
-        }
-        .font(.caption2)
-        .foregroundColor(.secondary)
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 24)
-    }
-
     private var legalText: String {
         if selectedPlan == .lifetime {
             return "One-time purchase. Payment is charged to your Apple Account at confirmation. Not a subscription — nothing renews."
@@ -396,7 +544,22 @@ private struct WGBuiltInPaywallView: View {
         case .monthly:  outcome = await subscription.purchaseProMonthly()
         case .lifetime: outcome = await subscription.purchaseProLifetime()
         }
-        purchaseMessage = outcome.message
+        if case .success = outcome {
+            withAnimation(.easeInOut(duration: 0.5)) { showsWelcome = true }
+        } else {
+            purchaseMessage = outcome.message
+        }
+    }
+
+    /// Fills out the poster wall for libraries too small to cover it alone.
+    private func loadTrendingPosters() async {
+        guard trendingPosterURLs.isEmpty else { return }
+        async let movies = try? TMDBService.shared.getTrending(mediaType: .movie)
+        async let shows = try? TMDBService.shared.getTrending(mediaType: .tv)
+        let items = (await movies?.results ?? []) + (await shows?.results ?? [])
+        trendingPosterURLs = items.compactMap {
+            TMDBService.shared.imageURL(path: $0.posterPath, size: .small)
+        }
     }
 }
 
