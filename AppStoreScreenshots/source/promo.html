@@ -54,6 +54,13 @@
   .wide .tv { left: 1900px; right: 200px; top: 50%; transform: translateY(-50%); }
   .wide .stand { display: none; }
 
+  /* ?clean=1: headline only, no language list, for small thumbnails */
+  .clean .sub { display: none; }
+  .clean h1 em { white-space: nowrap; }
+  .wide.clean h1 { font-size: 300px; }
+  .wide.clean .copy { width: 1960px; }
+  .wide.clean .tv { left: 2300px; right: 170px; }
+
   /* ?ar=tall: 9:16 (2160x3840) Reels cover; everything sits inside the centre 3:4 the grid shows */
   .tall { --W: 2160px; --H: 3840px; }
   .tall .halo { background: radial-gradient(60% 30% at 50% 66%, rgba(255,158,107,.55) 0%,
@@ -83,6 +90,7 @@ const params = new URLSearchParams(location.search);
 document.getElementById("shot").src = params.get("shot") || "../tvOS-raw/es_tonight.png";
 if (params.get("ar") === "wide") document.documentElement.classList.add("wide");
 if (params.get("ar") === "tall") document.documentElement.classList.add("tall");
+if (params.get("clean")) document.documentElement.classList.add("clean");
 // ?variant=soon: the coming-soon teaser artwork.
 if (params.get("variant") === "soon") {
   document.querySelector(".pill").textContent = "Coming soon · Version 5.6.2";
