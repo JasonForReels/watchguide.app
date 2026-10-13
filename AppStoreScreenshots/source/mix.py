@@ -9,12 +9,13 @@ VO_DIR = os.path.join(HERE, "..", "video-raw", "vo")
 RATE = 48000
 
 html = open(os.path.join(HERE, "update.html")).read()
-# Usage: python3 mix.py <out.m4a> [soon] — "soon" uses the coming-soon narration (window.VO_SOON).
-key = "VO_SOON" if len(sys.argv) > 2 and sys.argv[2] == "soon" else "VO"
+# Cuts: default 55 s release, "soon" teaser (VO_SOON), "long" ~90 s YouTube cut (VO_LONG).
+cut = sys.argv[2] if len(sys.argv) > 2 else ""
+key = {"soon": "VO_SOON", "long": "VO_LONG"}.get(cut, "VO")
 cues = json.loads(re.search(r"window\." + key + r" = (\[.*?\]);", html).group(1))
-total = float(re.search(r"const TOTAL = ([\d.]+);", html).group(1))
+total = 92.0 if cut == "long" else float(re.search(r"const TOTAL = ([\d.]+);", html).group(1))
 
-MUSIC = os.path.join(HERE, "..", "video-raw", "score.wav")
+MUSIC = os.path.join(HERE, "..", "video-raw", "score-long.wav" if cut == "long" else "score.wav")
 MUSIC_GAIN, DUCK_GAIN = 0.42, 0.21   # bed level between lines, and under the voice
 mix = array.array("f", [0.0]) * int(total * RATE)
 spans = []

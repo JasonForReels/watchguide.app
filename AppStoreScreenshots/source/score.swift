@@ -1,10 +1,12 @@
 // Original music bed for update.html (55 s, D major, 105 BPM), synthesized so it carries no
 // licensing at all. Bell chimes under the opening hellos, a warm pad from the wordmark, a plucked
 // arpeggio, then bass, kick and shaker under the demo, a riser into the end card and a final chord.
-// Usage: swiftc -O score.swift -o ../tools/score && ../tools/score <out.wav>
+// Usage: swiftc -O score.swift -o ../tools/score && ../tools/score <out.wav> [long]
+// "long" scores the ~90 s YouTube cut (update.html?cut=long): slow chimes, later downbeat and end card.
 import Foundation
 
-let sr = 48000.0, total = 55.0
+let long = CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "long"
+let sr = 48000.0, total = long ? 92.0 : 55.0
 let n = Int(sr * total)
 var L = [Float](repeating: 0, count: n), R = [Float](repeating: 0, count: n)
 var verbIn = [Float](repeating: 0, count: n)   // mono send into the reverb
@@ -83,14 +85,16 @@ func bass(_ f: Double, _ dur: Double) -> [Float] {
 }
 
 // Song map.
-let beat = 60.0 / 105, bar = beat * 4, t0 = 3.6
+let beat = 60.0 / 105, bar = beat * 4, t0 = long ? 15.2 : 3.6
 let chords: [[Double]] = [[50, 54, 57, 62], [52, 57, 61, 64], [54, 59, 62, 66], [55, 59, 62, 67]]   // D A Bm G
 let roots: [Double] = [38, 45, 47, 43]
-let endCard = 45.4, lastBar = Int((endCard - t0) / bar) + 2
+let endCard = long ? 86.0 : 45.4, lastBar = Int((endCard - t0) / bar) + 2
 
 // Hellos: one chime per greeting, rising through D major pentatonic.
 let chime: [Double] = [74, 76, 78, 81, 83, 86, 88, 90, 93]
-for (i, m) in chime.enumerated() { add(0.2 + Double(i) * 0.36, bell(hz(m), 2.5), gain: 0.10, pan: i % 2 == 0 ? -0.3 : 0.3, send: 0.5) }
+// Long cut: one chime per slow hello (every 1.4 s), the last for hola.
+let chimeStart = long ? 0.4 : 0.2, chimeStep = long ? 1.4 : 0.36
+for (i, m) in chime.enumerated() { add(chimeStart + Double(i) * chimeStep, bell(hz(m), long ? 4 : 2.5), gain: 0.10, pan: i % 2 == 0 ? -0.3 : 0.3, send: 0.5) }
 add(t0, bell(hz(62), 4), gain: 0.12, send: 0.6)   // the wordmark lands
 
 for b in 0...lastBar {

@@ -5,6 +5,7 @@
 <!-- 5.6.2 update video (16:9, 1920x1080, 55 s), in the style of a product-update announcement:
      hook → how it works (real screen recording) → why it matters → slogan. Narrated by the Siri
      natural voice Simone (lines in ../video-raw/vo, laid out by VO below and mixed by mix.py).
+     ?cut=long is the ~90 s YouTube cut (slow hellos, a beat per language, longer moments).
      ?variant=soon is the "coming soon" teaser: future-tense narration (VO_SOON) and copy.
      Deterministic: window.render(t) seeks every video to its exact frame before resolving. -->
 <style>
@@ -68,6 +69,12 @@
   .tv img { display: block; width: 100%; border-radius: 9px; position: relative; }
   .tv img + img { position: absolute; left: 14px; top: 14px; width: calc(100% - 28px); }
 
+  /* Long cut · tour: one beat per language, its hello beside the app in that language */
+  #tourHello { position: absolute; left: 140px; top: 300px; line-height: 1.15; white-space: nowrap; }
+  #tourName { position: absolute; left: 150px; top: 640px; font-size: 58px; font-weight: 700; color: var(--peach); }
+  #tourPhone img { position: absolute; left: 11px; top: 11px; }
+  #tourPhone img:first-child { position: relative; left: 0; top: 0; }
+
   #end { text-align: center; }
   #end .center { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); }
   #end img { width: 170px; filter: drop-shadow(0 26px 50px rgba(6,3,20,.6)); }
@@ -104,6 +111,11 @@
 
 <div class="layer scene" id="homes">
   <div class="copy" style="width:640px"><h1>Every<br>screen,<br><em>every<br>language.</em></h1></div>
+</div>
+
+<div class="layer scene" id="tour">
+  <div id="tourHello"></div><div id="tourName"></div>
+  <div class="phone" id="tourPhone" style="left:1180px; top:110px"></div>
 </div>
 
 <div class="layer scene" id="logos">
@@ -160,12 +172,16 @@ if (new URLSearchParams(location.search).get("variant") === "soon") {
   document.querySelector("#end .center").insertAdjacentHTML("afterbegin", '<div class="pill" style="display:table; margin:0 auto 34px">Coming soon</div>');
   document.querySelector("#end .sub").innerHTML = "WatchGuide 5.6.2 · Coming soon to iPhone, iPad and Apple&nbsp;TV.";
 }
+const LONG = new URLSearchParams(location.search).get("cut") === "long";
+window.VO_LONG = [["l1", 15.2], ["l2", 20.6], ["l3", 27.3], ["l4", 33.8], ["l4b", 39.2], ["t2", 51.4], ["l5", 63.4], ["l6", 70.5], ["l7", 80.4], ["l8", 86.6]];
 const TOTAL = 55;
-window.TIMELINE = { total: TOTAL, fps: 30 };
+window.TIMELINE = { total: LONG ? 92 : TOTAL, fps: 30 };
 
 // Scene windows [start, end] in seconds; each fades in/out over FADE.
-const SCENES = { hook: [0, 5.5], intro: [5.5, 11.8], how: [11.8, 22.4], homes: [22.4, 27.2], logos: [27.2, 32.4],
+let SCENES = { hook: [0, 5.5], intro: [5.5, 11.8], how: [11.8, 22.4], homes: [22.4, 27.2], logos: [27.2, 32.4],
                  rtl: [32.4, 35.6], tvs: [35.6, 39.8], stripScene: [39.8, 45.2], end: [45.2, TOTAL + 1] };
+if (LONG) SCENES = { hook: [0, 20.2], intro: [20.2, 27.0], how: [27.0, 37.6], tour: [37.6, 63.0], logos: [63.0, 70.2],
+                     rtl: [70.2, 74.4], tvs: [74.4, 79.6], stripScene: [79.6, 86.0], end: [86.0, 93], homes: [-9, -8] };
 const FADE = 0.45;
 
 // Screen-recording edit for the "how" phone: [timeline start, timeline end, source start, source end].
@@ -176,12 +192,13 @@ const HOW = [
   [15.6, 16.4, 88.5, 90.5],    // scroll to Région et langue
   [16.4, 19.2, 107.6, 113.2],  // picker, choose 日本語
   [19.2, 20.0, 113.5, 116.0],  // "Langue modifiée"
-  [20.0, 21.0, 140.0, 146.0],  // reopen
+  [20.0, 21.0, 140.0, 143.0],  // reopen (splash)
   [21.0, 22.4, 154.0, 155.4],  // Japanese home
 ];
 // Logos: French and Japanese homes side by side — ANIMAUX/アニマルズ, then CARRIE/キャリー.
-const LOGOS_FR = [[27.2, 29.8, 22.0, 24.6], [29.8, 32.4, 31.0, 33.6]];
-const LOGOS_JA = [[27.2, 29.8, 162.0, 164.6], [29.8, 32.4, 166.4, 169.0]];
+if (LONG) HOW.forEach(seg => { seg[0] += 15.2; seg[1] += 15.2; });
+const LOGOS_FR = LONG ? [[63.0, 66.6, 21.0, 24.6], [66.6, 70.2, 30.8, 34.4]] : [[27.2, 29.8, 22.0, 24.6], [29.8, 32.4, 31.0, 33.6]];
+const LOGOS_JA = LONG ? [[63.0, 66.6, 161.8, 165.4], [66.6, 70.2, 166.0, 169.6]] : [[27.2, 29.8, 162.0, 164.6], [29.8, 32.4, 166.4, 169.0]];
 
 const WORDS = [
   ["hello", '"Snell Roundhand", cursive', 700, 1.15], ["hola", '"Snell Roundhand", cursive', 700, 1.15],
@@ -191,6 +208,10 @@ const WORDS = [
   ["नमस्ते", '"Kohinoor Devanagari", sans-serif', 300, .75],
 ];
 const LANGS = ["English", "Español", "Français", "日本語", "简体中文", "한국어", "Русский", "العربية", "हिन्दी"];
+// Long cut: Mac-paced hellos ending on hola, and the tour order (home screen, hello, name).
+const SLOW_WORDS = [0, 2, 3, 4, 5, 6, 7, 8, 1].map(i => WORDS[i]);
+const TOUR = [["en", 0], ["es", 1], ["fr", 2], ["ja", 3], ["zh", 4], ["ko", 5], ["ru", 6], ["ar", 7], ["hi", 8]];
+const TOUR_AT = 37.6, TOUR_EACH = 25.4 / TOUR.length;
 
 const $ = id => document.getElementById(id);
 const clamp = x => Math.max(0, Math.min(1, x));
@@ -217,7 +238,23 @@ window.render = async t => {
   }
 
   // Hook: a quick hello per language, then the wordmark.
-  const w = $("word"), per = 0.36, wi = Math.floor((t - 0.2) / per);
+  const w = $("word");
+  if (LONG) {
+    // Each hello is written in through a soft pen-edge mask; hola lands and holds.
+    const per = 1.4, s0 = 0.4, i = Math.min(SLOW_WORDS.length - 1, Math.floor((t - s0) / per));
+    const local = t - s0 - i * per, last = i === SLOW_WORDS.length - 1;
+    if (t >= s0 && t < 15.4) {
+      const [txt, font, weight, scale, italic] = SLOW_WORDS[i], rtl = txt === "مرحبا";
+      w.textContent = txt; w.style.fontFamily = font; w.style.fontWeight = weight;
+      w.style.fontStyle = italic ? "italic" : "normal"; w.style.fontSize = `${300 * scale * (last ? 1.1 : 1)}px`;
+      const p = -15 + 130 * out(local / (per * 0.62));
+      w.style.webkitMaskImage = w.style.maskImage = `linear-gradient(${rtl ? "to left" : "to right"}, #000 ${p - 12}%, transparent ${p}%)`;
+      const f = last ? clamp((t - 14.8) / 0.6) : clamp((local - per * 0.8) / (per * 0.2));
+      w.style.opacity = 1 - f; w.style.filter = `blur(${f * 14}px)`;
+      w.style.transform = `translateY(-55%) scale(${1 + f * .04})`;
+    } else w.style.opacity = 0;
+  } else {
+  const per = 0.36, wi = Math.floor((t - 0.2) / per);
   if (t >= 0.2 && wi < WORDS.length) {
     const [txt, font, weight, scale, italic] = WORDS[wi], k = ((t - 0.2) % per) / per;
     w.textContent = txt; w.style.fontFamily = font; w.style.fontWeight = weight;
@@ -225,14 +262,15 @@ window.render = async t => {
     w.style.opacity = Math.min(1, k * 5) * (1 - clamp((k - .75) / .25));
     w.style.transform = `translateY(-55%) scale(${0.96 + 0.06 * k})`;
   } else w.style.opacity = 0;
-  const m = out((t - 3.6) / .9);
+  }
+  const m = out((t - (LONG ? 15.2 : 3.6)) / .9);
   $("mark").style.opacity = m; $("mark").style.transform = `translateY(-50%) scale(${0.9 + 0.1 * m})`;
 
   // Intro: languages appear one by one.
-  langSpans.forEach((s, i) => { const k = out((t - 6.6 - i * 0.22) / .5); s.style.opacity = k; s.style.transform = `translateY(${(1 - k) * 24}px)`; });
+  langSpans.forEach((s, i) => { const k = out((t - (LONG ? 21.4 : 6.6) - i * 0.22) / .5); s.style.opacity = k; s.style.transform = `translateY(${(1 - k) * 24}px)`; });
 
   // How: the screen recording; headline switches when the app reopens.
-  const kB = out((t - 19.9) / .6);
+  const kB = out((t - (LONG ? 35.1 : 19.9)) / .6);
   $("howA").style.opacity = 1 - kB; $("howB").style.opacity = kB;
   $("howB").style.transform = `translateY(${(1 - kB) * 30}px)`;
   if (t > SCENES.how[0] - 0.5 && t < SCENES.how[1] + 0.5) pending.push(seek($("vHow"), srcTime(HOW, t)));
@@ -247,21 +285,39 @@ window.render = async t => {
   }
   window._homes.forEach((p, i) => { const k = out((t - 22.6 - i * 0.35) / .7); p.style.opacity = k; p.style.transform = `translateY(${(1 - k) * 120}px)`; });
 
+  // Tour (long cut): each language's hello and home screen, crossfading beat to beat.
+  if (LONG) {
+    if (!window._tour) {
+      $("tourPhone").innerHTML = TOUR.map(([c]) => `<img src="../video-raw/homes/home_${c}.png">`).join("");
+      window._tour = [...$("tourPhone").children];
+    }
+    const pos = (t - TOUR_AT) / TOUR_EACH, i = Math.max(0, Math.min(TOUR.length - 1, Math.floor(pos)));
+    const local = (t - TOUR_AT) - i * TOUR_EACH, next = clamp((local - (TOUR_EACH - 0.35)) / 0.35);
+    window._tour.forEach((img, j) => img.style.opacity = j === i ? 1 : (j === i + 1 ? next : 0));
+    const [code, wi] = TOUR[i], [txt, font, weight, scale, italic] = WORDS[wi];
+    const hw = $("tourHello"), inK = out(local / 0.4), outK = clamp((local - (TOUR_EACH - 0.4)) / 0.4);
+    hw.textContent = txt; hw.style.fontFamily = font; hw.style.fontWeight = weight;
+    hw.style.fontStyle = italic ? "italic" : "normal"; hw.style.fontSize = `${200 * scale}px`;
+    hw.style.opacity = inK * (1 - outK); hw.style.transform = `translateY(${(1 - inK) * 30 - outK * 20}px)`;
+    $("tourName").textContent = LANGS[wi]; $("tourName").style.opacity = inK * (1 - outK);
+    $("tourPhone").style.transform = `scale(${0.94 + 0.06 * out((t - TOUR_AT) / .9)})`;
+  }
+
   // Logos: two recordings side by side.
   if (t > SCENES.logos[0] - 0.5 && t < SCENES.logos[1] + 0.5) {
     pending.push(seek($("vFr"), srcTime(LOGOS_FR, t)), seek($("vJa"), srcTime(LOGOS_JA, t)));
   }
 
   // Apple TV: browse, then Tonight.
-  $("tvFrame").style.transform = `translateY(-50%) scale(${0.96 + 0.04 * out((t - 35.6) / 1)})`;
-  $("tv2").style.opacity = out((t - 37.6) / .6);
+  $("tvFrame").style.transform = `translateY(-50%) scale(${0.96 + 0.04 * out((t - (LONG ? 74.4 : 35.6)) / 1)})`;
+  $("tv2").style.opacity = out((t - (LONG ? 76.9 : 37.6)) / .6);
 
   // Strip: every language's App Store hero glides past.
-  const strip = $("strip"), k = clamp((t - 39.8) / 5.4);
+  const strip = $("strip"), k = LONG ? clamp((t - 79.6) / 6.4) : clamp((t - 39.8) / 5.4);
   strip.style.transform = `translateX(${120 + (1920 - strip.offsetWidth - 240) * ease(k)}px)`;
 
   // End card rises in.
-  const e = out((t - 45.4) / .9);
+  const e = out((t - (LONG ? 86.0 : 45.4)) / .9);
   $("end").querySelector(".center").style.transform = `translateY(calc(-50% + ${(1 - e) * 40}px))`;
   $("glow").style.setProperty("--gx", `${30 + 40 * clamp((t - 11.8) / 30)}%`);
   await Promise.all(pending);
