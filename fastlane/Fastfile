@@ -104,16 +104,19 @@ platform :ios do
   end
 
   desc "Attach a build to a version and submit it for App Review"
-  desc "Usage: fastlane submit build:10 (version defaults to STORE_VERSION)"
+  desc "Usage: fastlane submit build:10 [platform:appletvos] (version defaults to STORE_VERSION)"
   lane :submit do |options|
     version = options[:version] || ENV.fetch("STORE_VERSION")
     UI.user_error!("Pass the build number, e.g. build:10") unless options[:build]
     connect
     deliver(
+      platform: options[:platform] || "ios",
       app_version: version,
       build_number: options[:build].to_s,
       submit_for_review: true,
       automatic_release: false,      # you press Release once it's approved
+      # Same answer as every earlier build: only exempt encryption (HTTPS).
+      submission_information: { export_compliance_uses_encryption: false },
       skip_metadata: true,
       skip_screenshots: true,
       skip_binary_upload: true,
