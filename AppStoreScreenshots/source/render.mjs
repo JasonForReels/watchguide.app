@@ -45,7 +45,7 @@ if (mode === 'tv') {
   // Release announcement images for social posts: promo-4x5.png and promo-16x9.png.
   for (const [name, w, h, q] of [['promo-4x5', 2160, 2700, ''], ['promo-16x9', 3840, 2160, '?ar=wide']]) {
     await page.setViewport({ width: w, height: h, deviceScaleFactor: 1 });
-    await page.goto(pathToFileURL(path.join(here, 'promo.html')).href + q, { waitUntil: 'networkidle0' });
+    await page.goto(pathToFileURL(path.join(here, 'promo.html')).href + q + (Q ? (q ? '&' : '?') + Q : ''), { waitUntil: 'networkidle0' });
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({ path: path.join(outDir, `${name}.png`) });
   }

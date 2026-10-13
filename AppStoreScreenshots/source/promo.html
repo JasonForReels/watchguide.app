@@ -74,6 +74,11 @@
 const params = new URLSearchParams(location.search);
 document.getElementById("shot").src = params.get("shot") || "../tvOS-raw/es_tonight.png";
 if (params.get("ar") === "wide") document.documentElement.classList.add("wide");
+// ?variant=soon: the coming-soon teaser artwork.
+if (params.get("variant") === "soon") {
+  document.querySelector(".pill").textContent = "Coming soon · Version 5.6.2";
+  document.querySelector("h1").innerHTML = "Coming in<br><em>9 languages.</em>";
+}
 </script>
 </body>
 </html>
