@@ -42,8 +42,8 @@ if (mode === 'tv') {
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: path.join(outDir, 'universal-raw.png') });
 } else if (mode === 'promo') {
-  // Release announcement images for social posts: promo-4x5.png and promo-16x9.png.
-  for (const [name, w, h, q] of [['promo-4x5', 2160, 2700, ''], ['promo-16x9', 3840, 2160, '?ar=wide']]) {
+  // Release announcement images for social posts: promo-4x5.png, promo-16x9.png and promo-9x16.png.
+  for (const [name, w, h, q] of [['promo-4x5', 2160, 2700, ''], ['promo-16x9', 3840, 2160, '?ar=wide'], ['promo-9x16', 2160, 3840, '?ar=tall']]) {
     await page.setViewport({ width: w, height: h, deviceScaleFactor: 1 });
     await page.goto(pathToFileURL(path.join(here, 'promo.html')).href + q + (Q ? (q ? '&' : '?') + Q : ''), { waitUntil: 'networkidle0' });
     await page.evaluate(() => document.fonts.ready);

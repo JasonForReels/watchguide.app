@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <!-- Release announcement image (4:5, 2160x2700) for social posts. Same look as header.html.
-     ?shot=<file url> is the Apple TV capture shown on the TV; ?ar=wide renders 16:9 (3840x2160). -->
+     ?shot=<file url> is the Apple TV capture shown on the TV; ?ar=wide renders 16:9 (3840x2160); ?ar=tall 9:16 (2160x3840) for Reels. -->
 <style>
   :root {
     --W: 2160px; --H: 2700px;
@@ -53,6 +53,14 @@
   .wide .sub { font-size: 78px; }
   .wide .tv { left: 1900px; right: 200px; top: 50%; transform: translateY(-50%); }
   .wide .stand { display: none; }
+
+  /* ?ar=tall: 9:16 (2160x3840) Reels cover; everything sits inside the centre 3:4 the grid shows */
+  .tall { --W: 2160px; --H: 3840px; }
+  .tall .halo { background: radial-gradient(60% 30% at 50% 66%, rgba(255,158,107,.55) 0%,
+                  rgba(255,122,85,.2) 45%, rgba(255,122,85,0) 75%); }
+  .tall .copy { top: 640px; }
+  .tall .tv { top: 2000px; }
+  .tall .stand { top: 3062px; }
 </style>
 </head>
 <body>
@@ -74,6 +82,7 @@
 const params = new URLSearchParams(location.search);
 document.getElementById("shot").src = params.get("shot") || "../tvOS-raw/es_tonight.png";
 if (params.get("ar") === "wide") document.documentElement.classList.add("wide");
+if (params.get("ar") === "tall") document.documentElement.classList.add("tall");
 // ?variant=soon: the coming-soon teaser artwork.
 if (params.get("variant") === "soon") {
   document.querySelector(".pill").textContent = "Coming soon · Version 5.6.2";
