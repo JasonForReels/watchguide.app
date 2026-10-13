@@ -1932,10 +1932,8 @@ class MediaDetailViewModel: ObservableObject {
     }
     
     private func selectPreferredLogo(from logos: [MediaImage]) -> String? {
-        if let english = logos.first(where: { $0.iso639_1 == "en" }) {
-            return english.filePath
-        }
-        return logos.first?.filePath
+        // Lettering in the app's language, then English, then whatever exists.
+        logos.min { TMDBService.artRank($0.iso639_1) < TMDBService.artRank($1.iso639_1) }?.filePath
     }
 
     private func computePreferredTrailer(from videos: [Video]) -> Video? {

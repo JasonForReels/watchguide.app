@@ -239,6 +239,29 @@ actor TMDBService {
     }
 
     // MARK: - Media Images (Logos)
+
+    /// Language the app's UI is shown in (e.g. "es", "ja"), so title art with lettering matches it.
+    static var artLanguage: String {
+        guard let id = Bundle.main.preferredLocalizations.first else { return "en" }
+        return Locale(identifier: id).language.languageCode?.identifier ?? "en"
+    }
+
+    /// TMDB `include_image_language` value: app language, English, then textless.
+    static var artLanguageQuery: String {
+        artLanguage == "en" ? "en,null" : "\(artLanguage),en,null"
+    }
+
+    /// Ranks an image's language tag for title art: app language, then English, then textless
+    /// (nil, "", "00", "xx"), then anything else. Lower is better.
+    static func artRank(_ code: String?) -> Int {
+        switch code {
+        case artLanguage?: return 0
+        case "en"?: return 1
+        case nil, ""?, "00"?, "xx"?: return 2
+        default: return 3
+        }
+    }
+
     func getMediaLogos(mediaType: MediaType, id: Int) async throws -> [MediaImage] {
         let endpoint: String
         switch mediaType {
@@ -253,13 +276,14 @@ actor TMDBService {
         let response: MediaImagesResponse = try await request(
             endpoint,
             queryItems: [
-                URLQueryItem(name: "include_image_language", value: "en,null")
+                URLQueryItem(name: "include_image_language", value: Self.artLanguageQuery)
             ]
         )
-        return response.logos
+        return response.logos.sorted { Self.artRank($0.iso639_1) < Self.artRank($1.iso639_1) }
     }
 
-    /// Fetches English-language backdrops for a movie or TV show, sorted by vote average.
+    /// Fetches backdrops for a movie or TV show: ones lettered in the app's language first, then
+    /// English, then textless, sorted by vote average within each group.
     func getMediaBackdrops(mediaType: MediaType, id: Int) async throws -> [MediaImage] {
         let endpoint: String
         switch mediaType {
@@ -274,15 +298,13 @@ actor TMDBService {
         let response: MediaImagesResponse = try await request(
             endpoint,
             queryItems: [
-                URLQueryItem(name: "include_image_language", value: "en,null")
+                URLQueryItem(name: "include_image_language", value: Self.artLanguageQuery)
             ]
         )
         let backdrops = response.backdrops ?? []
-        // Prefer English (text-baked) backdrops over null (textless), then sort by votes within each group
         return backdrops.sorted { a, b in
-            let aIsEnglish = a.iso639_1 == "en"
-            let bIsEnglish = b.iso639_1 == "en"
-            if aIsEnglish != bIsEnglish { return aIsEnglish }
+            let ra = Self.artRank(a.iso639_1), rb = Self.artRank(b.iso639_1)
+            if ra != rb { return ra < rb }
             return (a.voteAverage ?? 0) > (b.voteAverage ?? 0)
         }
     }

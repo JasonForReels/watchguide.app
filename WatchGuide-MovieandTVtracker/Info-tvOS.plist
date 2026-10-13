@@ -14,15 +14,22 @@
 	<array>
 		<string>en</string>
 		<string>es</string>
+		<string>fr</string>
+		<string>ja</string>
+		<string>zh-Hans</string>
+		<string>ko</string>
+		<string>ru</string>
+		<string>ar</string>
+		<string>hi</string>
 	</array>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>5.6.1</string>
+	<string>5.6.2</string>
 	<key>CFBundleVersion</key>
-	<string>11</string>
+	<string>12</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>nflx</string>

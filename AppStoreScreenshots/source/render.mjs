@@ -11,6 +11,15 @@ const [mode, outDir] = process.argv.slice(2);
 // WG_LANG=zh renders the Chinese captions.
 const Q = process.env.WG_LANG ? `lang=${process.env.WG_LANG}` : '';
 fs.mkdirSync(outDir, { recursive: true });
+// Timeline pages (window.TIMELINE + window.render(t)); sample-<key> renders a few stills.
+const VIDEO = {
+  video: { file: 'video.html', w: 886, h: 1920 },
+  'video-ipad': { file: 'video-ipad.html', w: 1200, h: 1600 },
+  ipad: { file: 'video-ipad.html', w: 1200, h: 1600 },
+  ad: { file: 'ad.html', w: 1080, h: 1920 },
+  hello: { file: 'hello.html', w: 1920, h: 1080 },
+  update: { file: 'update.html', w: 1920, h: 1080 },
+};
 if (mode === 'tv') {
   // Apple TV screenshots: node render.mjs tv <outDir> <capturesDir>; captures are
   // <lang>_<screen>.png (zh uses the English UI, as the app isn't in Chinese).
@@ -31,6 +40,14 @@ if (mode === 'tv') {
   await page.goto(pathToFileURL(path.join(here, 'header.html')).href + `?${Q}${guides}`, { waitUntil: 'networkidle0' });
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: path.join(outDir, 'universal-raw.png') });
+} else if (mode === 'promo') {
+  // Release announcement images for social posts: promo-4x5.png and promo-16x9.png.
+  for (const [name, w, h, q] of [['promo-4x5', 2160, 2700, ''], ['promo-16x9', 3840, 2160, '?ar=wide']]) {
+    await page.setViewport({ width: w, height: h, deviceScaleFactor: 1 });
+    await page.goto(pathToFileURL(path.join(here, 'promo.html')).href + q, { waitUntil: 'networkidle0' });
+    await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({ path: path.join(outDir, `${name}.png`) });
+  }
 } else if (mode === 'slides' || mode === 'slides-ipad') {
   const ipad = mode === 'slides-ipad';
   await page.setViewport(ipad ? { width: 2064, height: 2752, deviceScaleFactor: 1 } : { width: 1320, height: 2868, deviceScaleFactor: 1 });
@@ -39,20 +56,22 @@ if (mode === 'tv') {
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({ path: path.join(outDir, `0${i}.png`) });
   }
-} else if (mode === 'sample' || mode === 'sample-ipad' || mode === 'sample-ad') {
-  const ipad = mode === 'sample-ipad', ad = mode === 'sample-ad';
-  await page.setViewport(ad ? { width: 1080, height: 1920, deviceScaleFactor: 1 } : ipad ? { width: 1200, height: 1600, deviceScaleFactor: 1 } : { width: 886, height: 1920, deviceScaleFactor: 1 });
-  await page.goto(pathToFileURL(path.join(here, ad ? 'ad.html' : ipad ? 'video-ipad.html' : 'video.html')).href + `?${Q}`, { waitUntil: 'networkidle0' });
+} else if (mode.startsWith('sample')) {
+  const v = VIDEO[mode.slice(7) || 'video'];
+  await page.setViewport({ width: v.w, height: v.h, deviceScaleFactor: 1 });
+  await page.goto(pathToFileURL(path.join(here, v.file)).href + `?${Q}`, { waitUntil: 'networkidle0' });
+  await page.evaluate(() => document.fonts.ready);
   console.log(JSON.stringify(await page.evaluate(() => window.TIMELINE)));
   for (const t of process.argv.slice(4).map(Number)) {
     await page.evaluate(t => window.render(t), t);
     await page.screenshot({ path: path.join(outDir, `s_${t.toFixed(2)}.jpg`), type: 'jpeg', quality: 85 });
   }
 } else {
-  // modes: video (App Preview), video-ipad, ad (1080x1920 social ad)
-  const ipad = mode === 'video-ipad', ad = mode === 'ad';
-  await page.setViewport(ad ? { width: 1080, height: 1920, deviceScaleFactor: 1 } : ipad ? { width: 1200, height: 1600, deviceScaleFactor: 1 } : { width: 886, height: 1920, deviceScaleFactor: 1 });
-  await page.goto(pathToFileURL(path.join(here, ad ? 'ad.html' : ipad ? 'video-ipad.html' : 'video.html')).href + `?${Q}`, { waitUntil: 'networkidle0' });
+  // modes: video (App Preview), video-ipad, ad (1080x1920 social ad), hello (1920x1080 5.6.1 launch)
+  const v = VIDEO[mode];
+  await page.setViewport({ width: v.w, height: v.h, deviceScaleFactor: 1 });
+  await page.goto(pathToFileURL(path.join(here, v.file)).href + `?${Q}`, { waitUntil: 'networkidle0' });
+  await page.evaluate(() => document.fonts.ready);
   const { total, fps } = await page.evaluate(() => window.TIMELINE);
   const frames = Math.round(total * fps);
   for (let f = 0; f < frames; f++) {

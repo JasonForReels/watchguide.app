@@ -208,8 +208,8 @@ actor FanArtService {
         // Only return actual poster artwork (portrait). Do NOT fall back to
         // thumbs, which are landscape and display incorrectly in poster frames.
         let image = mediaType == .movie
-            ? bestEnglishImage(art.movieposter)
-            : bestEnglishImage(art.tvposter)
+            ? bestLocalizedImage(art.movieposter)
+            : bestLocalizedImage(art.tvposter)
 
         guard let image, let url = URL(string: image.url) else { return nil }
         // Publish it so views can pick it up synchronously from now on.
@@ -226,8 +226,8 @@ actor FanArtService {
         guard let art = await getArt(tmdbId: tmdbId, mediaType: mediaType) else { return nil }
 
         let image = mediaType == .movie
-            ? bestEnglishImage(art.moviebackground)
-            : bestEnglishImage(art.showbackground)
+            ? bestLocalizedImage(art.moviebackground)
+            : bestLocalizedImage(art.showbackground)
 
         guard let image, let url = URL(string: image.url) else { return nil }
         FanArtURLCache.shared.setBackdropURL(url, tmdbId: tmdbId, mediaType: mediaType)
@@ -241,11 +241,11 @@ actor FanArtService {
         
         if mediaType == .movie {
             // Prefer HD logo, then standard logo
-            if let img = bestEnglishImage(art.hdmovielogo) { return URL(string: img.url) }
-            if let img = bestEnglishImage(art.movielogo) { return URL(string: img.url) }
+            if let img = bestLocalizedImage(art.hdmovielogo) { return URL(string: img.url) }
+            if let img = bestLocalizedImage(art.movielogo) { return URL(string: img.url) }
         } else {
-            if let img = bestEnglishImage(art.hdtvlogo) { return URL(string: img.url) }
-            if let img = bestEnglishImage(art.clearlogo) { return URL(string: img.url) }
+            if let img = bestLocalizedImage(art.hdtvlogo) { return URL(string: img.url) }
+            if let img = bestLocalizedImage(art.clearlogo) { return URL(string: img.url) }
         }
         return nil
     }
@@ -256,10 +256,10 @@ actor FanArtService {
         guard let art = await getArt(tmdbId: tmdbId, mediaType: mediaType) else { return nil }
         
         if mediaType == .movie {
-            if let img = bestEnglishImage(art.hdmovieclearart) { return URL(string: img.url) }
+            if let img = bestLocalizedImage(art.hdmovieclearart) { return URL(string: img.url) }
         } else {
-            if let img = bestEnglishImage(art.hdclearart) { return URL(string: img.url) }
-            if let img = bestEnglishImage(art.characterart) { return URL(string: img.url) }
+            if let img = bestLocalizedImage(art.hdclearart) { return URL(string: img.url) }
+            if let img = bestLocalizedImage(art.characterart) { return URL(string: img.url) }
         }
         return nil
     }
@@ -276,7 +276,7 @@ actor FanArtService {
         // Character art only. Clear art has the title logo baked in, which put a
         // second copy of the title in the middle of the hero next to its own
         // treatment.
-        if let img = bestEnglishImage(art.characterart) { return URL(string: img.url) }
+        if let img = bestLocalizedImage(art.characterart) { return URL(string: img.url) }
         return nil
     }
 
@@ -286,9 +286,9 @@ actor FanArtService {
         guard let art = await getArt(tmdbId: tmdbId, mediaType: mediaType) else { return nil }
         
         if mediaType == .movie {
-            if let img = bestEnglishImage(art.moviebanner) { return URL(string: img.url) }
+            if let img = bestLocalizedImage(art.moviebanner) { return URL(string: img.url) }
         } else {
-            if let img = bestEnglishImage(art.tvbanner) { return URL(string: img.url) }
+            if let img = bestLocalizedImage(art.tvbanner) { return URL(string: img.url) }
         }
         return nil
     }
@@ -299,25 +299,24 @@ actor FanArtService {
         guard let art = await getArt(tmdbId: tmdbId, mediaType: mediaType) else { return nil }
         
         if mediaType == .movie {
-            if let img = bestEnglishImage(art.moviethumb) { return URL(string: img.url) }
+            if let img = bestLocalizedImage(art.moviethumb) { return URL(string: img.url) }
         } else {
-            if let img = bestEnglishImage(art.tvthumb) { return URL(string: img.url) }
+            if let img = bestLocalizedImage(art.tvthumb) { return URL(string: img.url) }
         }
         return nil
     }
     
     // MARK: - Helpers
     
-    /// Pick the best English image (or any language) sorted by likes
-    private func bestEnglishImage(_ images: [FanArtImage]?) -> FanArtImage? {
+    /// Pick the best image for the app's language: lettering in that language, then English,
+    /// then textless ("00"), then anything else, sorted by likes within each group.
+    private func bestLocalizedImage(_ images: [FanArtImage]?) -> FanArtImage? {
         guard let images = images, !images.isEmpty else { return nil }
-        
-        // Prefer English or textless ("00"), sorted by likes descending
-        let preferred = images
-            .filter { $0.lang == "en" || $0.lang == "00" || $0.lang == nil || $0.lang == "" }
-            .sorted { (Int($0.likes ?? "0") ?? 0) > (Int($1.likes ?? "0") ?? 0) }
-        
-        return preferred.first ?? images.first
+        return images.min { a, b in
+            let ra = TMDBService.artRank(a.lang), rb = TMDBService.artRank(b.lang)
+            if ra != rb { return ra < rb }
+            return (Int(a.likes ?? "0") ?? 0) > (Int(b.likes ?? "0") ?? 0)
+        }
     }
     
     /// Keep cache from growing unbounded

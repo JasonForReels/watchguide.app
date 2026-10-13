@@ -44,6 +44,7 @@
   <p class="sub" id="sub"></p>
 </div>
 <div class="tv"><img id="shot"></div>
+<script src="captions.js"></script>
 <script>
 const COPY = {
   en: [
@@ -62,7 +63,7 @@ const COPY = {
   ],
   zh: [
     ["Watch Guide", "看什么，<em>一目了然。</em>", "每一部电影和剧集，在大屏幕上为你精心指引。"],
-    ["Tonight", "选择困难？<em>帮你挑。</em>", "一次推荐一部，还告诉你为什么适合你。"],
+    ["今晚", "选择困难？<em>帮你挑。</em>", "一次推荐一部，还告诉你为什么适合你。"],
     ["搜索", "想找什么，<em>马上找到。</em>", "电影、剧集、演员和片厂，坐在沙发上就能搜。"],
     ["StreamQ", "只看你订阅的<em>流媒体平台。</em>", "还有即将下架的内容，别错过。"],
     ["片单", "值得珍藏的<em>观影片单。</em>", "想看、看过、喜欢，与 iPhone 同步。"],
@@ -70,6 +71,8 @@ const COPY = {
 };
 const p = new URLSearchParams(location.search);
 const lang = p.get("lang") || "en";
+Object.assign(COPY, window.WG_TV || {});  // fr, ja, ko, ru, ar, hi
+wgApplyLangStyle(lang);
 const [eb, title, sub] = (COPY[lang] || COPY.en)[(+p.get("s") || 1) - 1];
 document.getElementById("eb").innerHTML = `<img src="icon.png">${eb}`;
 document.getElementById("title").innerHTML = title;
@@ -79,6 +82,7 @@ if (lang === "zh") {
   document.documentElement.lang = "zh-Hans";
   document.head.insertAdjacentHTML("beforeend", `<style>body{font-family:"PingFang SC",-apple-system,sans-serif}h1{letter-spacing:0;font-weight:600}</style>`);
 } else if (lang === "es") document.documentElement.lang = "es";
+if (window.WG_TV && WG_TV[lang]) wgFitTitle(document.getElementById("title"));
 </script>
 </body>
 </html>

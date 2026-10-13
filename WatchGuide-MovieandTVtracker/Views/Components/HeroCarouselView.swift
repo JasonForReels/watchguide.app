@@ -885,9 +885,11 @@ class HeroTrailerLoader: ObservableObject {
                                 mediaType: item.resolvedMediaType,
                                 id: item.id
                             )
-                            let englishLogos = logos.filter { ($0.iso639_1 == "en" || $0.iso639_1 == nil) }
-                            let best = englishLogos.sorted { ($0.voteAverage ?? 0) > ($1.voteAverage ?? 0) }.first
-                                ?? logos.first
+                            // Lettering in the app's language, then English, then textless; best voted within each.
+                            let best = logos.sorted { a, b in
+                                let ra = TMDBService.artRank(a.iso639_1), rb = TMDBService.artRank(b.iso639_1)
+                                return ra != rb ? ra < rb : (a.voteAverage ?? 0) > (b.voteAverage ?? 0)
+                            }.first
                             if let filePath = best?.filePath,
                                let tmdbURL = TMDBService.shared.imageURL(path: filePath, size: .logo) {
                                 logoURL = tmdbURL.absoluteString
@@ -908,15 +910,14 @@ class HeroTrailerLoader: ObservableObject {
                     // No FanArt thumb — fall back to a TMDB backdrop that has the
                     // title lettering baked in. TMDB tags those with a language
                     // code (textless art is tagged null), and `getMediaBackdrops`
-                    // already sorts English-language art first, so the first entry
-                    // tagged "en" is the text version.
+                    // sorts art in the app's language first, then English.
                     if thumbURL == nil {
                         do {
                             let backdrops = try await TMDBService.shared.getMediaBackdrops(
                                 mediaType: item.resolvedMediaType,
                                 id: item.id
                             )
-                            if let textBackdrop = backdrops.first(where: { $0.iso639_1 == "en" }),
+                            if let textBackdrop = backdrops.first(where: { TMDBService.artRank($0.iso639_1) < 2 }),
                                let url = TMDBService.shared.imageURL(path: textBackdrop.filePath, size: .backdrop) {
                                 thumbURL = url.absoluteString
                             }

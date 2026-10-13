@@ -27,5 +27,9 @@ AppStoreScreenshots/es-MX
 fastlane/report.xml
 fastlane/screenshots_upload/
 fastlane/screenshots/
-fastlane/metadata-tvos/
 AppStoreScreenshots/source/node_modules
+# Raw captures, narration and renders for the update video (rebuilt by source/*.html, mix.py)
+AppStoreScreenshots/video-raw/
+AppStoreScreenshots/Marketing/
+AppStoreScreenshots/fr-CA
+AppStoreScreenshots/tvOS/fr-CA

@@ -21,7 +21,7 @@ STREAMQ
 UP NEXT 小组件
 下一集，直接显示在主屏幕上。
 
-无广告，支持 iPhone 和 iPad。
+无广告，支持 iPhone 和 iPad，提供 9 种语言。
 App 界面目前为英文。
 
 WATCHGUIDE PRO

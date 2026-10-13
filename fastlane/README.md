@@ -43,6 +43,8 @@ Usage: fastlane tv_media version:5.6.1
 
 Upload the listing text in fastlane/metadata/ (description, keywords, What's New, URLs)
 
+Usage: fastlane listing version:5.6.2 new_version:true (new_version creates or renames the open version)
+
 ### ios submit
 
 ```sh

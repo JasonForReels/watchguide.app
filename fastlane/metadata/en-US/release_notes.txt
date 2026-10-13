@@ -1,5 +1,6 @@
-What's new in 5.6.1
+What's new in 5.6.2
 
-• WatchGuide now speaks Spanish.
-• Atlas replies in your language.
+• WatchGuide now speaks French, Japanese, Chinese, Korean, Russian, Arabic and Hindi.
+• Choose your language in Settings › Region & Language.
+• Title logos now appear in your language when available.
 • Speed and reliability improvements.

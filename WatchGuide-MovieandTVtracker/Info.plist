@@ -30,13 +30,20 @@
 	<array>
 		<string>en</string>
 		<string>es</string>
+		<string>fr</string>
+		<string>ja</string>
+		<string>zh-Hans</string>
+		<string>ko</string>
+		<string>ru</string>
+		<string>ar</string>
+		<string>hi</string>
 	</array>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>5.6.1</string>
+	<string>5.6.2</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -49,7 +56,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>12</string>
+	<string>13</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.entertainment</string>
 	<key>LSApplicationQueriesSchemes</key>

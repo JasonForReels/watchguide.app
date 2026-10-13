@@ -1,0 +1,261 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- 5.6.2 update video (16:9, 1920x1080, 55 s), in the style of a product-update announcement:
+     hook → how it works (real screen recording) → why it matters → slogan. Narrated by the Siri
+     natural voice Simone (lines in ../video-raw/vo, laid out by VO below and mixed by mix.py).
+     Deterministic: window.render(t) seeks every video to its exact frame before resolving. -->
+<style>
+  :root { --indigo-1: #402F99; --indigo-2: #17113E; --night: #0B0820;
+          --coral: #FF5A45; --apricot: #FFA474; --peach: #FFE6CC; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--night); }
+  body { font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif; color: #fff;
+         -webkit-font-smoothing: antialiased; position: relative; }
+  .layer { position: absolute; inset: 0; }
+  #sky { background: radial-gradient(60% 55% at 30% 0%, rgba(98,74,214,.55) 0%, rgba(64,47,153,0) 70%),
+                     linear-gradient(160deg, var(--indigo-1) 0%, #241a63 40%, var(--indigo-2) 75%, var(--night) 100%); }
+  #glow { background: radial-gradient(40% 45% at var(--gx, 70%) 55%, rgba(255,158,107,.42) 0%, rgba(255,122,85,0) 70%); }
+  .grain { opacity: .06; mix-blend-mode: overlay;
+           background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+  .vignette { background: radial-gradient(90% 90% at 50% 50%, rgba(0,0,0,0) 55%, rgba(5,3,18,.6) 100%); }
+  .scene { opacity: 0; }
+
+  em { font-style: normal; background: linear-gradient(95deg, var(--peach) 0%, var(--apricot) 45%, var(--coral) 100%);
+       -webkit-background-clip: text; background-clip: text; color: transparent; }
+  h1 { font-size: 112px; line-height: .98; font-weight: 800; letter-spacing: -0.045em; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 12px; font-size: 30px; font-weight: 700;
+             letter-spacing: .06em; text-transform: uppercase; color: var(--peach); padding: 10px 22px;
+             border-radius: 999px; background: rgba(255,164,116,.12); box-shadow: 0 0 0 1.5px rgba(255,164,116,.45) inset;
+             margin-bottom: 34px; }
+  .sub { margin-top: 30px; font-size: 40px; line-height: 1.25; font-weight: 500; color: rgba(255,240,230,.8); }
+  .copy { position: absolute; left: 140px; width: 860px; top: 50%; transform: translateY(-50%); }
+
+  .phone { position: absolute; padding: 11px; border-radius: 60px;
+           background: linear-gradient(145deg, #6b6680 0%, #2c2a38 22%, #1a1922 55%, #45425a 100%);
+           box-shadow: 0 0 0 2px rgba(255,255,255,.10) inset, 0 0 110px rgba(255,138,96,.28), 0 50px 100px rgba(6,3,20,.75); }
+  .phone > img, .phone > video { display: block; width: 380px; height: 826px; object-fit: cover; border-radius: 49px; }
+  .label { position: absolute; left: 0; right: 0; bottom: -64px; text-align: center; font-size: 34px; font-weight: 600;
+           color: rgba(255,240,230,.85); }
+
+  /* 1 · Hook: hello in every language, then the wordmark */
+  #word { position: absolute; left: 0; right: 0; top: 50%; text-align: center; white-space: nowrap; line-height: 1;
+          transform: translateY(-55%); }
+  #mark { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; }
+  #mark img { width: 210px; filter: drop-shadow(0 30px 60px rgba(6,3,20,.6)); }
+  #mark div { margin-top: 30px; font-size: 64px; font-weight: 700; letter-spacing: .32em; color: var(--peach); }
+
+  /* 2 · Now in 9 languages */
+  #intro { text-align: center; }
+  #intro .center { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); }
+  #intro h1 { font-size: 150px; }
+  .pill { display: inline-block; font-size: 32px; font-weight: 700; padding: 12px 26px; border-radius: 999px; margin-bottom: 40px;
+          color: var(--peach); background: rgba(255,164,116,.12); box-shadow: 0 0 0 1.5px rgba(255,164,116,.45) inset; }
+  #langs { margin-top: 56px; display: flex; justify-content: center; gap: 30px; font-size: 44px; font-weight: 600;
+           color: rgba(255,240,230,.85); }
+  #devices { margin-top: 34px; font-size: 32px; color: rgba(255,240,230,.6); letter-spacing: .04em; }
+
+  /* 8 · App Store strip */
+  .strip { position: absolute; top: 230px; left: 0; display: flex; gap: 44px; }
+  .strip img { height: 760px; border-radius: 42px; box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 30px 70px rgba(6,3,20,.7); }
+  #stripTitle { position: absolute; top: 80px; left: 0; right: 0; text-align: center; font-size: 84px; }
+
+  .tv { position: absolute; left: 980px; width: 820px; top: 50%; padding: 14px; border-radius: 22px;
+        background: linear-gradient(145deg, #3a3746 0%, #15141b 40%, #0c0b10 70%, #2c2a38 100%);
+        box-shadow: 0 0 0 1px rgba(255,255,255,.10) inset, 0 0 110px rgba(255,138,96,.3), 0 40px 80px rgba(6,3,20,.75); }
+  .tv img { display: block; width: 100%; border-radius: 9px; position: relative; }
+  .tv img + img { position: absolute; left: 14px; top: 14px; width: calc(100% - 28px); }
+
+  #end { text-align: center; }
+  #end .center { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); }
+  #end img { width: 170px; filter: drop-shadow(0 26px 50px rgba(6,3,20,.6)); }
+  #end h1 { margin-top: 40px; font-size: 128px; }
+  #end .sub { font-size: 42px; }
+</style>
+</head>
+<body>
+<div class="layer" id="sky"></div>
+<div class="layer" id="glow"></div>
+<div class="layer vignette"></div>
+<div class="layer grain"></div>
+
+<div class="layer scene" id="hook">
+  <div id="word"></div>
+  <div id="mark"><img src="icon.png"><div>WATCHGUIDE</div></div>
+</div>
+
+<div class="layer scene" id="intro"><div class="center">
+  <div class="pill">Version 5.6.2</div>
+  <h1>Now in <em>9 languages.</em></h1>
+  <div id="langs"></div>
+  <div id="devices">iPhone · iPad · Apple TV</div>
+</div></div>
+
+<div class="layer scene" id="how">
+  <div class="copy">
+    <div class="eyebrow">Settings › Region &amp; Language</div>
+    <h1 id="howA">Switch in<br><em>seconds.</em></h1>
+    <h1 id="howB" style="position:absolute; top:100px">Everything<br><em>follows.</em></h1>
+  </div>
+  <div class="phone" style="left:1240px; top:110px"><video id="vHow" src="../video-raw/switch.mp4" muted preload="auto"></video></div>
+</div>
+
+<div class="layer scene" id="homes">
+  <div class="copy" style="width:640px"><h1>Every<br>screen,<br><em>every<br>language.</em></h1></div>
+</div>
+
+<div class="layer scene" id="logos">
+  <div class="copy" style="width:700px">
+    <div class="eyebrow">Title logos</div>
+    <h1>Logos that<br><em>speak your<br>language.</em></h1>
+  </div>
+  <div class="phone" style="left:960px; top:90px"><video id="vFr" src="../video-raw/switch.mp4" muted preload="auto"></video><div class="label">Français</div></div>
+  <div class="phone" style="left:1420px; top:90px"><video id="vJa" src="../video-raw/switch.mp4" muted preload="auto"></video><div class="label">日本語</div></div>
+</div>
+
+<div class="layer scene" id="rtl">
+  <div class="copy" style="width:760px">
+    <div class="eyebrow">العربية</div>
+    <h1>Right to left,<br><em>done right.</em></h1>
+  </div>
+  <div class="phone" style="left:1240px; top:110px"><img src="../video-raw/homes/home_ar.png"></div>
+</div>
+
+<div class="layer scene" id="tvs">
+  <div class="copy" style="width:760px">
+    <div class="eyebrow">Apple TV</div>
+    <h1>On the<br><em>big screen,<br>too.</em></h1>
+  </div>
+  <div class="tv" id="tvFrame"><img src="../tvOS-raw/es_browse.png"><img id="tv2" src="../tvOS-raw/es_tonight.png"></div>
+</div>
+
+<div class="layer scene" id="stripScene">
+  <h1 id="stripTitle">Every pick. Every list. <em>Every language.</em></h1>
+  <div class="strip" id="strip">
+    <img src="../iPhone-6.9in/01-know-what-to-watch.png"><img src="../es-ES/iPhone-6.9in/01.png">
+    <img src="../fr-FR/iPhone-6.9in/01.png"><img src="../ja/iPhone-6.9in/01.png">
+    <img src="../zh-Hans/iPhone-6.9in/01.png"><img src="../ko/iPhone-6.9in/01.png">
+    <img src="../ru/iPhone-6.9in/01.png"><img src="../ar-SA/iPhone-6.9in/01.png">
+    <img src="../hi/iPhone-6.9in/01.png">
+  </div>
+</div>
+
+<div class="layer scene" id="end"><div class="center">
+  <img src="icon.png">
+  <h1>Know what to watch.<br><em>In your language.</em></h1>
+  <p class="sub">WatchGuide 5.6.2 · Update today on iPhone, iPad and Apple&nbsp;TV.</p>
+</div></div>
+
+<script>
+// Narration: [line file, start time]. mix.py reads this to build the soundtrack.
+window.VO = [["l1", 0.6], ["l2", 5.6], ["l3", 11.9], ["l4", 18.6], ["l4b", 23.0], ["l5", 27.4], ["l6", 32.5], ["l7", 40.0], ["l8", 45.4]];
+const TOTAL = 55;
+window.TIMELINE = { total: TOTAL, fps: 30 };
+
+// Scene windows [start, end] in seconds; each fades in/out over FADE.
+const SCENES = { hook: [0, 5.5], intro: [5.5, 11.8], how: [11.8, 22.4], homes: [22.4, 27.2], logos: [27.2, 32.4],
+                 rtl: [32.4, 35.6], tvs: [35.6, 39.8], stripScene: [39.8, 45.2], end: [45.2, TOTAL + 1] };
+const FADE = 0.45;
+
+// Screen-recording edit for the "how" phone: [timeline start, timeline end, source start, source end].
+const HOW = [
+  [11.8, 13.0, 21.0, 22.2],    // French home, ANIMAUX
+  [13.0, 14.6, 48.4, 50.4],    // Settings opens
+  [14.6, 15.6, 78.0, 80.0],    // scroll
+  [15.6, 16.4, 88.5, 90.5],    // scroll to Région et langue
+  [16.4, 19.2, 107.6, 113.2],  // picker, choose 日本語
+  [19.2, 20.0, 113.5, 116.0],  // "Langue modifiée"
+  [20.0, 21.0, 140.0, 146.0],  // reopen
+  [21.0, 22.4, 154.0, 155.4],  // Japanese home
+];
+// Logos: French and Japanese homes side by side — ANIMAUX/アニマルズ, then CARRIE/キャリー.
+const LOGOS_FR = [[27.2, 29.8, 22.0, 24.6], [29.8, 32.4, 31.0, 33.6]];
+const LOGOS_JA = [[27.2, 29.8, 162.0, 164.6], [29.8, 32.4, 166.4, 169.0]];
+
+const WORDS = [
+  ["hello", '"Snell Roundhand", cursive', 700, 1.15], ["hola", '"Snell Roundhand", cursive', 700, 1.15],
+  ["bonjour", '"Snell Roundhand", cursive', 700, 1], ["こんにちは", '"Hiragino Mincho ProN", serif', 300, .62],
+  ["你好", '"Songti SC", serif', 300, .8], ["안녕하세요", '"Apple SD Gothic Neo", sans-serif', 200, .62],
+  ["привет", '"Baskerville", serif', 400, .85, true], ["مرحبا", '"Diwan Thuluth", serif', 400, 1.4],
+  ["नमस्ते", '"Kohinoor Devanagari", sans-serif', 300, .75],
+];
+const LANGS = ["English", "Español", "Français", "日本語", "简体中文", "한국어", "Русский", "العربية", "हिन्दी"];
+
+const $ = id => document.getElementById(id);
+const clamp = x => Math.max(0, Math.min(1, x));
+const out = x => 1 - Math.pow(1 - clamp(x), 3);
+const ease = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+$("langs").innerHTML = LANGS.map(l => `<span>${l}</span>`).join("");
+const langSpans = [...$("langs").children];
+
+// Seek a video to an exact time and wait for the frame.
+const seek = (v, s) => new Promise(res => {
+  if (Math.abs(v.currentTime - s) < 0.001 && v.readyState >= 2) return res();
+  v.addEventListener("seeked", res, { once: true }); v.currentTime = s;
+});
+function srcTime(edit, t) {
+  const seg = edit.find(([a, b]) => t >= a && t < b) || (t < edit[0][0] ? edit[0] : edit[edit.length - 1]);
+  const [a, b, s0, s1] = seg; return s0 + (s1 - s0) * clamp((t - a) / (b - a));
+}
+
+window.render = async t => {
+  const pending = [];
+  for (const [id, [a, b]] of Object.entries(SCENES)) {
+    const o = clamp((t - a) / FADE) * (1 - clamp((t - (b - FADE)) / FADE));
+    $(id).style.opacity = o;
+  }
+
+  // Hook: a quick hello per language, then the wordmark.
+  const w = $("word"), per = 0.36, wi = Math.floor((t - 0.2) / per);
+  if (t >= 0.2 && wi < WORDS.length) {
+    const [txt, font, weight, scale, italic] = WORDS[wi], k = ((t - 0.2) % per) / per;
+    w.textContent = txt; w.style.fontFamily = font; w.style.fontWeight = weight;
+    w.style.fontStyle = italic ? "italic" : "normal"; w.style.fontSize = `${260 * scale}px`;
+    w.style.opacity = Math.min(1, k * 5) * (1 - clamp((k - .75) / .25));
+    w.style.transform = `translateY(-55%) scale(${0.96 + 0.06 * k})`;
+  } else w.style.opacity = 0;
+  const m = out((t - 3.6) / .9);
+  $("mark").style.opacity = m; $("mark").style.transform = `translateY(-50%) scale(${0.9 + 0.1 * m})`;
+
+  // Intro: languages appear one by one.
+  langSpans.forEach((s, i) => { const k = out((t - 6.6 - i * 0.22) / .5); s.style.opacity = k; s.style.transform = `translateY(${(1 - k) * 24}px)`; });
+
+  // How: the screen recording; headline switches when the app reopens.
+  const kB = out((t - 19.9) / .6);
+  $("howA").style.opacity = 1 - kB; $("howB").style.opacity = kB;
+  $("howB").style.transform = `translateY(${(1 - kB) * 30}px)`;
+  if (t > SCENES.how[0] - 0.5 && t < SCENES.how[1] + 0.5) pending.push(seek($("vHow"), srcTime(HOW, t)));
+
+  // Homes: five phones rise in, each a different language.
+  if (!window._homes) {
+    const langs = [["ko", "한국어"], ["hi", "हिन्दी"], ["ru", "Русский"], ["es", "Español"]];
+    $("homes").insertAdjacentHTML("beforeend", langs.map(([c, n], i) =>
+      `<div class="phone home" style="left:${760 + i * 290}px; top:${120 + (i % 2) * 40}px; transform-origin: 50% 0;">
+         <img src="../video-raw/homes/home_${c}.png" style="width:300px;height:652px;border-radius:40px"><div class="label">${n}</div></div>`).join(""));
+    window._homes = [...document.querySelectorAll(".home")];
+  }
+  window._homes.forEach((p, i) => { const k = out((t - 22.6 - i * 0.35) / .7); p.style.opacity = k; p.style.transform = `translateY(${(1 - k) * 120}px)`; });
+
+  // Logos: two recordings side by side.
+  if (t > SCENES.logos[0] - 0.5 && t < SCENES.logos[1] + 0.5) {
+    pending.push(seek($("vFr"), srcTime(LOGOS_FR, t)), seek($("vJa"), srcTime(LOGOS_JA, t)));
+  }
+
+  // Apple TV: browse, then Tonight.
+  $("tvFrame").style.transform = `translateY(-50%) scale(${0.96 + 0.04 * out((t - 35.6) / 1)})`;
+  $("tv2").style.opacity = out((t - 37.6) / .6);
+
+  // Strip: every language's App Store hero glides past.
+  const strip = $("strip"), k = clamp((t - 39.8) / 5.4);
+  strip.style.transform = `translateX(${120 + (1920 - strip.offsetWidth - 240) * ease(k)}px)`;
+
+  // End card rises in.
+  const e = out((t - 45.4) / .9);
+  $("end").querySelector(".center").style.transform = `translateY(calc(-50% + ${(1 - e) * 40}px))`;
+  $("glow").style.setProperty("--gx", `${30 + 40 * clamp((t - 11.8) / 30)}%`);
+  await Promise.all(pending);
+};
+</script>
+</body>
+</html>

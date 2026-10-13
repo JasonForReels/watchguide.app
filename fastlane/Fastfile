@@ -19,9 +19,9 @@ def media_dir(locale)
 end
 
 def preview_path(locale, file)
-  dir = File.join(MEDIA_DIR, locale)
-  return File.join(MEDIA_DIR, file) unless File.directory?(dir)
-  File.join(dir, File.basename(file, ".mp4") + "-#{locale.split('-').first}.mp4")
+  localized = File.join(MEDIA_DIR, locale, File.basename(file, ".mp4") + "-#{locale.split('-').first}.mp4")
+  # Locales with screenshots but no localized preview video use the English one.
+  File.exist?(localized) ? localized : File.join(MEDIA_DIR, file)
 end
 
 platform :ios do
@@ -86,6 +86,7 @@ platform :ios do
   end
 
   desc "Upload the listing text in fastlane/metadata/ (description, keywords, What's New, URLs)"
+  desc "Usage: fastlane listing version:5.6.2 new_version:true (new_version creates or renames the open version)"
   lane :listing do |options|
     version = options[:version] || ENV.fetch("STORE_VERSION")
     connect
@@ -94,7 +95,7 @@ platform :ios do
       metadata_path: File.expand_path("metadata", __dir__),
       skip_screenshots: true,
       skip_binary_upload: true,
-      skip_app_version_update: true,
+      skip_app_version_update: !options[:new_version],
       submit_for_review: false,
       force: true,
       precheck_include_in_app_purchases: false,

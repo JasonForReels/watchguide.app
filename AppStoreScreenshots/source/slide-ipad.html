@@ -90,6 +90,7 @@
 <div class="layer vignette"></div>
 <div class="layer grain"></div>
 <div class="copy" id="copy"></div>
+<script src="captions.js"></script>
 <script>
 const ICONS = {
   spark: '<path d="M12 2l2.2 6.3L20.5 10l-6.3 2.2L12 18.5l-2.2-6.3L3.5 10l6.3-1.7z" fill="currentColor"/>',
@@ -119,10 +120,10 @@ const SLIDES = {
        callout: { x: 40, y: 400, w: 1985, h: 860, scale: 1.05, dy: 0 } },
 };
 
-// Simplified Chinese captions (?lang=zh). Feature names stay in English to match the app's UI.
+// Simplified Chinese captions (?lang=zh). StreamQ keeps its name, as in the app.
 const ZH = {
   1: { title: "今晚看什么<br><em>一目了然。</em>", sub: "每一部电影和剧集，都为你精心指引。" },
-  2: { eyebrow: "Tonight", title: "选择困难？<br><em>滑一滑就好。</em>", sub: "一次推荐一部，还告诉你为什么适合你。" },
+  2: { eyebrow: "今晚", title: "选择困难？<br><em>滑一滑就好。</em>", sub: "一次推荐一部，还告诉你为什么适合你。" },
   3: { eyebrow: "每部作品", title: "所有评分<br><em>一眼看全。</em>", sub: "四大评分平台，并排对比。" },
   4: { eyebrow: "StreamQ", title: "只看你订阅的<br><em>流媒体平台。</em>", sub: "选好你的订阅服务，其余内容自动隐藏。" },
   5: { eyebrow: "片单", title: "值得珍藏的<br><em>观影片单。</em>", sub: "想看、看过、喜欢，还有你自己的片单。" },
@@ -147,6 +148,12 @@ if (LANG === "zh") {
     h1 { letter-spacing: 0; font-weight: 600; line-height: 1.12; }
     .eyebrow { letter-spacing: .08em; }
   </style>`);
+}
+// fr, ja, ko, ru, ar, hi come from captions.js.
+const EXTRA = window.WG_SLIDES && WG_SLIDES[LANG];
+if (EXTRA) {
+  EXTRA.forEach(([eyebrow, title, sub], i) => Object.assign(SLIDES[i + 1], { title, sub }, eyebrow ? { eyebrow } : {}));
+  wgApplyLangStyle(LANG);
 }
 const n = new URLSearchParams(location.search).get("s") || "1";
 const s = SLIDES[n];
@@ -189,6 +196,7 @@ if (s.callout) {
     `background-image:url(${s.img});background-size:${2064 * k}px auto;background-position:-${c.x * k}px -${c.y * k}px;`;
   document.body.appendChild(el);
 }
+if (EXTRA) wgFitTitle(document.querySelector("h1"));
 </script>
 </body>
 </html>

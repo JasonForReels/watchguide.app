@@ -1,0 +1,6 @@
+Nouveautés de la version 5.6.2
+
+• WatchGuide parle désormais français, japonais, chinois, coréen, russe, arabe et hindi.
+• Choisissez votre langue dans Réglages › Région et langue.
+• Les logos des titres s’affichent dans votre langue lorsqu’ils sont disponibles.
+• Améliorations de la vitesse et de la fiabilité.

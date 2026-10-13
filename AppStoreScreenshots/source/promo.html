@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Release announcement image (4:5, 2160x2700) for social posts. Same look as header.html.
+     ?shot=<file url> is the Apple TV capture shown on the TV; ?ar=wide renders 16:9 (3840x2160). -->
+<style>
+  :root {
+    --W: 2160px; --H: 2700px;
+    --indigo-1: #402F99; --indigo-2: #17113E; --night: #0B0820;
+    --coral: #FF5A45; --apricot: #FFA474; --peach: #FFE6CC;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: var(--W); height: var(--H); overflow: hidden; background: var(--night); }
+  body { font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif; color: #fff;
+         -webkit-font-smoothing: antialiased; position: relative; }
+  .layer { position: absolute; inset: 0; }
+
+  .sky { background:
+           radial-gradient(70% 45% at 25% 0%, rgba(98,74,214,.6) 0%, rgba(64,47,153,0) 70%),
+           linear-gradient(170deg, var(--indigo-1) 0%, #241a63 35%, var(--indigo-2) 70%, var(--night) 100%); }
+  .halo { background: radial-gradient(55% 32% at 50% 72%, rgba(255,158,107,.55) 0%,
+            rgba(255,122,85,.2) 45%, rgba(255,122,85,0) 75%); }
+  .grain { opacity: .06; mix-blend-mode: overlay;
+           background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+  .vignette { background: radial-gradient(90% 90% at 50% 50%, rgba(0,0,0,0) 55%, rgba(5,3,18,.6) 100%); }
+
+  .copy { position: absolute; z-index: 5; left: 170px; right: 170px; top: 190px; }
+  .row { display: flex; align-items: center; gap: 44px; margin-bottom: 90px; }
+  .icon { width: 190px; filter: drop-shadow(0 26px 50px rgba(6,3,20,.6)); }
+  .pill { font-size: 62px; font-weight: 700; letter-spacing: .02em; padding: 22px 48px; border-radius: 999px;
+          color: var(--peach); background: rgba(255,164,116,.12); box-shadow: 0 0 0 3px rgba(255,164,116,.45) inset; }
+  h1 { font-size: 248px; line-height: .95; font-weight: 800; letter-spacing: -0.045em; }
+  h1 em { font-style: normal; background: linear-gradient(95deg, var(--peach) 0%, var(--apricot) 45%, var(--coral) 100%);
+          -webkit-background-clip: text; background-clip: text; color: transparent;
+          filter: drop-shadow(0 0 50px rgba(255,122,85,.35)); }
+  .sub { margin-top: 70px; font-size: 76px; line-height: 1.25; font-weight: 500; color: rgba(255,240,230,.8); }
+
+  .tv { position: absolute; z-index: 3; left: 150px; right: 150px; top: 1500px; padding: 26px; border-radius: 40px;
+        background: linear-gradient(145deg, #3a3746 0%, #15141b 40%, #0c0b10 70%, #2c2a38 100%);
+        box-shadow: 0 0 0 2px rgba(255,255,255,.10) inset, 0 0 0 1px rgba(0,0,0,.9),
+                    0 0 180px rgba(255,138,96,.35), 0 80px 160px rgba(6,3,20,.75); }
+  .tv img { display: block; width: 100%; border-radius: 16px; }
+  .stand { position: absolute; z-index: 2; left: 50%; transform: translateX(-50%); top: 2560px; width: 520px; height: 26px;
+           border-radius: 13px; background: linear-gradient(#3a3746, #121117); box-shadow: 0 30px 60px rgba(6,3,20,.7); }
+
+  /* ?ar=wide: 16:9 (3840x2160), copy left, TV right */
+  .wide { --W: 3840px; --H: 2160px; }
+  .wide .halo { background: radial-gradient(38% 50% at 70% 52%, rgba(255,158,107,.55) 0%,
+                  rgba(255,122,85,.2) 45%, rgba(255,122,85,0) 75%); }
+  .wide .copy { left: 260px; right: auto; width: 1500px; top: 50%; transform: translateY(-50%); }
+  .wide h1 { font-size: 270px; }
+  .wide .sub { font-size: 78px; }
+  .wide .tv { left: 1900px; right: 200px; top: 50%; transform: translateY(-50%); }
+  .wide .stand { display: none; }
+</style>
+</head>
+<body>
+<div class="layer sky"></div>
+<div class="layer halo"></div>
+<div class="layer vignette"></div>
+<div class="layer grain"></div>
+
+<div class="copy">
+  <div class="row"><img class="icon" src="icon.png"><span class="pill">Version 5.6.2</span></div>
+  <h1>Now in<br><em>9 languages.</em></h1>
+  <p class="sub">English, Español, Français, 日本語, 简体中文, 한국어, Русский, العربية and हिन्दी — on iPhone, iPad and Apple&nbsp;TV.</p>
+</div>
+
+<div class="tv"><img id="shot"></div>
+<div class="stand"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+document.getElementById("shot").src = params.get("shot") || "../tvOS-raw/es_tonight.png";
+if (params.get("ar") === "wide") document.documentElement.classList.add("wide");
+</script>
+</body>
+</html>
