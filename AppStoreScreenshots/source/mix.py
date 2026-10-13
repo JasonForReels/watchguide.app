@@ -9,7 +9,9 @@ VO_DIR = os.path.join(HERE, "..", "video-raw", "vo")
 RATE = 48000
 
 html = open(os.path.join(HERE, "update.html")).read()
-cues = json.loads(re.search(r"window\.VO = (\[.*?\]);", html).group(1))
+# Usage: python3 mix.py <out.m4a> [soon] — "soon" uses the coming-soon narration (window.VO_SOON).
+key = "VO_SOON" if len(sys.argv) > 2 and sys.argv[2] == "soon" else "VO"
+cues = json.loads(re.search(r"window\." + key + r" = (\[.*?\]);", html).group(1))
 total = float(re.search(r"const TOTAL = ([\d.]+);", html).group(1))
 
 MUSIC = os.path.join(HERE, "..", "video-raw", "score.wav")

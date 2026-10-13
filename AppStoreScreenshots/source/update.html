@@ -5,6 +5,7 @@
 <!-- 5.6.2 update video (16:9, 1920x1080, 55 s), in the style of a product-update announcement:
      hook → how it works (real screen recording) → why it matters → slogan. Narrated by the Siri
      natural voice Simone (lines in ../video-raw/vo, laid out by VO below and mixed by mix.py).
+     ?variant=soon is the "coming soon" teaser: future-tense narration (VO_SOON) and copy.
      Deterministic: window.render(t) seeks every video to its exact frame before resolving. -->
 <style>
   :root { --indigo-1: #402F99; --indigo-2: #17113E; --night: #0B0820;
@@ -150,6 +151,15 @@
 <script>
 // Narration: [line file, start time]. mix.py reads this to build the soundtrack.
 window.VO = [["l1", 0.6], ["l2", 5.6], ["l3", 11.9], ["l4", 18.6], ["l4b", 23.0], ["l5", 27.4], ["l6", 32.5], ["l7", 40.0], ["l8", 45.4]];
+window.VO_SOON = [["s1", 0.6], ["s2", 5.5], ["s3", 11.9], ["s4", 18.6], ["s4b", 23.0], ["s5", 27.4], ["s6", 32.5], ["s7", 40.0], ["s8", 45.4]];
+// Coming-soon teaser: same footage, copy rewritten for before release.
+if (new URLSearchParams(location.search).get("variant") === "soon") {
+  document.querySelector("#intro .pill").textContent = "Coming soon · Version 5.6.2";
+  document.querySelector("#intro h1").innerHTML = "Coming in <em>9 languages.</em>";
+  document.querySelector("#tvs h1").innerHTML = "Coming to<br><em>the big screen,<br>too.</em>";
+  document.querySelector("#end .center").insertAdjacentHTML("afterbegin", '<div class="pill" style="display:table; margin:0 auto 34px">Coming soon</div>');
+  document.querySelector("#end .sub").innerHTML = "WatchGuide 5.6.2 · Coming soon to iPhone, iPad and Apple&nbsp;TV.";
+}
 const TOTAL = 55;
 window.TIMELINE = { total: TOTAL, fps: 30 };
 

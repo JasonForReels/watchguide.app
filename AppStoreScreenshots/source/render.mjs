@@ -9,7 +9,8 @@ const browser = await puppeteer.launch({ executablePath: '/Applications/Google C
 const page = await browser.newPage();
 const [mode, outDir] = process.argv.slice(2);
 // WG_LANG=zh renders the Chinese captions.
-const Q = process.env.WG_LANG ? `lang=${process.env.WG_LANG}` : '';
+// WG_VARIANT=soon renders the coming-soon cut of update.html.
+const Q = [process.env.WG_LANG && `lang=${process.env.WG_LANG}`, process.env.WG_VARIANT && `variant=${process.env.WG_VARIANT}`].filter(Boolean).join('&');
 fs.mkdirSync(outDir, { recursive: true });
 // Timeline pages (window.TIMELINE + window.render(t)); sample-<key> renders a few stills.
 const VIDEO = {
