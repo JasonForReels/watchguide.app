@@ -5,6 +5,8 @@
 
 import Foundation
 import AuthenticationServices
+import CryptoKit
+import Security
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -15,8 +17,10 @@ import AppKit
 final class TraktService: NSObject, ObservableObject {
     static let shared = TraktService()
 
+    /// Not a secret: on its own it reaches only public catalog data. Sign-in uses PKCE
+    /// (device code on tvOS), so no client secret ships with the app. Trakt deprecated
+    /// client secrets for apps that sign users in on 2026-10-01.
     private let bundledClientID = "7a21622de3781573c3b182c40d2e5365ac78adf0fcf28aebf8e0b0a95cf172cd"
-    private let bundledClientSecret = "b5f110f77316e6c2ad889b19be55939bc369bee255b9d158dbadc78b555ca65e"
 
     @Published private(set) var isConnected = false
     @Published private(set) var isBusy = false
@@ -25,7 +29,8 @@ final class TraktService: NSObject, ObservableObject {
 
     private let sessionKey = "trakt_session"
     private let redirectURI = "watchguide://oauth/callback"
-    private let authorizeURL = URL(string: "https://trakt.tv/oauth/authorize")!
+    private let authorizeURL = URL(string: "https://auth.trakt.tv/oauth/authorize")!
+    private let authBaseURL = URL(string: "https://auth.trakt.tv")!
     private let apiBaseURL = URL(string: "https://api.trakt.tv")!
 
     private var authSession: ASWebAuthenticationSession?
@@ -36,13 +41,8 @@ final class TraktService: NSObject, ObservableObject {
         return configured.isEmpty ? bundledClientID : configured
     }
 
-    private var clientSecret: String {
-        let configured = ApiKeyManager.shared.get(key: "TRAKT_CLIENT_SECRET")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return configured.isEmpty ? bundledClientSecret : configured
-    }
-
     var isConfigured: Bool {
-        !clientID.isEmpty && !clientSecret.isEmpty
+        !clientID.isEmpty
     }
 
     override private init() {
@@ -76,8 +76,9 @@ final class TraktService: NSObject, ObservableObject {
         #if os(tvOS)
         let token = try await connectWithDeviceCode()
         #else
-        let code = try await authorize()
-        let token = try await exchangeCodeForToken(code)
+        let verifier = Self.makeCodeVerifier()
+        let code = try await authorize(challenge: Self.codeChallenge(for: verifier))
+        let token = try await exchangeCodeForToken(code, verifier: verifier)
         #endif
         session = token.session
         persistSession()
@@ -223,12 +224,14 @@ final class TraktService: NSObject, ObservableObject {
         await removeRating(for: item)
     }
 
-    private func authorize() async throws -> String {
+    private func authorize(challenge: String) async throws -> String {
         var components = URLComponents(url: authorizeURL, resolvingAgainstBaseURL: false)
         components?.queryItems = [
             URLQueryItem(name: "response_type", value: "code"),
             URLQueryItem(name: "client_id", value: clientID),
-            URLQueryItem(name: "redirect_uri", value: redirectURI)
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "code_challenge", value: challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256")
         ]
 
         guard let url = components?.url else {
@@ -275,11 +278,11 @@ final class TraktService: NSObject, ObservableObject {
         }
     }
 
-    private func exchangeCodeForToken(_ code: String) async throws -> TraktTokenResponse {
+    private func exchangeCodeForToken(_ code: String, verifier: String) async throws -> TraktTokenResponse {
         try await tokenRequest(body: [
             "code": code,
             "client_id": clientID,
-            "client_secret": clientSecret,
+            "code_verifier": verifier,
             "redirect_uri": redirectURI,
             "grant_type": "authorization_code"
         ])
@@ -315,7 +318,7 @@ final class TraktService: NSObject, ObservableObject {
     }
 
     private func requestDeviceCode() async throws -> TraktTVActivation {
-        var request = URLRequest(url: apiBaseURL.appendingPathComponent("oauth/device/code"))
+        var request = URLRequest(url: authBaseURL.appendingPathComponent("oauth/device/code"))
         request.httpMethod = "POST"
         applyOAuthHeaders(to: &request)
         request.httpBody = try JSONSerialization.data(withJSONObject: [
@@ -337,13 +340,13 @@ final class TraktService: NSObject, ObservableObject {
     }
 
     private func exchangeDeviceCodeForToken(_ deviceCode: String) async throws -> TraktTokenResponse {
-        var request = URLRequest(url: apiBaseURL.appendingPathComponent("oauth/device/token"))
+        // The device code itself proves the request, so no client secret is sent.
+        var request = URLRequest(url: authBaseURL.appendingPathComponent("oauth/device/token"))
         request.httpMethod = "POST"
         applyOAuthHeaders(to: &request)
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "code": deviceCode,
-            "client_id": clientID,
-            "client_secret": clientSecret
+            "client_id": clientID
         ])
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -403,7 +406,6 @@ final class TraktService: NSObject, ObservableObject {
         let refreshed = try await tokenRequest(body: [
             "refresh_token": session.refreshToken,
             "client_id": clientID,
-            "client_secret": clientSecret,
             "redirect_uri": redirectURI,
             "grant_type": "refresh_token"
         ])
@@ -413,7 +415,7 @@ final class TraktService: NSObject, ObservableObject {
     }
 
     private func tokenRequest(body: [String: String]) async throws -> TraktTokenResponse {
-        var request = URLRequest(url: apiBaseURL.appendingPathComponent("oauth/token"))
+        var request = URLRequest(url: authBaseURL.appendingPathComponent("oauth/token"))
         request.httpMethod = "POST"
         applyOAuthHeaders(to: &request)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -572,6 +574,26 @@ final class TraktService: NSObject, ObservableObject {
             let message = traktErrorMessage(from: data)
             throw TraktError.server(message ?? "Trakt request failed with status \(http.statusCode).")
         }
+    }
+
+    // MARK: - PKCE
+
+    private static func makeCodeVerifier() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        precondition(status == errSecSuccess, "Could not generate a secure PKCE verifier")
+        return base64URL(Data(bytes))
+    }
+
+    private static func codeChallenge(for verifier: String) -> String {
+        base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
+    }
+
+    private static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 
     private func applyOAuthHeaders(to request: inout URLRequest) {

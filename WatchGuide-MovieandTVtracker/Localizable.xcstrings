@@ -3579,54 +3579,54 @@
         }
       }
     },
-    "Add `TRAKT_CLIENT_ID` and `TRAKT_CLIENT_SECRET` to your app keys to enable Trakt." : {
+    "Add `TRAKT_CLIENT_ID` to your app keys to enable Trakt." : {
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "أضف `TRAKT_CLIENT_ID` و`TRAKT_CLIENT_SECRET` إلى مفاتيح التطبيق لتفعيل Trakt."
+            "value" : "أضف `TRAKT_CLIENT_ID` إلى مفاتيح التطبيق لتفعيل Trakt."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Añade `TRAKT_CLIENT_ID` y `TRAKT_CLIENT_SECRET` a las claves de la app para activar Trakt."
+            "value" : "Añade `TRAKT_CLIENT_ID` a las claves de la app para activar Trakt."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajoutez `TRAKT_CLIENT_ID` et `TRAKT_CLIENT_SECRET` à vos clés d’app pour activer Trakt."
+            "value" : "Ajoutez `TRAKT_CLIENT_ID` à vos clés d’app pour activer Trakt."
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Trakt चालू करने के लिए अपनी ऐप कुंजियों में `TRAKT_CLIENT_ID` और `TRAKT_CLIENT_SECRET` जोड़ें।"
+            "value" : "Trakt चालू करने के लिए अपनी ऐप कुंजियों में `TRAKT_CLIENT_ID` जोड़ें।"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Traktを有効にするには、アプリキーに`TRAKT_CLIENT_ID`と`TRAKT_CLIENT_SECRET`を追加してください。"
+            "value" : "Traktを有効にするには、アプリキーに`TRAKT_CLIENT_ID`を追加してください。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Trakt를 사용하려면 앱 키에 `TRAKT_CLIENT_ID`와 `TRAKT_CLIENT_SECRET`을 추가하세요."
+            "value" : "Trakt을 사용하려면 앱 키에 `TRAKT_CLIENT_ID`를 추가하세요."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Добавьте `TRAKT_CLIENT_ID` и `TRAKT_CLIENT_SECRET` в ключи приложения, чтобы включить Trakt."
+            "value" : "Добавьте `TRAKT_CLIENT_ID` в ключи приложения, чтобы включить Trakt."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将 `TRAKT_CLIENT_ID` 和 `TRAKT_CLIENT_SECRET` 添加到应用密钥以启用 Trakt。"
+            "value" : "将 `TRAKT_CLIENT_ID` 添加到应用密钥以启用 Trakt。"
           }
         }
       }

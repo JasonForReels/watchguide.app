@@ -434,7 +434,7 @@ struct SettingsView: View {
                     }
                     #endif
                 } else {
-                    Text("Add `TRAKT_CLIENT_ID` and `TRAKT_CLIENT_SECRET` to your app keys to enable Trakt.")
+                    Text("Add `TRAKT_CLIENT_ID` to your app keys to enable Trakt.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -1262,7 +1262,7 @@ struct SettingsView: View {
                                 }
                             }
                         } else {
-                            Text("Add `TRAKT_CLIENT_ID` and `TRAKT_CLIENT_SECRET` to your app keys to enable Trakt.")
+                            Text("Add `TRAKT_CLIENT_ID` to your app keys to enable Trakt.")
                                 .foregroundColor(.secondary)
                         }
 

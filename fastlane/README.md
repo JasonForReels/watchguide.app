@@ -53,7 +53,7 @@ Usage: fastlane listing version:5.6.2 new_version:true (new_version creates or r
 
 Attach a build to a version and submit it for App Review
 
-Usage: fastlane submit build:10 (version defaults to STORE_VERSION)
+Usage: fastlane submit build:10 [platform:appletvos] (version defaults to STORE_VERSION)
 
 ### ios upload_previews
 
