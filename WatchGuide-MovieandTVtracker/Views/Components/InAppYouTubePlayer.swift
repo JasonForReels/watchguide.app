@@ -29,6 +29,39 @@ private extension Color {
     }
 }
 
+#if canImport(YouTubePlayerKit)
+extension YouTubePlayer.HTMLBuilder {
+    /// The library's page with YouTube's own options for a quieter player:
+    /// `modestbranding` (smaller YouTube mark) and `iv_load_policy=3` (no
+    /// annotation cards). The library has no setting for either, so they're
+    /// added to the player options just before the page is built.
+    static var quietChrome: YouTubePlayer.HTMLBuilder {
+        let base = YouTubePlayer.HTMLBuilder.defaultHTMLProvider()
+        return .init(htmlProvider: { builder, optionsJSON in
+            try base(builder, Self.withQuietPlayerVars(optionsJSON))
+        })
+    }
+
+    private static func withQuietPlayerVars(_ optionsJSON: String) -> String {
+        guard let data = optionsJSON.data(using: .utf8),
+              var options = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return optionsJSON
+        }
+        var playerVars = options["playerVars"] as? [String: Any] ?? [:]
+        playerVars["modestbranding"] = 1
+        playerVars["iv_load_policy"] = 3
+        options["playerVars"] = playerVars
+        guard let patched = try? JSONSerialization.data(
+            withJSONObject: options,
+            options: [.sortedKeys, .withoutEscapingSlashes]
+        ) else {
+            return optionsJSON
+        }
+        return String(decoding: patched, as: UTF8.self)
+    }
+}
+#endif
+
 // MARK: - Embedded Trailer Player View
 struct EmbeddedTrailerPlayer: View {
     let videoKey: String
@@ -46,6 +79,16 @@ struct EmbeddedTrailerPlayer: View {
     var onProgress: ((TimeInterval) -> Void)?
     var volume: Double = 1.0
     var pauseOffscreen: Bool = true
+    /// Lets a host (e.g. tap-to-pause in Pops) pause and resume playback.
+    var isPaused: Bool = false
+    /// Keeps the YouTube player out of sight until the video is actually
+    /// playing (and again between loops), showing the clip's still instead,
+    /// so its start screen — big play button, title — never flashes up. Pops
+    /// uses it; the trailer screens keep the player visible as soon as it's ready.
+    var revealOnPlay: Bool = false
+    /// Host-controlled sound (e.g. the Pops mute button); nil follows the
+    /// "start trailers muted" setting.
+    var muted: Bool? = nil
 
     #if canImport(YouTubePlayerKit)
     // YouTube player (primary path for YouTube IDs)
@@ -61,6 +104,8 @@ struct EmbeddedTrailerPlayer: View {
     @State private var showControlsOverlay = true
     @State private var controlsTimer: Timer?
     @State private var isReady = false
+    /// Whether playback has begun, for `revealOnPlay`.
+    @State private var isPlayingNow = false
     @State private var hasError = false
     @State private var progressObserver: Any?
     @State private var endObserver: NSObjectProtocol?
@@ -85,7 +130,10 @@ struct EmbeddedTrailerPlayer: View {
         alternateVideoKeys: [String] = [],
         onPlaybackEnded: (() -> Void)? = nil,
         onProgress: ((TimeInterval) -> Void)? = nil,
-        pauseOffscreen: Bool = true
+        pauseOffscreen: Bool = true,
+        isPaused: Bool = false,
+        muted: Bool? = nil,
+        revealOnPlay: Bool = false
     ) {
         self.videoKey = videoKey
         self.title = title
@@ -101,8 +149,11 @@ struct EmbeddedTrailerPlayer: View {
         self.onPlaybackEnded = onPlaybackEnded
         self.onProgress = onProgress
         self.pauseOffscreen = pauseOffscreen
+        self.isPaused = isPaused
+        self.muted = muted
+        self.revealOnPlay = revealOnPlay
 
-        let startMuted = StorageService.shared.settings.autoPlayTrailersMuted
+        let startMuted = muted ?? StorageService.shared.settings.autoPlayTrailersMuted
         _isMuted = State(initialValue: startMuted)
 
         #if canImport(YouTubePlayerKit)
@@ -122,6 +173,7 @@ struct EmbeddedTrailerPlayer: View {
             ),
             configuration: .init(
                 allowsInlineMediaPlayback: true,
+                htmlBuilder: .quietChrome,
                 openURLAction: .init { _, _ in
                     // Block all navigation to prevent Safari from opening
                 }
@@ -160,8 +212,8 @@ struct EmbeddedTrailerPlayer: View {
                 // YouTube player (primary path)
                 YouTubePlayerKit.YouTubePlayerView(ytPlayer)
                     .scaleEffect(zoomScale)
-                    .opacity(isReady ? 1 : 0)
-                    .animation(.easeIn(duration: 0.3), value: isReady)
+                    .opacity(isVideoVisible ? 1 : 0)
+                    .animation(.easeIn(duration: 0.3), value: isVideoVisible)
                 #else
                 // No YouTube player available on this platform — show fallback
                 TrailerErrorFallback(videoKey: videoKey, title: title, compact: compact)
@@ -170,7 +222,7 @@ struct EmbeddedTrailerPlayer: View {
 
             #if canImport(YouTubePlayerKit)
             // Loading state (YouTube path)
-            if !usingAVPlayer && !isReady && !hasError {
+            if !usingAVPlayer && !isVideoVisible && !hasError {
                 loadingOverlay
             }
             #endif
@@ -199,6 +251,20 @@ struct EmbeddedTrailerPlayer: View {
         .onChange(of: playbackGate.isVoiceModeActive) { _, active in
             handleVoiceModeChange(active)
         }
+        .onChange(of: isPaused) { _, paused in
+            handleHostPauseChange(paused)
+        }
+        .task(id: isReady) {
+            // If autoplay never starts, show the player anyway rather than
+            // leaving the viewer looking at a still with no way forward.
+            guard revealOnPlay, isReady, !isPlayingNow else { return }
+            try? await Task.sleep(for: .seconds(5))
+            if !isPlayingNow && !Task.isCancelled { isPlayingNow = true }
+        }
+        .onChange(of: muted) { _, newValue in
+            guard let newValue else { return }
+            applyMuted(newValue)
+        }
         .onDisappear {
             controlsTimer?.invalidate()
             removeAVEndObserver()
@@ -223,12 +289,16 @@ struct EmbeddedTrailerPlayer: View {
                     wasPlayingBeforeVoice = true
                     break
                 }
-                let shouldMute = StorageService.shared.settings.autoPlayTrailersMuted
+                let shouldMute = muted ?? StorageService.shared.settings.autoPlayTrailersMuted
                 Task {
-                    // Configure audio session for playback
+                    // Configure audio session for playback. Activating it can
+                    // block, so it runs off the main thread (iOS logs a warning
+                    // and the feed hitched each time a clip started).
                     #if !os(macOS)
-                    try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-                    try? AVAudioSession.sharedInstance().setActive(true)
+                    await Task.detached(priority: .userInitiated) {
+                        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+                        try? AVAudioSession.sharedInstance().setActive(true)
+                    }.value
                     #endif
                     // Small delay to let the WebView fully settle on real devices
                     try? await Task.sleep(for: .milliseconds(150))
@@ -251,6 +321,13 @@ struct EmbeddedTrailerPlayer: View {
         }
         .onReceive(ytPlayer.playbackStatePublisher) { playbackState in
             guard !usingAVPlayer else { return }
+            // Shown while it plays; hidden at the end, so YouTube's end screen
+            // doesn't show between loops.
+            if playbackState == .playing {
+                isPlayingNow = true
+            } else if playbackState == .ended {
+                isPlayingNow = false
+            }
             if playbackState == .ended {
                 if loops {
                     Task { try? await ytPlayer.play() }
@@ -301,13 +378,20 @@ struct EmbeddedTrailerPlayer: View {
 
     // MARK: - Loading overlay
 
+    /// What the viewer sees of the YouTube player.
+    private var isVideoVisible: Bool {
+        revealOnPlay ? isPlayingNow : isReady
+    }
+
     private var loadingOverlay: some View {
         ZStack {
-            AsyncImage(url: URL(string: "https://img.youtube.com/vi/\(videoKey)/maxresdefault.jpg")) { phase in
+            // `oar2` is the frame at the video's own shape, so a portrait clip's
+            // still isn't a landscape picture cropped to fit.
+            AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(videoKey)/\(aspectRatio < 1 ? "oar2" : "maxresdefault").jpg")) { phase in
                 if case .success(let image) = phase {
                     image
                         .resizable()
-                        .aspectRatio(16.0 / 9.0, contentMode: .fill)
+                        .aspectRatio(aspectRatio < 1 ? 9.0 / 16.0 : 16.0 / 9.0, contentMode: .fill)
                 }
             }
             Color.black.opacity(0.4)
@@ -397,6 +481,45 @@ struct EmbeddedTrailerPlayer: View {
 
     // MARK: - Visibility handling
 
+    private func applyMuted(_ newValue: Bool) {
+        isMuted = newValue
+        if usingAVPlayer {
+            avPlayer?.isMuted = newValue
+        } else {
+            #if canImport(YouTubePlayerKit)
+            guard isReady else { return }
+            Task {
+                if newValue {
+                    try? await ytPlayer.mute()
+                } else {
+                    try? await ytPlayer.unmute()
+                }
+            }
+            #endif
+        }
+    }
+
+    private func handleHostPauseChange(_ paused: Bool) {
+        if usingAVPlayer {
+            if paused {
+                avSession?.pause()
+            } else {
+                avSession?.play()
+            }
+        } else {
+            #if canImport(YouTubePlayerKit)
+            guard isReady else { return }
+            Task {
+                if paused {
+                    try? await ytPlayer.pause()
+                } else {
+                    try? await ytPlayer.play()
+                }
+            }
+            #endif
+        }
+    }
+
     /// Pauses for the duration of an Atlas voice session and restores afterwards,
     /// but only what was actually playing when the session began.
     private func handleVoiceModeChange(_ active: Bool) {
@@ -451,7 +574,8 @@ struct EmbeddedTrailerPlayer: View {
                     wasPlayingBeforeHidden = false
                 }
             } else {
-                wasPlayingBeforeHidden = true
+                // A clip the host paused stays paused when it scrolls back in.
+                wasPlayingBeforeHidden = !isPaused
                 Task { try? await ytPlayer.pause() }
             }
             #endif

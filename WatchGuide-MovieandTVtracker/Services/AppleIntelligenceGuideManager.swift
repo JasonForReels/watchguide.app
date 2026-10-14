@@ -147,6 +147,10 @@ final class AppleIntelligenceGuideManager: ObservableObject {
     private init() {}
 
     func presentIfNeededAfterUpdate() {
+        // Apple Intelligence isn't available on Apple TV, so there's nothing to introduce there.
+        #if os(tvOS)
+        return
+        #else
         let currentVersion = appVersion
         let seenVersion = UserDefaults.standard.string(forKey: seenGuideVersionKey)
 
@@ -154,6 +158,7 @@ final class AppleIntelligenceGuideManager: ObservableObject {
 
         UserDefaults.standard.set(currentVersion, forKey: seenGuideVersionKey)
         isGuidePresented = true
+        #endif
     }
 
     func presentManually() {

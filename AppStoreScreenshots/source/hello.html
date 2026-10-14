@@ -1,0 +1,226 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- 5.6.2 launch video (16:9, 1920x1080, 60 s): "hello" handwritten in each language the app speaks,
+     like the Mac setup screen, landing on "hola"; the App Store screenshots in all 9 languages; the
+     Language setting; then the release end card. Deterministic: window.render(t). -->
+<style>
+  :root { --indigo-1: #402F99; --indigo-2: #17113E; --night: #0B0820;
+          --coral: #FF5A45; --apricot: #FFA474; --peach: #FFE6CC; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--night); }
+  body { font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif; color: #fff;
+         -webkit-font-smoothing: antialiased; position: relative; }
+  .layer { position: absolute; inset: 0; }
+  #sky { background: linear-gradient(160deg, var(--a) 0%, var(--b) 55%, var(--night) 100%); }
+  #glow { background: radial-gradient(45% 45% at var(--gx) 50%, var(--g) 0%, rgba(0,0,0,0) 70%); }
+  .grain { opacity: .06; mix-blend-mode: overlay;
+           background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+  .vignette { background: radial-gradient(90% 90% at 50% 50%, rgba(0,0,0,0) 55%, rgba(5,3,18,.6) 100%); }
+
+  /* Greeting: wiped in like handwriting through a feathered mask */
+  #word { position: absolute; left: 0; right: 0; top: 50%; text-align: center; white-space: nowrap;
+          font-size: 300px; line-height: 1; transform: translateY(-55%); }
+  #word span { display: inline-block; padding: 60px 80px; }
+  #word.grad span { background: linear-gradient(95deg, var(--peach) 0%, var(--apricot) 45%, var(--coral) 100%);
+                    -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  /* End card, half-scale of promo.html ?ar=wide */
+  #card { position: absolute; inset: 0; }
+  .copy { position: absolute; left: 130px; width: 760px; top: 50%; transform: translateY(-50%); }
+  .row { display: flex; align-items: center; gap: 22px; margin-bottom: 45px; }
+  .icon { width: 96px; filter: drop-shadow(0 13px 25px rgba(6,3,20,.6)); }
+  .pill { font-size: 31px; font-weight: 700; letter-spacing: .02em; padding: 11px 24px; border-radius: 999px;
+          color: var(--peach); background: rgba(255,164,116,.12); box-shadow: 0 0 0 1.5px rgba(255,164,116,.45) inset; }
+  h1 { font-size: 135px; line-height: .95; font-weight: 800; letter-spacing: -0.045em; }
+  h1 em { font-style: normal; background: linear-gradient(95deg, var(--peach) 0%, var(--apricot) 45%, var(--coral) 100%);
+          -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { margin-top: 35px; font-size: 39px; line-height: 1.25; font-weight: 500; color: rgba(255,240,230,.8); }
+  .tv { position: absolute; left: 950px; right: 100px; top: 50%; padding: 13px; border-radius: 20px;
+        background: linear-gradient(145deg, #3a3746 0%, #15141b 40%, #0c0b10 70%, #2c2a38 100%);
+        box-shadow: 0 0 0 1px rgba(255,255,255,.10) inset, 0 0 90px rgba(255,138,96,.35), 0 40px 80px rgba(6,3,20,.75); }
+  .tv img { display: block; width: 100%; border-radius: 8px; }
+
+  /* Montage: the App Store hero screenshot in every language, scrolling past */
+  #montage h2 { position: absolute; top: 72px; left: 0; right: 0; text-align: center; font-size: 80px;
+                font-weight: 800; letter-spacing: -0.04em; }
+  h2 em, #settings h1 em { font-style: normal; background: linear-gradient(95deg, var(--peach) 0%, var(--apricot) 45%, var(--coral) 100%);
+          -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .strip { position: absolute; top: 215px; left: 0; display: flex; gap: 48px; }
+  .strip img { height: 800px; border-radius: 44px;
+               box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 30px 70px rgba(6,3,20,.7); }
+
+  /* Settings: the Language picker, then the app in French */
+  .scopy { position: absolute; left: 130px; width: 820px; top: 330px; }
+  .scopy > div { position: absolute; left: 0; right: 0; top: 0; }
+  #settings h1 { font-size: 112px; }
+  .phone { position: absolute; top: 50%; padding: 12px; border-radius: 62px;
+           background: linear-gradient(145deg, #6b6680 0%, #2c2a38 22%, #1a1922 55%, #45425a 100%);
+           box-shadow: 0 0 0 2px rgba(255,255,255,.10) inset, 0 0 120px rgba(255,138,96,.3), 0 50px 100px rgba(6,3,20,.75); }
+  .phone img { display: block; width: 360px; border-radius: 50px; }
+</style>
+</head>
+<body>
+<div class="layer" id="sky"></div>
+<div class="layer" id="glow"></div>
+<div class="layer vignette"></div>
+<div class="layer grain"></div>
+
+<div id="word"><span></span></div>
+
+<div class="layer" id="montage">
+  <h2>One app. <em>Nine languages.</em></h2>
+  <div class="strip" id="strip">
+    <img src="../iPhone-6.9in/01-know-what-to-watch.png"><img src="../es-ES/iPhone-6.9in/01.png">
+    <img src="../fr-FR/iPhone-6.9in/01.png"><img src="../ja/iPhone-6.9in/01.png">
+    <img src="../zh-Hans/iPhone-6.9in/01.png"><img src="../ko/iPhone-6.9in/01.png">
+    <img src="../ru/iPhone-6.9in/01.png"><img src="../ar-SA/iPhone-6.9in/01.png">
+    <img src="../hi/iPhone-6.9in/01.png">
+  </div>
+</div>
+
+<div class="layer" id="settings">
+  <div class="scopy">
+    <div id="sa"><h1>Switch in<br><em>Settings.</em></h1>
+      <p class="sub">Settings › Region &amp; Language › Language. Nine to choose from.</p></div>
+    <div id="sb"><h1>Even the<br><em>title logos.</em></h1>
+      <p class="sub">Artwork follows the language you pick. Here, Français.</p></div>
+  </div>
+  <div class="phone" id="p1"><img src="lang-picker.png"></div>
+  <div class="phone" id="p2"><img src="lang-fr.png"></div>
+</div>
+
+<div id="card">
+  <div class="copy">
+    <div class="row" id="c1"><img class="icon" src="icon.png"><span class="pill">Version 5.6.2</span></div>
+    <h1 id="c2">Now in<br><em>9 languages.</em></h1>
+    <p class="sub" id="c3">English, Español, Français, 日本語, 简体中文, 한국어, Русский, العربية and हिन्दी — on iPhone, iPad and Apple&nbsp;TV.</p>
+  </div>
+  <div class="tv" id="c4"><img src="../tvOS-raw/es_tonight.png"></div>
+</div>
+
+<script>
+const SCRIPT = '"Snell Roundhand", cursive';
+// [text, font, weight, size scale, right-to-left]
+const WORDS = [
+  ["hello", SCRIPT, 700, 1.15],
+  ["bonjour", SCRIPT, 700, 1],
+  ["こんにちは", '"Hiragino Mincho ProN", serif', 300, .62],
+  ["你好", '"Songti SC", serif', 300, .8],
+  ["안녕하세요", '"Apple SD Gothic Neo", sans-serif', 200, .62],
+  ["привет", '"Baskerville", serif', 400, .85, false, true],
+  ["مرحبا", '"Diwan Thuluth", serif', 400, 1.4, true],
+  ["नमस्ते", '"Kohinoor Devanagari", sans-serif', 300, .75],
+];
+// Background palettes the greeting drifts through: [top, mid, glow].
+const SKIES = [
+  ["#402F99", "#17113E", "rgba(255,158,107,.45)"],
+  ["#5B2A8C", "#1E0F3A", "rgba(255,110,140,.40)"],
+  ["#2F3E99", "#10173E", "rgba(120,170,255,.35)"],
+  ["#7A2E6E", "#250E30", "rgba(255,140,90,.45)"],
+];
+// Mac-paced greetings, then hola, the montage, the Language setting and the end card.
+const FIRST = 2.6, EACH = 2.3, HOLA_AT = 0.4 + FIRST + EACH * (WORDS.length - 1);
+const MONTAGE_AT = HOLA_AT + 3.6, SETTINGS_AT = MONTAGE_AT + 16.5, SETTINGS_B = SETTINGS_AT + 6;
+const CARD_AT = SETTINGS_B + 6, TOTAL = 60;
+window.TIMELINE = { total: TOTAL, fps: 30 };
+
+const $ = id => document.getElementById(id);
+const word = $("word"), span = word.querySelector("span");
+const clamp = x => Math.max(0, Math.min(1, x));
+const ease = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const out = x => 1 - Math.pow(1 - clamp(x), 3);
+const mix = (a, b, k) => {
+  const p = s => s.startsWith("#") ? [1, 3, 5].map(i => parseInt(s.slice(i, i + 2), 16)).concat(1)
+                                    : s.match(/[\d.]+/g).map(Number);
+  const A = p(a), B = p(b);
+  return `rgba(${A.map((v, i) => i < 3 ? Math.round(v + (B[i] - v) * k) : (v + (B[i] - v) * k).toFixed(3)).join(",")})`;
+};
+
+function sky(t) {
+  const pos = Math.max(0, t - 0.4) / 2.4, i = Math.floor(pos), k = ease(pos - i);
+  const A = SKIES[i % SKIES.length], B = SKIES[(i + 1) % SKIES.length];
+  // Settle back on the brand palette for "hola" and the end card.
+  const home = clamp((t - (HOLA_AT - 0.6)) / 1.2);
+  const s = $("sky").style;
+  s.setProperty("--a", mix(mix(A[0], B[0], k), SKIES[0][0], home));
+  s.setProperty("--b", mix(mix(A[1], B[1], k), SKIES[0][1], home));
+  $("glow").style.setProperty("--g", mix(mix(A[2], B[2], k), SKIES[0][2], home));
+  $("glow").style.setProperty("--gx", `${50 + 20 * clamp((t - CARD_AT) / 1)}%`);
+}
+
+// Wipe the word in along the writing direction with a soft pen edge.
+function write(k, rtl) {
+  const p = -15 + 130 * out(k), dir = rtl ? "to left" : "to right";
+  const m = `linear-gradient(${dir}, #000 ${p - 12}%, transparent ${p}%)`;
+  word.style.webkitMaskImage = word.style.maskImage = m;
+}
+
+function setWord(w) {
+  if (span.textContent === w[0]) return;
+  span.textContent = w[0];
+  word.style.fontFamily = w[1]; word.style.fontWeight = w[2];
+  word.style.fontSize = `${300 * w[3]}px`; word.style.fontStyle = w[5] ? "italic" : "normal";
+}
+
+window.render = t => {
+  sky(t);
+  let w, local, dur;
+  if (t < HOLA_AT) {
+    const s = t - 0.4;
+    if (s < FIRST) { w = WORDS[0]; local = s; dur = FIRST; }
+    else { const i = 1 + Math.floor((s - FIRST) / EACH); w = WORDS[i]; local = (s - FIRST) % EACH; dur = EACH; }
+    if (s < 0) { word.style.opacity = 0; } else {
+      setWord(w); word.classList.remove("grad");
+      const writeDur = dur * .62, fadeAt = dur * .8;
+      write(local / writeDur, w[4]);
+      const f = clamp((local - fadeAt) / (dur - fadeAt));
+      word.style.opacity = 1 - f;
+      word.style.filter = `blur(${f * 14}px)`;
+      word.style.transform = `translateY(-55%) scale(${1 + f * .04})`;
+    }
+  } else {
+    // "hola" lands, warms to the brand gradient, then gives way to the card.
+    const local = t - HOLA_AT;
+    setWord(["hola", SCRIPT, 700, 1.25]);
+    write(local / 1.0, false);
+    word.classList.toggle("grad", local > 1.0);
+    const f = clamp((t - (MONTAGE_AT - .5)) / .6);
+    word.style.opacity = local > 1.0 ? 1 - f : 1;
+    word.style.filter = `blur(${f * 18}px) drop-shadow(0 0 ${40 * clamp(local - 1)}px rgba(255,122,85,.45))`;
+    word.style.transform = `translateY(-55%) scale(${1 + .03 * clamp(local / 2.6) - f * .06})`;
+  }
+  // Montage: fades in, the strip glides right to left, fades out.
+  const mIn = out((t - MONTAGE_AT) / .8), mOut = clamp((t - (SETTINGS_AT - .6)) / .6);
+  $("montage").style.opacity = mIn * (1 - mOut);
+  const strip = $("strip"), from = 260, to = 1920 - strip.offsetWidth - 260;
+  const mk = clamp((t - MONTAGE_AT) / (SETTINGS_AT - MONTAGE_AT));
+  strip.style.transform = `translateX(${from + (to - from) * (0.08 * ease(mk / .1) * (mk < .1) + (mk >= .1) * (0.08 + 0.92 * (mk - .1) / .9))}px)`;
+
+  // Settings: picker phone alone, then the French app joins it and the copy changes.
+  const sIn = out((t - SETTINGS_AT) / .8), sOut = clamp((t - (CARD_AT - .6)) / .6);
+  $("settings").style.opacity = sIn * (1 - sOut);
+  const kB = out((t - SETTINGS_B) / .9);
+  $("sa").style.opacity = 1 - kB; $("sa").style.transform = `translateY(${-30 * kB}px)`;
+  $("sb").style.opacity = kB; $("sb").style.transform = `translateY(${30 * (1 - kB)}px)`;
+  $("p1").style.left = `${1240 - 230 * kB}px`;
+  $("p1").style.transform = `translateY(calc(-50% + ${(1 - sIn) * 60}px)) rotate(${-4 * kB}deg)`;
+  $("p2").style.left = "1450px";
+  $("p2").style.opacity = kB;
+  $("p2").style.transform = `translateY(calc(-50% + ${(1 - kB) * 80}px)) rotate(${4 * kB}deg)`;
+
+  // End card, staggered.
+  [["c1", 0], ["c2", .15], ["c3", .35]].forEach(([id, d]) => {
+    const k = out((t - CARD_AT - d) / .7), el = $(id);
+    el.style.opacity = k; el.style.transform = `translateY(${(1 - k) * 40}px)`;
+  });
+  const k = out((t - CARD_AT - .3) / .9);
+  $("c4").style.opacity = k;
+  $("c4").style.transform = `translateY(calc(-50% + ${(1 - k) * 80}px)) scale(${.94 + .06 * k})`;
+  $("c4").style.filter = `blur(${(1 - k) * 10}px)`;
+};
+window.render(0);
+</script>
+</body>
+</html>

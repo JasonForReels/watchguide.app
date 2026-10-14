@@ -436,7 +436,7 @@ struct SmartCategorizeIntent: AppIntent {
                 let names = await MainActor.run {
                     StorageService.shared.customLists.suffix(count).map(\.name).joined(separator: ", ")
                 }
-                return .result(dialog: "Done! I created \(count) smart list\(count == 1 ? "" : "s") from your history using Apple Intelligence: \(names).")
+                return .result(dialog: "Done! I created \(count) smart lists from your history using Apple Intelligence: \(names).")
             } else {
                 return .result(dialog: "Your smart lists are already up to date. Delete existing ones if you'd like a fresh set.")
             }

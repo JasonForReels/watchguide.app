@@ -34,7 +34,6 @@ actor SupabaseCacheService {
         case thetvdb
         case omdb
         case deeplink
-        case watchalong
         case deepdive
     }
     

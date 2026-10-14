@@ -38,8 +38,28 @@ final class AtlasDockState: ObservableObject {
     /// True while the bar has replaced the tab bar.
     @Published private(set) var isEngaged = false
     @Published var detent: Detent = .reply
+    /// Screens that carry Atlas in their own chrome (Pops' action rail) hide
+    /// the floating orb while they're up. A count, not a flag, so a Pops feed
+    /// opened from a studio profile on top of Pops can't bring the orb back early.
+    @Published private(set) var orbSuppressionCount = 0
+    /// Bumped to ask the HUD to open voice, for Atlas buttons outside the orb.
+    @Published private(set) var voiceRequestID = 0
+
+    var isOrbSuppressed: Bool { orbSuppressionCount > 0 }
 
     private init() {}
+
+    func suppressOrb() {
+        orbSuppressionCount += 1
+    }
+
+    func restoreOrb() {
+        orbSuppressionCount = max(0, orbSuppressionCount - 1)
+    }
+
+    func requestVoice() {
+        voiceRequestID += 1
+    }
 
     static let transition: Animation = .spring(response: 0.42, dampingFraction: 0.82)
 

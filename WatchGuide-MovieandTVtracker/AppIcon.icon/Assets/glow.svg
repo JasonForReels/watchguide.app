@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="halo" cx="512" cy="460" r="470" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF9E6B" stop-opacity="0.9"/>
+      <stop offset="0.55" stop-color="#FF7A55" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#FF7A55" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="beam" x1="0" y1="560" x2="0" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFD3A6" stop-opacity="1"/>
+      <stop offset="0.45" stop-color="#FFB37E" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#FF9A6A" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#halo)"/>
+  <path d="M412 560 L612 560 L940 1060 L84 1060 Z" fill="url(#beam)" filter="url(#soft)"/>
+</svg>

@@ -137,6 +137,7 @@ class StorageService: ObservableObject {
         browseSections = load(from: browseSectionsURL) ?? BrowseSectionItem.defaultSections
         migrateBrowseSectionsIfNeeded()
         migrateTrailerAddonSettingsIfNeeded()
+        removeWatchAlongDataIfNeeded()
 
         // Index all saved content into Spotlight for system-wide search
         #if canImport(CoreSpotlight) && !os(tvOS)
@@ -522,6 +523,7 @@ class StorageService: ObservableObject {
         #endif
         Task {
             await TraktService.shared.addToWatchlist(item)
+            await SimklService.shared.addToWatchlist(item)
         }
     }
     
@@ -534,6 +536,7 @@ class StorageService: ObservableObject {
         #endif
         Task {
             await TraktService.shared.removeFromWatchlist(item)
+            await SimklService.shared.removeFromWatchlist(item)
         }
     }
     
@@ -551,6 +554,9 @@ class StorageService: ObservableObject {
         #if canImport(CoreSpotlight) && !os(tvOS)
         SpotlightIndexingService.shared.indexItem(item, listType: .watched)
         #endif
+        Task {
+            await SimklService.shared.markWatched(item)
+        }
     }
     
     func removeFromWatched(_ item: SavedMediaItem) {
@@ -560,6 +566,9 @@ class StorageService: ObservableObject {
         #if canImport(CoreSpotlight) && !os(tvOS)
         SpotlightIndexingService.shared.removeItem(item)
         #endif
+        Task {
+            await SimklService.shared.unmarkWatched(item)
+        }
     }
     
     func isInWatched(_ mediaId: Int, mediaType: MediaType) -> Bool {
@@ -578,6 +587,7 @@ class StorageService: ObservableObject {
         #endif
         Task {
             await TraktService.shared.addLike(item)
+            await SimklService.shared.addLike(item)
         }
     }
     
@@ -590,6 +600,7 @@ class StorageService: ObservableObject {
         #endif
         Task {
             await TraktService.shared.removeLike(item)
+            await SimklService.shared.removeLike(item)
         }
     }
     
@@ -771,6 +782,8 @@ class StorageService: ObservableObject {
                 networkHubs: networkHubs,
                 hiddenSections: hiddenSections
             )
+            // Separate from the above: a missing table must not fail the upload.
+            try? await HomeScreenSyncService.shared.uploadAllStudioFollows(companyHubs)
             #endif
 
             ProfileService.shared.syncProfilesToCloud()
@@ -822,6 +835,21 @@ class StorageService: ObservableObject {
                 save(customLists, to: customListsURL)
             }
             applyHomeScreenConfig(homeConfig)
+
+            #if !os(tvOS)
+            // Studio follows are separate from the rest on purpose: if their
+            // table hasn't been created yet, that must not fail the whole sync.
+            if let followed = try? await HomeScreenSyncService.shared.downloadStudioFollows() {
+                applyStudioFollows(followed)
+                // The first device to sync sets the baseline: studios the
+                // account doesn't know yet are sent up.
+                let known = Set(followed.map(\.hubKey))
+                let unknown = companyHubs.filter { !known.contains($0.syncKey) }
+                if shouldAutoSyncHomeConfig, !unknown.isEmpty {
+                    try? await HomeScreenSyncService.shared.uploadAllStudioFollows(unknown)
+                }
+            }
+            #endif
 
             await ProfileService.shared.downloadProfilesFromCloud()
             await SupabaseService.shared.updateLastSyncTime()
@@ -1152,18 +1180,108 @@ class StorageService: ObservableObject {
     // MARK: - Company Hubs
     func updateCompanyHub(_ hub: CompanyHub) {
         if let index = companyHubs.firstIndex(where: { $0.id == hub.id }) {
+            let previous = companyHubs[index]
             companyHubs[index] = hub
             save(companyHubs, to: companyHubsURL)
+            // A rename changes the sync key, so the old row has to go.
+            if previous.syncKey != hub.syncKey {
+                queueStudioFollowSync(delete: previous.syncKey)
+            }
+            queueStudioFollowSync(upsert: hub)
         }
     }
     
     func addCompanyHub(_ hub: CompanyHub) {
         companyHubs.append(hub)
         save(companyHubs, to: companyHubsURL)
+        queueStudioFollowSync(upsert: hub)
     }
     
     func deleteCompanyHub(id: String) {
+        let removed = companyHubs.first { $0.id == id }
         companyHubs.removeAll { $0.id == id }
+        save(companyHubs, to: companyHubsURL)
+        if let removed {
+            queueStudioFollowSync(delete: removed.syncKey)
+        }
+    }
+
+    // MARK: Studio follow sync
+
+    /// Changes waiting to go to the cloud, by studio key. Followed studios are
+    /// sent one by one as they change rather than as a whole list, so a device
+    /// that hasn't downloaded yet can't overwrite what the account follows.
+    private var pendingStudioUpserts: [String: CompanyHub] = [:]
+    private var pendingStudioDeletes: Set<String> = []
+    private var studioSyncTask: Task<Void, Never>?
+
+    private func queueStudioFollowSync(upsert hub: CompanyHub? = nil, delete key: String? = nil) {
+        guard shouldAutoSyncHomeConfig, isSupabaseConfigured else { return }
+        if let hub {
+            pendingStudioUpserts[hub.syncKey] = hub
+            pendingStudioDeletes.remove(hub.syncKey)
+        }
+        if let key {
+            pendingStudioDeletes.insert(key)
+            pendingStudioUpserts[key] = nil
+        }
+        // A burst of changes (the Pops setup flow toggles several) is one request.
+        studioSyncTask?.cancel()
+        studioSyncTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(1500))
+            guard !Task.isCancelled else { return }
+            await self?.flushStudioFollowSync()
+        }
+    }
+
+    private func flushStudioFollowSync() async {
+        let upserts = Array(pendingStudioUpserts.values)
+        let deletes = Array(pendingStudioDeletes)
+        pendingStudioUpserts = [:]
+        pendingStudioDeletes = []
+        guard !upserts.isEmpty || !deletes.isEmpty else { return }
+
+        do {
+            try await HomeScreenSyncService.shared.syncStudioFollows(upserts: upserts, deletes: deletes)
+        } catch {
+            print("Cloud sync studio follows failed: \(error)")
+            // Keep them for the next change to carry; a newer change to the
+            // same studio wins over the one that failed.
+            for hub in upserts where pendingStudioUpserts[hub.syncKey] == nil && !pendingStudioDeletes.contains(hub.syncKey) {
+                pendingStudioUpserts[hub.syncKey] = hub
+            }
+            for key in deletes where pendingStudioUpserts[key] == nil {
+                pendingStudioDeletes.insert(key)
+            }
+        }
+    }
+
+    /// Merges the account's followed studios into this device's. Where the
+    /// account has a row for a studio, its choice wins; a studio this device
+    /// has never heard of (followed from a profile on another device) is added.
+    private func applyStudioFollows(_ rows: [SyncedStudioFollow]) {
+        guard !rows.isEmpty else { return }
+        var hubs = companyHubs
+        for row in rows {
+            if let index = hubs.firstIndex(where: { $0.syncKey == row.hubKey }) {
+                var updated = hubs[index]
+                updated.isEnabled = row.isEnabled
+                hubs[index] = updated
+            } else {
+                hubs.append(CompanyHub(
+                    id: UUID().uuidString,
+                    name: row.name,
+                    logoPath: row.logoPath,
+                    companyIds: row.companyIds,
+                    networkIds: row.networkIds,
+                    isEnabled: row.isEnabled,
+                    buttonShape: nil,
+                    backgroundStyle: nil,
+                    createdAt: Date()
+                ))
+            }
+        }
+        companyHubs = hubs
         save(companyHubs, to: companyHubsURL)
     }
 
@@ -1303,6 +1421,23 @@ class StorageService: ObservableObject {
         } else {
             syncICloudSnapshotInBackground()
         }
+    }
+
+    private func removeWatchAlongDataIfNeeded() {
+        // Watch-Along was removed; drop the song anchors and subtitles it cached on device.
+        let migrationKey = "watchAlongRemoval_v1"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+        let fileManager = FileManager.default
+        let leftovers = [
+            fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("WatchAlongSoundtrack", isDirectory: true),
+            fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("WatchAlongSubtitles", isDirectory: true),
+        ]
+        for dir in leftovers {
+            try? fileManager.removeItem(at: dir)
+        }
+        UserDefaults.standard.set(true, forKey: migrationKey)
     }
 
     private func migrateTrailerAddonSettingsIfNeeded() {

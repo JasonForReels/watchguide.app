@@ -443,6 +443,70 @@ actor HomeScreenSyncService {
         return try await request(endpoint: "network_hubs_config", queryItems: queryItems)
     }
     
+    // MARK: - Studio Follows Sync
+
+    /// Sends only the studios that changed, as an upsert on (user_id, hub_key).
+    /// A device that has never downloaded must not overwrite what the account
+    /// already follows, so there is no replace-everything here — unlike the
+    /// network hubs above, which are rewritten whole.
+    func syncStudioFollows(upserts: [CompanyHub], deletes: [String]) async throws {
+        let userId = await getUserId()
+        guard !userId.isEmpty else { return }
+
+        if !upserts.isEmpty {
+            try await upsertStudioFollows(upserts, userId: userId)
+        }
+        for key in deletes {
+            try await requestNoResponse(
+                endpoint: "studio_follows",
+                method: "DELETE",
+                queryItems: [
+                    URLQueryItem(name: "user_id", value: "eq.\(userId)"),
+                    URLQueryItem(name: "hub_key", value: "eq.\(key)")
+                ]
+            )
+        }
+    }
+
+    /// The full push (Settings → upload everything): every studio, merged by key.
+    func uploadAllStudioFollows(_ hubs: [CompanyHub]) async throws {
+        let userId = await getUserId()
+        guard !userId.isEmpty, !hubs.isEmpty else { return }
+        try await upsertStudioFollows(hubs, userId: userId)
+    }
+
+    func downloadStudioFollows() async throws -> [SyncedStudioFollow] {
+        let userId = await getUserId()
+        guard !userId.isEmpty else { return [] }
+        return try await request(
+            endpoint: "studio_follows",
+            queryItems: [URLQueryItem(name: "user_id", value: "eq.\(userId)")]
+        )
+    }
+
+    private func upsertStudioFollows(_ hubs: [CompanyHub], userId: String) async throws {
+        let rows = hubs.map { hub in
+            SyncedStudioFollow(
+                userId: userId,
+                hubKey: hub.syncKey,
+                name: hub.name,
+                logoPath: hub.logoPath,
+                companyIds: hub.companyIds,
+                networkIds: hub.networkIds,
+                isEnabled: hub.isEnabled
+            )
+        }
+        let body = try JSONEncoder().encode(rows)
+        // The merge header is added for POSTs; `on_conflict` names the unique
+        // key it merges on, which is not the primary key.
+        try await requestNoResponse(
+            endpoint: "studio_follows",
+            method: "POST",
+            body: body,
+            queryItems: [URLQueryItem(name: "on_conflict", value: "user_id,hub_key")]
+        )
+    }
+
     // MARK: - Custom JSON Hubs Sync
     
     func uploadCustomJSONHubs(_ hubs: [CustomJSONHub]) async throws {
@@ -934,6 +998,35 @@ struct SyncedNetworkHubConfig: Codable {
         case hubId = "hub_id"
         case isEnabled = "is_enabled"
         case sortOrder = "sort_order"
+    }
+}
+
+struct SyncedStudioFollow: Codable {
+    let userId: String
+    /// The studio's name, lowercased. Each device makes its own random hub ids,
+    /// so the name is what identifies the same studio across devices.
+    let hubKey: String
+    let name: String
+    let logoPath: String?
+    let companyIds: [Int]
+    let networkIds: [Int]
+    let isEnabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case hubKey = "hub_key"
+        case name
+        case logoPath = "logo_path"
+        case companyIds = "company_ids"
+        case networkIds = "network_ids"
+        case isEnabled = "is_enabled"
+    }
+}
+
+extension CompanyHub {
+    /// Stable across devices, unlike `id`.
+    var syncKey: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 

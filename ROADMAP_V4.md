@@ -36,12 +36,13 @@ Your progress becomes a shield.
 **Constraint:** iOS can only filter Safari and Screen-Time-block apps; it cannot blur inside third-party apps. Be explicit in marketing.
 
 ### Pillar 3 — Atlas Watch-Along · *hands-free sync, beats manual timers*
+> **Removed in 5.3 (Oct 2026).** Watch-Along and its ShazamKit soundtrack sync were taken out of the app; the items below are kept for history only.
+
 A voice companion that knows the exact second you're at and never talks past it.
 
 - **Auto-sync without a timer** (the hard, magical part):
   1. **Dialogue sync** — on-device `SFSpeechRecognizer` transcribes ~10 s of TV audio; fuzzy-match against timed subtitles (OpenSubtitles API) to lock the timestamp. Works for any service, no DRM touched.
-  2. **Soundtrack sync** — ShazamKit identifies licensed songs; map song cue → known scene timestamp as a second anchor.
-  3. Re-sync silently every few minutes; handles pauses and skipped intros.
+  2. Re-sync silently every few minutes; handles pauses and skipped intros.
 - **Ask the movie**: "Who's that?", "Did I miss something?", "Why is he angry?" — answered from subtitles *up to the current second only*. Zero spoilers by construction.
 - **Whisper mode**: optional trivia cues timed to scenes (from `DidYouKnowView`/trivia data), delivered to AirPods only so the room isn't disturbed.
 - **Fell-asleep catch-up**: Apple Watch detects sleep → marks the timestamp → next day Atlas gives a 60-second recap of what you slept through.
@@ -72,7 +73,7 @@ A voice companion that knows the exact second you're at and never talks past it.
 |---|---|---|---|
 | **4.0.0** | Stick With It + The Bill (foundation) | Payoff Curve, minutes-to-payoff, stall nudges, honest quit, show price tag, cost-per-hour dashboard, TV Time import landing, IA cleanup (merge Browse/StreamQ/More, move studio hubs & trivia under Search) | Curve renders for 95% of TMDB shows; nudge opt-in ≥40% |
 | **4.1.0** | Spoiler Firewall | Auto-generated terms, Safari content blocker extension, in-app spoiler-safe filtering, household per-profile position | Blocker rules regenerate < 2 s after progress change |
-| **4.2.0** | Atlas Watch-Along (beta) | Dialogue + soundtrack sync, ask-the-movie, whisper trivia, TestFlight only | Sync lock < 10 s in 80% of trials; zero spoiler answers in eval set |
+| **4.2.0** | Atlas Watch-Along (beta) | Dialogue sync, ask-the-movie, whisper trivia, TestFlight only | Sync lock < 10 s in 80% of trials; zero spoiler answers in eval set |
 | **4.3.0** | Money & life | Rotation planner, "nothing left" alert, loadshedding pack, Screen Time drop-day shield, community drop-off map | Rotation saves ≥ 1 service/month for active users |
 | **4.4.0** | Magic polish | Fell-asleep catch-up (Watch), "Previously, for you" CarPlay recap, cinema big-screen mode, personal Stall Profile | — |
 
@@ -83,7 +84,7 @@ Bug-fix releases (`4.x.1`) follow each feature release, per the v3 versioning mo
 - `Services/StallDetectionService.swift` — watches WatchHour history, schedules nudges, builds Stall Profile.
 - `Services/SpoilerFirewallService.swift` — term generation per profile; writes shared rules to App Group.
 - `SpoilerShieldExtension/` — Safari content blocker target reading App Group rules.
-- `Services/WatchAlongSyncService.swift` — speech capture, subtitle matching, ShazamKit anchors, timestamp clock.
+- `Services/WatchAlongSyncService.swift` — speech capture, subtitle matching, timestamp clock.
 - `Services/SubtitleTimelineService.swift` — OpenSubtitles fetch + index (spoiler cutoff by timestamp).
 - `Services/ShowBillService.swift` — pace × runtime × pricing; rotation planner.
 - `Services/LoadsheddingService.swift` — EskomSePush API (needs key).

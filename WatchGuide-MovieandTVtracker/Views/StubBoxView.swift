@@ -42,7 +42,11 @@ struct StubBoxView: View {
                             .font(.title3.bold())
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 6)
+                            #if os(tvOS)
+                            .background(.regularMaterial)
+                            #else
                             .background(.bar)
+                            #endif
                     }
                 }
             }

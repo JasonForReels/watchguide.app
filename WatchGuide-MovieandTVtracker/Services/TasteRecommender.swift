@@ -3,8 +3,8 @@
 //  WatchGuide-MovieandTVtracker
 //
 //  Personal recommendations from the user's Liked and Watched lists. Apple's
-//  models come first so taste stays private: Private Cloud Compute on iOS 27,
-//  then the on-device model, and only then GPT-5 Nano (via Poe) as a fallback.
+//  on-device model comes first so taste stays private, and only then GPT-5 Nano
+//  (via Poe) as a fallback.
 //  Every suggestion is resolved to a real TMDB entry (matched on title, type
 //  and year) and carries a short "Because you loved …" reason.
 //
@@ -194,14 +194,6 @@ final class TasteRecommender {
     ) async -> [Suggestion] {
         #if canImport(FoundationModels) && !os(tvOS)
         if StorageService.shared.settings.useAppleIntelligenceSearch {
-            if #available(iOS 27.0, macOS 27.0, *) {
-                let pcc = PrivateCloudComputeLanguageModel()
-                if pcc.isAvailable {
-                    let prompt = prompt(liked: liked, watched: watched, passed: passed, limit: 30)
-                    let session = LanguageModelSession(model: pcc, instructions: instructions(kind: kind, count: count))
-                    if let picks = try? await respond(session, prompt: prompt), !picks.isEmpty { return picks }
-                }
-            }
             if #available(iOS 26.0, macOS 26.0, *) {
                 let local = SystemLanguageModel.default
                 if case .available = local.availability, local.supportsLocale(Locale.current) {
@@ -316,7 +308,7 @@ final class TasteRecommender {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 25
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await provider.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw AIError.invalidResponse }
         guard (200...299).contains(http.statusCode) else {
             print("TasteRecommender HTTP \(http.statusCode): \(String(data: data, encoding: .utf8)?.prefix(300) ?? "")")

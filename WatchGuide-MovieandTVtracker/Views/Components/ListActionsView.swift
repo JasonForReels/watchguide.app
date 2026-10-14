@@ -16,6 +16,35 @@ struct ListActionsView: View {
     @State private var showShareCardPaywall = false
     
     var body: some View {
+        #if os(tvOS)
+        legacyRow
+        #else
+        WGWatchActions(
+            mediaId: mediaId,
+            mediaType: mediaType,
+            savedItem: savedItem,
+            showAddToList: $showAddToList,
+            onShareCard: openShareCard
+        )
+        .modifier(sheets)
+        #endif
+    }
+
+    private func openShareCard() {
+        if AIMessageQuota.isPlusOrAbove() {
+            showShareCard = true
+        } else {
+            showShareCardPaywall = true
+        }
+    }
+
+    private var sheets: ListActionSheets {
+        ListActionSheets(savedItem: savedItem, mediaType: mediaType,
+                         showAddToList: $showAddToList, showShareCard: $showShareCard,
+                         showShareCardPaywall: $showShareCardPaywall)
+    }
+
+    private var legacyRow: some View {
         HStack(spacing: 12) {
             // Want to Watch
             ActionButton(
@@ -63,33 +92,194 @@ struct ListActionsView: View {
                 title: "Share Card",
                 iconName: "rectangle.and.pencil.and.ellipsis",
                 isActive: false,
-                action: {
-                    if AIMessageQuota.isPlusOrAbove() {
-                        showShareCard = true
-                    } else {
-                        showShareCardPaywall = true
-                    }
-                }
+                action: openShareCard
             )
         }
-        .sheet(isPresented: $showAddToList) {
-            AddToListSheet(item: savedItem)
-        }
-        .sheet(isPresented: $showShareCard) {
-            ShareCardView(
-                title: savedItem.title,
-                posterPath: savedItem.posterPath,
-                mediaType: mediaType,
-                rating: nil,
-                comment: nil,
-                userName: nil
-            )
-        }
-        .sheet(isPresented: $showShareCardPaywall) {
-            WGSubscriptionPaywallView(context: .plus)
-        }
+        .modifier(sheets)
     }
 }
+
+private struct ListActionSheets: ViewModifier {
+    let savedItem: SavedMediaItem
+    let mediaType: MediaType
+    @Binding var showAddToList: Bool
+    @Binding var showShareCard: Bool
+    @Binding var showShareCardPaywall: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $showAddToList) {
+                AddToListSheet(item: savedItem)
+            }
+            .sheet(isPresented: $showShareCard) {
+                ShareCardView(
+                    title: savedItem.title,
+                    posterPath: savedItem.posterPath,
+                    mediaType: mediaType,
+                    rating: nil,
+                    comment: nil,
+                    userName: nil
+                )
+            }
+            .sheet(isPresented: $showShareCardPaywall) {
+                WGSubscriptionPaywallView(context: .plus)
+            }
+    }
+}
+
+#if !os(tvOS)
+// MARK: - Watch Actions (iOS)
+
+/// The title page's actions: one confident glass capsule for the thing people
+/// come here to do — mark it watched — with Watchlist beside it, and the
+/// occasional actions in a quieter row of glass circles beneath.
+///
+/// Marking watched gets a proper beat: the check draws itself in, the capsule
+/// fills, a ring ripples out and the phone confirms with a success tap.
+/// Underneath, the count of titles watched this year ticks over — a real
+/// number from the user's library, never a made-up one.
+private struct WGWatchActions: View {
+    let mediaId: Int
+    let mediaType: MediaType
+    let savedItem: SavedMediaItem
+    @Binding var showAddToList: Bool
+    let onShareCard: () -> Void
+
+    @ObservedObject private var storage = StorageService.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var rippleCount = 0
+
+    private var isWatched: Bool { storage.isInWatched(mediaId, mediaType: mediaType) }
+    private var isOnWatchlist: Bool { storage.isInWantToWatch(mediaId, mediaType: mediaType) }
+    private var isLiked: Bool { storage.isInLiked(mediaId, mediaType: mediaType) }
+
+    private var watchedThisYear: Int {
+        storage.watched.filter { Calendar.current.isDate($0.addedAt, equalTo: Date(), toGranularity: .year) }.count
+    }
+
+    private var watchedThisYearCaption: String {
+        let n = watchedThisYear
+        guard n > 1 else { return "Your first this year." }
+        let suffix: String
+        switch (n % 100, n % 10) {
+        case (11...13, _): suffix = "th"
+        case (_, 1): suffix = "st"
+        case (_, 2): suffix = "nd"
+        case (_, 3): suffix = "rd"
+        default: suffix = "th"
+        }
+        return "Your \(n.formatted(.number))\(suffix) this year."
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack(spacing: 10) {
+                watchedCapsule
+                circleButton(icon: isOnWatchlist ? "bookmark.fill" : "bookmark",
+                             label: isOnWatchlist ? "On Watchlist" : "Add to Watchlist",
+                             isOn: isOnWatchlist) {
+                    storage.toggleWantToWatch(savedItem)
+                }
+                .frame(width: 54, height: 54)
+            }
+
+            if isWatched {
+                Text(watchedThisYearCaption)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .transition(.wgBadgeArrival)
+            }
+
+            HStack(spacing: 28) {
+                secondary(icon: isLiked ? "heart.fill" : "heart", title: "Like",
+                          tint: isLiked ? .red : nil) { storage.toggleLiked(savedItem) }
+                secondary(icon: "text.badge.plus", title: "Lists") { showAddToList = true }
+                secondary(icon: "square.and.arrow.up", title: "Share Card", action: onShareCard)
+            }
+        }
+        .animation(WGMotion.resolved(WGMotion.bouncy, reduceMotion: reduceMotion), value: isWatched)
+    }
+
+    private var watchedCapsule: some View {
+        Button {
+            let marking = !isWatched
+            storage.toggleWatched(savedItem)
+            if marking && !reduceMotion { rippleCount += 1 }
+        } label: {
+            HStack(spacing: 8) {
+                if isWatched {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.bold))
+                        .transition(.symbolEffect(.drawOn))
+                }
+                Text(isWatched ? "Watched" : "Mark as Watched")
+                    .font(.headline)
+                    .contentTransition(.interpolate)
+            }
+            .foregroundStyle(isWatched ? Color(.systemBackground) : .primary)
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .background {
+                if isWatched {
+                    Capsule().fill(.primary)
+                }
+            }
+            .overlay {
+                // A single ring that travels outward each time the title is marked.
+                Capsule()
+                    .strokeBorder(.primary.opacity(0.55), lineWidth: 2)
+                    .keyframeAnimator(initialValue: 1.0, trigger: rippleCount) { ring, progress in
+                        ring
+                            .scaleEffect(x: 1 + 0.12 * progress, y: 1 + 0.6 * progress)
+                            .opacity(1 - progress)
+                    } keyframes: { _ in
+                        LinearKeyframe(0.0, duration: 0)
+                        CubicKeyframe(1.0, duration: 0.7)
+                    }
+                    .allowsHitTesting(false)
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.wgPress)
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .scaleEffect(isWatched ? 1.02 : 1)
+        .sensoryFeedback(.success, trigger: isWatched) { _, now in now }
+        .accessibilityLabel(isWatched ? "Watched" : "Mark as Watched")
+        .accessibilityAddTraits(isWatched ? .isSelected : [])
+    }
+
+    private func circleButton(icon: String, label: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.wgPressDeep)
+        .glassEffect(.regular.interactive(), in: Circle())
+        .sensoryFeedback(.selection, trigger: isOn)
+        .accessibilityLabel(label)
+    }
+
+    private func secondary(icon: String, title: String, tint: Color? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(tint ?? .primary)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 46, height: 46)
+                    .glassEffect(.regular.interactive(), in: Circle())
+                Text(title)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .buttonStyle(.wgPressDeep)
+    }
+}
+#endif
 
 struct ActionButton: View {
     let title: String

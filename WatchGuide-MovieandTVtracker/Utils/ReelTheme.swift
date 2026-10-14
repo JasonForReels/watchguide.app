@@ -28,9 +28,18 @@ struct PosterAmbience: View {
     let url: URL?
     @Environment(\.colorScheme) private var colorScheme
 
+    /// tvOS has no system background colour; it's always dark there.
+    private var base: Color {
+        #if os(tvOS)
+        Color.black
+        #else
+        Color(uiColorCompatible: .systemBackground)
+        #endif
+    }
+
     var body: some View {
         ZStack {
-            Color(uiColorCompatible: .systemBackground)
+            base
             AsyncImageView(url: url, cornerRadius: 0)
                 .scaledToFill()
                 .blur(radius: 80)
@@ -38,7 +47,7 @@ struct PosterAmbience: View {
                 .opacity(colorScheme == .dark ? 0.55 : 0.35)
                 .animation(.easeInOut(duration: 0.6), value: url)
             LinearGradient(
-                colors: [.clear, Color(uiColorCompatible: .systemBackground).opacity(0.85)],
+                colors: [.clear, base.opacity(0.85)],
                 startPoint: .center, endPoint: .bottom
             )
         }

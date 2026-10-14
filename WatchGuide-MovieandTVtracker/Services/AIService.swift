@@ -58,9 +58,32 @@ enum AtlasAIProvider: String, Codable, CaseIterable {
         // of the path, so it's injected from the catalog (Keychain or bundled).
         case .cloudflare:
             return "https://api.cloudflare.com/client/v4/accounts/\(AIModelCatalog.cloudflareAccountId)/ai/v1/chat/completions"
-        // Poe's OpenAI-compatible endpoint. Model ids are Poe bot names.
-        case .poe:        return "https://api.poe.com/v1/chat/completions"
+        // WatchGuide's caching proxy in front of Poe: identical requests are
+        // answered from cache and cost no Poe points. Model ids are Poe bot names.
+        case .poe:        return "https://watchguide.app/api/poe"
         }
+    }
+
+    /// Poe's own OpenAI-compatible endpoint, used when the proxy can't be reached.
+    static let poeDirectURL = "https://api.poe.com/v1/chat/completions"
+    /// Set on every response the proxy produces, including errors it relays from Poe.
+    static let poeProxyHeader = "x-wg-cache"
+
+    /// Sends a one-shot request. Poe goes through the caching proxy first; if the
+    /// proxy is unreachable or didn't handle the request itself, the same request
+    /// is sent straight to Poe.
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        guard self == .poe, let direct = URL(string: Self.poeDirectURL) else {
+            return try await URLSession.shared.data(for: request)
+        }
+        if let result = try? await URLSession.shared.data(for: request),
+           let http = result.1 as? HTTPURLResponse,
+           http.value(forHTTPHeaderField: Self.poeProxyHeader) != nil {
+            return result
+        }
+        var fallback = request
+        fallback.url = direct
+        return try await URLSession.shared.data(for: fallback)
     }
 
     var apiKeyName: String {
@@ -988,7 +1011,7 @@ actor AIService {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
             for attempt in 0..<maxAttemptsPerCandidate {
-                let (responseBytes, response) = try await URLSession.shared.bytes(for: request)
+                let (responseBytes, response) = try await openStream(request, provider: provider)
                 guard let httpResponse = response as? HTTPURLResponse else {
                     throw AIError.invalidResponse
                 }
@@ -1321,6 +1344,14 @@ actor AIService {
         - CRITICAL: NEVER repeat yourself. State facts exactly ONCE. If you mention box office numbers, dates, or any data, say it ONE time only. Do NOT restate or rephrase the same information a second time. Your response must be concise with zero redundancy.
         """
 
+        // Reply in the language the app is shown in (e.g. Spanish), unless the
+        // user writes in another language. Tags stay in English so they still parse.
+        if let language = Bundle.main.preferredLocalizations.first,
+           !language.hasPrefix("en"),
+           let name = Locale(identifier: "en").localizedString(forLanguageCode: language) {
+            prompt += "\n- LANGUAGE: Reply in \(name) unless the user writes in a different language, then match theirs. Inside [TRAILER:], [FILTER_PANEL:] and [PLAYLIST:] tags, keep everything in English, including the official English titles, so the app can look them up."
+        }
+
         // Persona, memory, and app control — the layers that make Atlas feel
         // like the same assistant across chat, voice, and briefings.
         if !personalization.characterPrompt.isEmpty {
@@ -1432,6 +1463,23 @@ actor AIService {
     /// Maps a model option to the closest `ChronModel` flavour for prompt styling.
     private func promptModel(for option: AIModelOption) -> ChronModel {
         ChronModel(rawValue: option.id) ?? (option.supportsThinking ? .deepReasoning : .geminiFlashLite)
+    }
+
+    /// Opens the response stream. Poe goes through the caching proxy first; if the
+    /// proxy is unreachable or didn't handle the request itself, the same request
+    /// is sent straight to Poe so a proxy outage never takes Atlas down.
+    private func openStream(_ request: URLRequest, provider: AtlasAIProvider) async throws -> (URLSession.AsyncBytes, URLResponse) {
+        guard provider == .poe, let direct = URL(string: AtlasAIProvider.poeDirectURL) else {
+            return try await URLSession.shared.bytes(for: request)
+        }
+        if let result = try? await URLSession.shared.bytes(for: request),
+           let http = result.1 as? HTTPURLResponse,
+           http.value(forHTTPHeaderField: AtlasAIProvider.poeProxyHeader) != nil {
+            return result
+        }
+        var fallback = request
+        fallback.url = direct
+        return try await URLSession.shared.bytes(for: fallback)
     }
 
     /// Persists a provider's bundled key into the Keychain the first time it's needed.
@@ -1696,9 +1744,9 @@ actor AIService {
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         request.timeoutInterval = 45
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
+
+        let (data, response) = try await provider.data(for: request)
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AIError.invalidResponse
         }

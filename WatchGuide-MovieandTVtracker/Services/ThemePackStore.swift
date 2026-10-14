@@ -23,12 +23,12 @@ final class ThemePackStore: ObservableObject {
     @Published var selectedThemeID: String {
         didSet { UserDefaults.standard.set(selectedThemeID, forKey: Self.selectedThemeKey) }
     }
-    /// When on, the active theme follows the season where the user lives.
+    /// When on, the active theme switches to an owned Holidays theme during the holidays.
     @Published var followsSeason: Bool {
         didSet { UserDefaults.standard.set(followsSeason, forKey: Self.followSeasonKey) }
     }
 
-    /// Server-side switch per pack ID, so a season's art can ship early in a normal
+    /// Server-side switch per pack ID, so a pack's art can ship early in a normal
     /// update and be turned on by date. Absent keys fall back to the local calendar.
     var remoteSaleOverrides: [String: Bool] = [:]
 
@@ -87,8 +87,8 @@ final class ThemePackStore: ObservableObject {
 
     // MARK: - Active theme
 
-    /// The theme to draw right now: a live preview wins, then the season (if the user
-    /// owns a matching theme and has Follow Season on), then their manual pick.
+    /// The theme to draw right now: a live preview wins, then the holidays (if the user
+    /// owns the Holidays pack and has Follow the Holidays on), then their manual pick.
     var activeTheme: WGTheme {
         if let previewTheme { return previewTheme }
         if followsSeason, let seasonal = seasonalTheme { return seasonal }
@@ -97,14 +97,8 @@ final class ThemePackStore: ObservableObject {
     }
 
     private var seasonalTheme: WGTheme? {
-        let now = Date()
-        let seasonalPackID: String?
-        if ThemePack.Availability.isHolidayWindow(now), owns(ThemeCatalog.pack(id: "holidays")!) {
-            seasonalPackID = "holidays"
-        } else {
-            seasonalPackID = Hemisphere.current().season(on: now)?.rawValue
-        }
-        guard let id = seasonalPackID, let pack = ThemeCatalog.pack(id: id), owns(pack) else { return nil }
+        guard ThemePack.Availability.isHolidayWindow(),
+              let pack = ThemeCatalog.pack(id: "holidays"), owns(pack) else { return nil }
         // Keep the user's pick if it already belongs to this pack.
         if pack.themeIDs.contains(selectedThemeID) { return ThemeCatalog.theme(id: selectedThemeID) }
         return pack.themeIDs.first.flatMap(ThemeCatalog.theme(id:))

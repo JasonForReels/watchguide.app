@@ -12,14 +12,26 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>es</string>
+		<string>fr</string>
+		<string>ja</string>
+		<string>zh-Hans</string>
+		<string>ko</string>
+		<string>ru</string>
+		<string>ar</string>
+		<string>hi</string>
+	</array>
 	<key>CFBundleName</key>
 	<string>WatchGuide-MovieandTVtrackerWidgetExtension</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>5.2</string>
+	<string>5.6.2</string>
 	<key>CFBundleVersion</key>
-	<string>6</string>
+	<string>13</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>

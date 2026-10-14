@@ -1,0 +1,107 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- App Store creative asset (universal, 16:9, 5244x2950). Product page header (21:9) and
+     search results (3:2) are centre crops of this canvas, so everything that matters stays
+     inside the 4425x2247 box both crops keep. ?lang=es|zh for localized copy; ?guides=1
+     draws the crop lines. -->
+<style>
+  :root {
+    --W: 5244px; --H: 2950px;
+    --indigo-1: #402F99; --indigo-2: #17113E; --night: #0B0820;
+    --coral: #FF5A45; --apricot: #FFA474; --peach: #FFE6CC;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: var(--W); height: var(--H); overflow: hidden; background: var(--night); }
+  body { font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif; color: #fff;
+         -webkit-font-smoothing: antialiased; position: relative; }
+  .layer { position: absolute; inset: 0; }
+
+  .sky { background:
+           radial-gradient(60% 55% at 30% 0%, rgba(98,74,214,.55) 0%, rgba(64,47,153,0) 70%),
+           linear-gradient(160deg, var(--indigo-1) 0%, #241a63 40%, var(--indigo-2) 75%, var(--night) 100%); }
+  .tint { background: url(amb_ipad_browse.png) center / cover; opacity: .28; mix-blend-mode: soft-light; filter: blur(30px); }
+  .halo { background: radial-gradient(34% 46% at 67% 52%, rgba(255,158,107,.55) 0%,
+            rgba(255,122,85,.2) 45%, rgba(255,122,85,0) 75%); }
+  .grain { opacity: .06; mix-blend-mode: overlay;
+           background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+  .vignette { background: radial-gradient(90% 90% at 50% 50%, rgba(0,0,0,0) 55%, rgba(5,3,18,.6) 100%); }
+
+  /* Copy, left half of the safe box */
+  .copy { position: absolute; z-index: 5; left: 600px; width: 2050px; top: 50%; transform: translateY(-50%); }
+  .icon { width: 330px; display: block; margin-bottom: 70px; filter: drop-shadow(0 40px 70px rgba(6,3,20,.6)); }
+  h1 { font-size: 330px; line-height: .95; font-weight: 800; letter-spacing: -0.045em; }
+  h1 em { font-style: normal; background: linear-gradient(95deg, var(--peach) 0%, var(--apricot) 45%, var(--coral) 100%);
+          -webkit-background-clip: text; background-clip: text; color: transparent;
+          filter: drop-shadow(0 0 60px rgba(255,122,85,.35)); }
+  .sub { margin-top: 70px; font-size: 104px; line-height: 1.2; font-weight: 500; color: rgba(255,240,230,.78); }
+
+  /* Devices, right half of the safe box */
+  .dev { position: absolute; z-index: 3;
+         background: linear-gradient(145deg, #6b6680 0%, #2c2a38 22%, #1a1922 55%, #45425a 100%);
+         box-shadow: 0 0 0 3px rgba(255,255,255,.10) inset, 0 0 0 1px rgba(0,0,0,.9),
+                     0 0 200px rgba(255,138,96,.35), 0 100px 200px rgba(6,3,20,.75); }
+  .dev img { display: block; }
+  .ipad { left: 2900px; top: 470px; padding: 28px; border-radius: 96px; }
+  .ipad img { width: 1400px; border-radius: 70px; }
+  .phone { padding: 22px; border-radius: 130px; z-index: 4; }
+  .phone img { width: 740px; border-radius: 110px; }
+  .phone.l { left: 2560px; top: 810px; transform: rotate(-5deg); }
+  .phone.r { left: 3980px; top: 810px; transform: rotate(5deg); }
+  .dim { position: absolute; inset: 22px; border-radius: 110px; background: rgba(11,8,32,.3); }
+
+  .guide { position: absolute; z-index: 99; border: 6px dashed; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="layer sky"></div>
+<div class="layer tint"></div>
+<div class="layer halo"></div>
+<div class="layer vignette"></div>
+<div class="layer grain"></div>
+
+<div class="copy">
+  <img class="icon" src="icon.png">
+  <h1 id="title"></h1>
+  <p class="sub" id="sub"></p>
+</div>
+
+<div class="dev ipad"><img src="ipad_browse.png"></div>
+<div class="dev phone l"><img src="tonight.png"></div>
+<div class="dev phone r"><img src="detail.png"><div class="dim"></div></div>
+
+<script>
+// One short phrase that says what the app is for, localized like the listing.
+const COPY = {
+  en: { title: "Know what<br>to <em>watch.</em>", sub: "Track every movie and show.<br>Find your next favorite." },
+  es: { title: "Descubre<br>qué <em>ver.</em>", sub: "Sigue cada película y serie.<br>Encuentra tu próxima favorita." },
+  zh: { title: "看什么<br><em>一目了然。</em>", sub: "追踪每一部电影和剧集，<br>发现你的下一部最爱。" },
+};
+const params = new URLSearchParams(location.search);
+const lang = params.get("lang") || "en";
+const c = COPY[lang] || COPY.en;
+document.getElementById("title").innerHTML = c.title;
+document.getElementById("sub").innerHTML = c.sub;
+if (lang === "zh") {
+  document.documentElement.lang = "zh-Hans";
+  document.head.insertAdjacentHTML("beforeend", `<style>
+    body { font-family: "PingFang SC", -apple-system, sans-serif; }
+    h1 { letter-spacing: 0; font-weight: 600; line-height: 1.12; }
+  </style>`);
+}
+if (lang === "es") document.documentElement.lang = "es";
+
+if (params.get("guides")) {
+  // 21:9 header crop (full width) and 3:2 search crop (full height), centred.
+  const add = (w, h, color) => {
+    const g = document.createElement("div"); g.className = "guide";
+    g.style.cssText += `left:${(5244 - w) / 2}px;top:${(2950 - h) / 2}px;width:${w}px;height:${h}px;border-color:${color}`;
+    document.body.appendChild(g);
+  };
+  add(5244, 2248, "#4cf");
+  add(4425, 2950, "#f4c");
+}
+</script>
+</body>
+</html>

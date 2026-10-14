@@ -269,14 +269,18 @@ struct TonightReelView: View {
                 Button(action: undo) {
                     Label("Undo", systemImage: "arrow.uturn.backward")
                 }
+                #if !os(tvOS)
                 .keyboardShortcut("z", modifiers: .command)
+                #endif
                 .disabled(model.history.isEmpty || isExiting)
             }
             ToolbarItem(placement: .primaryAction) {
                 Button { showStubBox = true } label: {
                     Label("Ticket Stubs", systemImage: "ticket")
                 }
+                #if !os(tvOS)
                 .badge(stubs.stubs.count)
+                #endif
             }
         }
         .sensoryFeedback(trigger: feedback) { _, new in

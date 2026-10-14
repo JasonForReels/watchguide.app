@@ -35,6 +35,8 @@ struct SettingsView: View {
     private let displayMode: DisplayMode
     @State private var settings: UserSettings
     @State private var showClearDataAlert = false
+    @State private var appLanguage = AppLanguage.current
+    @State private var showLanguageNotice = false
     @State private var showAuthSheet = false
     @State private var isManualUpload = false
     @State private var isManualDownload = false
@@ -45,6 +47,7 @@ struct SettingsView: View {
     @State private var showProfilePicker = false
     @State private var scoutIAPStatusMessage: String?
     @State private var showCustomerCenter = false
+    @State private var showPaywall = false
     @State private var traktStatusMessage: String?
     
     private let communityURLString = "https://discord.watchguide.app"
@@ -196,8 +199,8 @@ struct SettingsView: View {
 
                     // Upgrade navigation — the paywall owns plan selection and pricing.
                     if !scoutSubscription.isProActive {
-                        NavigationLink {
-                            WGSubscriptionPaywallView()
+                        Button {
+                            showPaywall = true
                         } label: {
                             HStack {
                                 Image(systemName: "star.circle.fill")
@@ -208,6 +211,8 @@ struct SettingsView: View {
                                     .fontWeight(.medium)
                             }
                         }
+                        .tint(.primary)
+                        .wgUnlimitedUpgradeSheet(isPresented: $showPaywall)
                     }
 
                     #if os(iOS)
@@ -429,7 +434,7 @@ struct SettingsView: View {
                     }
                     #endif
                 } else {
-                    Text("Add `TRAKT_CLIENT_ID` and `TRAKT_CLIENT_SECRET` to your app keys to enable Trakt.")
+                    Text("Add `TRAKT_CLIENT_ID` to your app keys to enable Trakt.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -439,6 +444,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+            }
+
+            Section("Simkl") {
+                SimklSettingsContent()
             }
             
             // Active Profile Section
@@ -503,11 +512,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    Picker("Language", selection: $settings.preferredLanguage) {
-                        ForEach(languageOptions, id: \.code) { language in
-                            Text(language.name).tag(language.code)
-                        }
-                    }
+                    appLanguagePicker
                 }
 
                 Section {
@@ -1022,6 +1027,11 @@ struct SettingsView: View {
                 settings = newValue
             }
         }
+        .alert("Language Changed", isPresented: $showLanguageNotice) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("WatchGuide will switch to the new language the next time you open it.")
+        }
         .alert("Clear All Data?", isPresented: $showClearDataAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Clear", role: .destructive) {
@@ -1077,6 +1087,7 @@ struct SettingsView: View {
         .task {
             await scoutSubscription.prepare()
             await traktService.prepare()
+            await SimklService.shared.prepare()
         }
     }
 
@@ -1251,7 +1262,7 @@ struct SettingsView: View {
                                 }
                             }
                         } else {
-                            Text("Add `TRAKT_CLIENT_ID` and `TRAKT_CLIENT_SECRET` to your app keys to enable Trakt.")
+                            Text("Add `TRAKT_CLIENT_ID` to your app keys to enable Trakt.")
                                 .foregroundColor(.secondary)
                         }
 
@@ -1260,6 +1271,10 @@ struct SettingsView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+                    }
+
+                    tvOSSection("Simkl") {
+                        SimklSettingsContent()
                     }
                 }
 
@@ -1271,11 +1286,7 @@ struct SettingsView: View {
                             }
                         }
 
-                        Picker("Language", selection: $settings.preferredLanguage) {
-                            ForEach(languageOptions, id: \.code) { language in
-                                Text(language.name).tag(language.code)
-                            }
-                        }
+                        appLanguagePicker
                     }
 
                     tvOSSection("Playback & Discovery") {
@@ -1303,6 +1314,9 @@ struct SettingsView: View {
                     }
 
                     tvOSSection("Home Screen") {
+                        NavigationLink("Marquee Themes") {
+                            ThemePacksView()
+                        }
                         NavigationLink("Browse Rows") {
                             BrowseRowsSettingsView()
                         }
@@ -1368,7 +1382,7 @@ struct SettingsView: View {
         } // NavigationStack
     }
 
-    private func tvOSSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func tvOSSection<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title)
                 .font(.title3.weight(.semibold))
@@ -1478,17 +1492,58 @@ struct SettingsView: View {
         ]
     }
     
-    private var languageOptions: [(code: String, name: String)] {
-        [
-            ("en", "English"),
-            ("es", "Spanish"),
-            ("fr", "French"),
-            ("de", "German"),
-            ("ja", "Japanese"),
-            ("ko", "Korean"),
-            ("pt", "Portuguese"),
-            ("zh", "Chinese"),
-        ]
+    /// The app's UI language. Each language is listed in its own name, the way iOS does.
+    private var appLanguagePicker: some View {
+        Picker("Language", selection: $appLanguage) {
+            Text("Device Language").tag(String?.none)
+            ForEach(AppLanguage.supported, id: \.code) { language in
+                Text(verbatim: language.name).tag(String?.some(language.code))
+            }
+        }
+        .onChange(of: appLanguage) { _, newValue in
+            guard newValue != AppLanguage.current else { return }
+            AppLanguage.current = newValue
+            if let newValue { settings.preferredLanguage = newValue }
+            showLanguageNotice = true
+        }
+    }
+}
+
+/// The language WatchGuide's UI is shown in. It's stored as the app's own `AppleLanguages`
+/// override, the same value iOS writes from Settings › WatchGuide › Language, so both stay in
+/// sync. Bundles only load their localization at launch, so a change applies on next open.
+enum AppLanguage {
+    static let supported: [(code: String, name: String)] = [
+        ("en", "English"),
+        ("es", "Español"),
+        ("fr", "Français"),
+        ("ja", "日本語"),
+        ("zh-Hans", "简体中文"),
+        ("ko", "한국어"),
+        ("ru", "Русский"),
+        ("ar", "العربية"),
+        ("hi", "हिन्दी"),
+    ]
+
+    private static let key = "AppleLanguages"
+
+    /// The chosen language code, or nil to follow the device's language.
+    static var current: String? {
+        get {
+            // Read only this app's domain; `UserDefaults.standard` would also return the
+            // device-wide list, which isn't a choice made in WatchGuide.
+            guard let domain = Bundle.main.bundleIdentifier,
+                  let codes = UserDefaults.standard.persistentDomain(forName: domain)?[key] as? [String],
+                  let first = codes.first else { return nil }
+            return supported.first { first == $0.code || first.hasPrefix($0.code + "-") }?.code
+        }
+        set {
+            if let newValue {
+                UserDefaults.standard.set([newValue], forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
     }
 }
 
