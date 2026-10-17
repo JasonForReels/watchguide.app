@@ -18,6 +18,13 @@ import {
   type CustomBase, type Remote, type SyncedSettings,
 } from "./sync-core";
 
+/**
+ * Lists and custom lists are off: the live `media_items`, `custom_lists` and `custom_list_items`
+ * tables are a shared title catalog with a different shape from what the iOS code writes, so there
+ * is no per-user table to sync into yet. Flip to true once tables matching sync-core exist.
+ */
+const SYNC_LISTS = false;
+
 const META_KEY = "watchguide.sync.v1";
 const URL_BASE = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/+$/, "");
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
@@ -82,7 +89,7 @@ async function reconcile(remote: Remote, userId: string): Promise<void> {
   const next: Meta = { ...base, userId };
   const errors: string[] = [];
   let pulled = 0, pushed = 0;
-  const firstTime = !base.lists;
+  const firstTime = !base.lists && SYNC_LISTS;
 
   // The account can change while a request is in flight; never apply or push one account's data as another's.
   const still = () => { if (getUser()?.id !== userId) throw new SyncError("auth", "Account changed."); };
@@ -93,7 +100,7 @@ async function reconcile(remote: Remote, userId: string): Promise<void> {
     }
   };
 
-  await guard("Lists", async () => {
+  if (SYNC_LISTS) await guard("Lists", async () => {
     const theirs = await remote.fetchMedia();
     still();
     const mine = getState().lists; // read straight after the await so nothing is lost between merge and apply
@@ -107,7 +114,7 @@ async function reconcile(remote: Remote, userId: string): Promise<void> {
     next.lists = Object.fromEntries(results.map((r) => [r.id, r.m.merged.map((i) => i.key)])) as Record<ListId, string[]>;
   });
 
-  await guard("Custom lists", async () => {
+  if (SYNC_LISTS) await guard("Custom lists", async () => {
     const theirs = await remote.fetchCustom();
     still();
     const mine = getState().custom;
