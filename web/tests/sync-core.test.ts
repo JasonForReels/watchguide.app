@@ -71,16 +71,16 @@ test("reads and writes are scoped to the signed-in user and use iOS column names
   await r.removeMedia("liked", ["tv-9"]);
   await r.deleteList("abc-1");
   await r.pushSettings({ hideAdult: false, services: [8] });
-  assert.equal(calls[0].url.searchParams.get("device_id"), `eq.${UID}`);
+  assert.equal(calls[0].url.searchParams.get("user_id"), `eq.${UID}`);
   assert.equal(calls[1].method, "POST");
-  assert.deepEqual(calls[1].body, [{ device_id: UID, list_type: "want_to_watch", media_id: 7, media_type: "movie", title: "T7", poster_path: null, backdrop_path: null, year: null, release_date: null, vote_average: null, overview: null, added_at: "1970-01-01T00:00:01Z" }]);
+  assert.deepEqual(calls[1].body, [{ user_id: UID, list_type: "want_to_watch", media_id: 7, media_type: "movie", title: "T7", poster_path: null, backdrop_path: null, year: null, release_date: null, vote_average: null, overview: null, added_at: "1970-01-01T00:00:01Z" }]);
   const del = calls[2];
   assert.equal(del.method, "DELETE");
-  assert.equal(del.url.searchParams.get("device_id"), `eq.${UID}`);
+  assert.equal(del.url.searchParams.get("user_id"), `eq.${UID}`);
   assert.equal(del.url.searchParams.get("list_type"), "eq.liked");
   assert.equal(del.url.searchParams.get("media_id"), "eq.9");
   // every DELETE carries the user filter
-  for (const c of calls.filter((c) => c.method === "DELETE")) assert.ok((c.url.searchParams.get("user_id") ?? c.url.searchParams.get("device_id")) === `eq.${UID}`);
+  for (const c of calls.filter((c) => c.method === "DELETE")) assert.ok((c.url.searchParams.get("user_id") ?? c.url.searchParams.get("user_id")) === `eq.${UID}`);
   const settings = calls[calls.length - 1];
   assert.equal(settings.url.searchParams.get("on_conflict"), "user_id");
   assert.equal((settings.body as { include_adult: boolean }[])[0].include_adult, true);
@@ -102,4 +102,16 @@ test("a duplicate row (409) is skipped one by one", async () => {
 
 test("refuses a malformed user id", () => {
   assert.throws(() => createRemote({ url: "https://x.test", anonKey: "a", userId: "x&or=(1=1)", getToken: async () => "t" }));
+});
+
+import { mergeKeys, mergeRatings } from "../src/lib/sync-core.ts";
+
+test("episodes and ratings merge three-way", () => {
+  const m = mergeKeys(["1:1x1", "1:1x3"], ["1:1x1", "1:1x2"], new Set(["1:1x1", "1:1x2"]));
+  assert.deepEqual(m.merged.sort(), ["1:1x1", "1:1x3"]);
+  assert.deepEqual(m.removeKeys, ["1:1x2"]);
+  const r = mergeRatings({ "movie-1": 5, "movie-2": 3 }, { "movie-1": 4, "movie-3": 2 }, null);
+  assert.deepEqual(r.merged, { "movie-1": 5, "movie-2": 3, "movie-3": 2 });
+  const r2 = mergeRatings({}, { "movie-1": 4 }, { "movie-1": 4 }); // removed here
+  assert.deepEqual(r2.clear, ["movie-1"]);
 });

@@ -1,19 +1,16 @@
 /**
  * Account sync, the backend-facing half. No React, no browser globals, no "@/" imports, so it runs
- * under `node --test` with a mocked fetch.
- *
- * Wire format = the iOS app's (SupabaseService.swift), so web and iPhone see the same rows:
- *   media_items        device_id(=user id) list_type(want_to_watch|watched|liked) media_id media_type
- *                      title poster_path backdrop_path year release_date vote_average overview added_at
- *   custom_lists       user_id list_id name description icon_name display_style created_at updated_at
- *   custom_list_items  user_id list_id media_id media_type title poster_path backdrop_path year
- *                      release_date vote_average overview sort_order added_at
- *   user_settings      user_id (on_conflict) region include_adult auto_play_trailers
- *                      auto_play_trailers_muted show_trailers_in_media_detail streamq_service_ids updated_at
- *
- * Unlike iOS (delete everything, re-insert), this only inserts what is missing and deletes a row
- * only when the person removed that exact title here. Every request is scoped to the signed-in
- * user's id. To move off Supabase, replace createRemote and keep the merge functions.
+ * under `node --test` with a mocked fetch. Tables are per-user (see web/sync-tables.sql), each
+ * with row-level security on user_id = auth.uid():
+ *   user_list_items         user_id list_type(want_to_watch|watched|liked) media_type media_id + title fields, added_at
+ *   user_custom_lists       user_id list_id name description icon_name display_style created_at updated_at
+ *   user_custom_list_items  user_id list_id media_type media_id + title fields, sort_order, added_at
+ *   user_ratings            user_id media_type media_id stars updated_at
+ *   user_episodes           user_id show_id season episode
+ *   user_settings           (existing, shared with iOS) user_id region include_adult auto_play_* streamq_service_ids
+ * Only missing rows are inserted, and a row is deleted only when the person removed that exact
+ * title here. Every request is scoped to the signed-in user's id. To move off Supabase, replace
+ * createRemote and keep the merge functions.
  */
 
 import type { CustomList, ListId, Settings } from "./store";
@@ -51,7 +48,7 @@ interface MediaFields {
   overview: string | null;
   added_at: string | null;
 }
-export interface MediaRow extends MediaFields { device_id: string; list_type: string }
+export interface MediaRow extends MediaFields { user_id: string; list_type: string }
 export interface ListRow { user_id: string; list_id: string; name: string; description?: string | null; icon_name?: string | null; display_style?: string | null; created_at: string | null; updated_at: string | null }
 export interface ListItemRow extends MediaFields { user_id: string; list_id: string; sort_order: number }
 export interface SettingsRow {
@@ -178,6 +175,40 @@ export function mergeItems(local: SavedItem[], remote: SavedItem[], base: Set<st
   return { merged, add, removeKeys, pulled, pushed: add.length };
 }
 
+export interface KeysMerge { merged: string[]; add: string[]; removeKeys: string[] }
+
+/** The same three-way union as mergeItems, for plain keys (episodes). */
+export function mergeKeys(local: string[], remote: string[], base: Set<string> | null): KeysMerge {
+  const L = new Set(local), R = new Set(remote);
+  const merged: string[] = [], add: string[] = [], removeKeys: string[] = [];
+  for (const k of L) {
+    if (R.has(k)) merged.push(k);
+    else if (base?.has(k)) continue;
+    else { merged.push(k); add.push(k); }
+  }
+  for (const k of R) {
+    if (L.has(k)) continue;
+    if (base?.has(k)) removeKeys.push(k);
+    else merged.push(k);
+  }
+  return { merged, add, removeKeys };
+}
+
+export type Ratings = Record<string, number>;
+export interface RatingsMerge { merged: Ratings; set: Ratings; clear: string[] }
+
+/** Per title: changed here -> here wins, changed on the account -> account wins, both -> here wins. */
+export function mergeRatings(local: Ratings, remote: Ratings, base: Ratings | null): RatingsMerge {
+  const merged: Ratings = {}, set: Ratings = {}, clear: string[] = [];
+  for (const k of new Set([...Object.keys(local), ...Object.keys(remote)])) {
+    const l = local[k], r = remote[k], b = base?.[k];
+    const v = l === r ? l : base && l === b ? r : l ?? (base && r === b ? undefined : r);
+    if (v !== undefined) merged[k] = v;
+    if (v !== r) { if (v === undefined) clear.push(k); else set[k] = v; }
+  }
+  return { merged, set, clear };
+}
+
 /* ------------------------------------------------------------ custom lists */
 
 export interface RemoteList { id: string; name: string; createdAt: number; items: SavedItem[]; maxSort: number }
@@ -249,6 +280,12 @@ export interface RemoteConfig {
 
 const PAGE = 1000;
 
+function episodeParts(k: string) {
+  const m = /^(\d+):(\d+)x(\d+)$/.exec(k);
+  if (!m) throw new SyncError("other", `Bad episode key ${k}`);
+  return { show_id: Number(m[1]), season: Number(m[2]), episode: Number(m[3]) };
+}
+
 export interface Remote {
   fetchMedia(): Promise<Record<ListId, SavedItem[]>>;
   addMedia(list: ListId, items: SavedItem[]): Promise<void>;
@@ -259,6 +296,12 @@ export interface Remote {
   deleteList(id: string): Promise<void>;
   addListItems(listId: string, items: SavedItem[], firstSort: number): Promise<void>;
   removeListItems(listId: string, keys: string[]): Promise<void>;
+  fetchRatings(): Promise<Ratings>;
+  setRatings(r: Ratings): Promise<void>;
+  clearRatings(keys: string[]): Promise<void>;
+  fetchEpisodes(): Promise<string[]>;
+  addEpisodes(keys: string[]): Promise<void>;
+  removeEpisodes(keys: string[]): Promise<void>;
   fetchSettings(): Promise<Partial<SyncedSettings>>;
   pushSettings(p: Partial<SyncedSettings>): Promise<void>;
 }
@@ -335,7 +378,7 @@ export function createRemote(cfg: RemoteConfig): Remote {
 
   return {
     async fetchMedia() {
-      const rows = await all<MediaRow>("media_items", mine("device_id"), "list_type.asc,media_type.asc,media_id.asc");
+      const rows = await all<MediaRow>("user_list_items", mine("user_id"), "list_type.asc,media_type.asc,media_id.asc");
       const out: Record<ListId, SavedItem[]> = { want: [], watched: [], liked: [] };
       for (const r of rows) {
         const list = LIST_BY_TYPE[r.list_type];
@@ -345,18 +388,18 @@ export function createRemote(cfg: RemoteConfig): Remote {
       return out;
     },
     async addMedia(list, items) {
-      await insert("media_items", items.map((i) => ({ device_id: userId, list_type: LIST_TYPE[list], ...toFields(i) })));
+      await insert("user_list_items", items.map((i) => ({ user_id: userId, list_type: LIST_TYPE[list], ...toFields(i) })));
     },
     async removeMedia(list, keys) {
       for (const k of keys) {
         const { type, id } = parts(k);
-        await http("DELETE", "media_items", { ...mine("device_id"), list_type: `eq.${LIST_TYPE[list]}`, media_type: `eq.${type}`, media_id: `eq.${id}` });
+        await http("DELETE", "user_list_items", { ...mine("user_id"), list_type: `eq.${LIST_TYPE[list]}`, media_type: `eq.${type}`, media_id: `eq.${id}` });
       }
     },
     async fetchCustom() {
-      const lists = await all<ListRow>("custom_lists", mine("user_id"), "created_at.asc,list_id.asc");
+      const lists = await all<ListRow>("user_custom_lists", mine("user_id"), "created_at.asc,list_id.asc");
       if (!lists.length) return [];
-      const items = await all<ListItemRow>("custom_list_items", mine("user_id"), "list_id.asc,media_type.asc,media_id.asc");
+      const items = await all<ListItemRow>("user_custom_list_items", mine("user_id"), "list_id.asc,media_type.asc,media_id.asc");
       const by = new Map<string, ListItemRow[]>();
       items.forEach((i) => by.set(i.list_id, [...(by.get(i.list_id) ?? []), i]));
       return lists.map((l) => {
@@ -369,27 +412,55 @@ export function createRemote(cfg: RemoteConfig): Remote {
       });
     },
     async createList(l) {
-      await insert("custom_lists", [{
+      await insert("user_custom_lists", [{
         user_id: userId, list_id: l.id, name: l.name, description: null, icon_name: "folder.fill",
         display_style: "row", created_at: toISO(l.createdAt), updated_at: toISO(now()),
       }]);
     },
     async renameList(id, name) {
       // Only name and updated_at: icon, description and style set on the iPhone stay as they are.
-      await http("PATCH", "custom_lists", { ...mine("user_id"), ...listFilter(id) }, { name, updated_at: toISO(now()) });
+      await http("PATCH", "user_custom_lists", { ...mine("user_id"), ...listFilter(id) }, { name, updated_at: toISO(now()) });
     },
     async deleteList(id) {
-      await http("DELETE", "custom_list_items", { ...mine("user_id"), ...listFilter(id) });
-      await http("DELETE", "custom_lists", { ...mine("user_id"), ...listFilter(id) });
+      await http("DELETE", "user_custom_list_items", { ...mine("user_id"), ...listFilter(id) });
+      await http("DELETE", "user_custom_lists", { ...mine("user_id"), ...listFilter(id) });
     },
     async addListItems(listId, items, firstSort) {
       listFilter(listId);
-      await insert("custom_list_items", items.map((i, n) => ({ user_id: userId, list_id: listId, ...toFields(i), sort_order: firstSort + n })));
+      await insert("user_custom_list_items", items.map((i, n) => ({ user_id: userId, list_id: listId, ...toFields(i), sort_order: firstSort + n })));
     },
     async removeListItems(listId, keys) {
       for (const k of keys) {
         const { type, id } = parts(k);
-        await http("DELETE", "custom_list_items", { ...mine("user_id"), ...listFilter(listId), media_type: `eq.${type}`, media_id: `eq.${id}` });
+        await http("DELETE", "user_custom_list_items", { ...mine("user_id"), ...listFilter(listId), media_type: `eq.${type}`, media_id: `eq.${id}` });
+      }
+    },
+    async fetchRatings() {
+      const rows = await all<{ media_type: string; media_id: number; stars: number }>("user_ratings", mine("user_id"), "media_type.asc,media_id.asc");
+      return Object.fromEntries(rows.filter((r) => isMedia(r.media_type)).map((r) => [`${r.media_type}-${r.media_id}`, r.stars]));
+    },
+    async setRatings(r) {
+      const rows = Object.entries(r).map(([k, stars]) => { const { type, id } = parts(k); return { user_id: userId, media_type: type, media_id: id, stars, updated_at: toISO(now()) }; });
+      if (rows.length) await http("POST", "user_ratings", { on_conflict: "user_id,media_type,media_id" }, rows, "resolution=merge-duplicates");
+    },
+    async clearRatings(keys) {
+      for (const k of keys) {
+        const { type, id } = parts(k);
+        await http("DELETE", "user_ratings", { ...mine("user_id"), media_type: `eq.${type}`, media_id: `eq.${id}` });
+      }
+    },
+    // Episode keys are "<showId>:<season>x<episode>".
+    async fetchEpisodes() {
+      const rows = await all<{ show_id: number; season: number; episode: number }>("user_episodes", mine("user_id"), "show_id.asc,season.asc,episode.asc");
+      return rows.map((r) => `${r.show_id}:${r.season}x${r.episode}`);
+    },
+    async addEpisodes(keys) {
+      await insert("user_episodes", keys.map((k) => ({ user_id: userId, ...episodeParts(k) })));
+    },
+    async removeEpisodes(keys) {
+      for (const k of keys) {
+        const e = episodeParts(k);
+        await http("DELETE", "user_episodes", { ...mine("user_id"), show_id: `eq.${e.show_id}`, season: `eq.${e.season}`, episode: `eq.${e.episode}` });
       }
     },
     async fetchSettings() {
