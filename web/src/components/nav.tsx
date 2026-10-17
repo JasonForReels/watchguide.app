@@ -55,7 +55,7 @@ export function Nav({ path = null }: { path?: string | null }) {
       {/* iPad and desktop: floating capsule at the top, like iPadOS 26 tab bars. */}
       <div className={`pointer-events-none fixed inset-x-0 top-0 z-40 hidden items-center justify-center pt-3 md:flex ${immersive ? "md:hidden" : ""}`}>
         <TabBar active={active} variant="top" />
-        <div className="glass-bar pointer-events-auto absolute right-4 flex items-center rounded-full p-1">
+        <div suppressHydrationWarning className="glass-bar pointer-events-auto absolute right-4 flex items-center rounded-full p-1">
           <Link href="/discover" aria-label="Moods and filters" className="press grid size-9 place-items-center rounded-full hover:bg-text/5">
             <SlidersHorizontal className="size-[18px]" strokeWidth={2.2} />
           </Link>
@@ -231,6 +231,7 @@ function TabBar({ active, variant }: { active: number; variant: "top" | "bottom"
   return (
     <div className={`pointer-events-auto relative ${top ? "" : "mx-auto max-w-md"}`}>
     <nav
+      suppressHydrationWarning
       ref={bar}
       aria-label="Main"
       onPointerDown={onPointerDown}

@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 /**
- * Liquid Glass material for every `.glass` / `.glass-clear` surface.
+ * Liquid Glass lens for the tab-bar drag gesture.
  *
  * iOS 26 glass doesn't just blur what's behind it: the rim acts like a lens, bending the
  * background inward, with a slight colour fringe and a lift in saturation. The web can do that
@@ -15,19 +15,7 @@ import { useEffect } from "react";
  * circles and cards all refract along their own edges. Maps are cached by shape.
  */
 
-type Kind = "frosted" | "clear" | "bar";
-
-const PARAMS: Record<Kind, { blur: number; scale: number; saturate: number; dim?: number }> = {
-  // Tab bars: the clear material's refraction, but denser so icons stay legible over posters.
-  bar: { blur: 2.2, scale: 64, saturate: 1.6, dim: 0.82 },
-  // Bars and panels: legible first, so more blur and a gentler bend.
-  frosted: { blur: 7, scale: 46, saturate: 1.7 },
-  // Buttons over photography: clear, so the lensing reads.
-  clear: { blur: 1.6, scale: 64, saturate: 1.5 },
-};
-
 const NS = "http://www.w3.org/2000/svg";
-const SELECTOR = ".glass, .glass-clear, .glass-bar";
 
 export function supported() {
   const ua = navigator.userAgent;
@@ -95,39 +83,6 @@ function el<K extends keyof SVGElementTagNameMap>(name: K, attrs: Record<string,
   for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
   children.forEach((ch) => node.appendChild(ch));
   return node;
-}
-
-/** One channel of the colour fringe: displace by `scale`, keep only that channel. */
-function channel(scale: number, keep: 0 | 1 | 2, result: string) {
-  const m = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0];
-  m[keep * 6] = 1;
-  return [
-    el("feDisplacementMap", { in: "blurred", in2: "map", scale, xChannelSelector: "R", yChannelSelector: "G", result: `${result}-d` }),
-    el("feColorMatrix", { in: `${result}-d`, type: "matrix", values: m.join(" "), result }),
-  ];
-}
-
-function buildFilter(id: string, w: number, h: number, r: number, kind: Kind) {
-  const p = PARAMS[kind];
-  return el(
-    "filter",
-    { id, x: 0, y: 0, width: w, height: h, filterUnits: "userSpaceOnUse", primitiveUnits: "userSpaceOnUse", "color-interpolation-filters": "sRGB" },
-    el("feGaussianBlur", { in: "SourceGraphic", stdDeviation: p.blur, result: "blurred" }),
-    el("feImage", { href: drawMap(w, h, r), x: 0, y: 0, width: w, height: h, preserveAspectRatio: "none", result: "map" }),
-    // Red bends a little more than green, green more than blue: a faint prismatic rim.
-    ...channel(p.scale, 0, "r"),
-    ...channel(p.scale * 0.94, 1, "g"),
-    ...channel(p.scale * 0.88, 2, "b"),
-    el("feBlend", { in: "r", in2: "g", mode: "screen", result: "rg" }),
-    el("feBlend", { in: "rg", in2: "b", mode: "screen", result: "rgb" }),
-    el("feColorMatrix", { in: "rgb", type: "saturate", values: p.saturate, result: "sat" }),
-    ...(p.dim
-      ? [el("feComponentTransfer", { in: "sat" },
-          el("feFuncR", { type: "linear", slope: p.dim }),
-          el("feFuncG", { type: "linear", slope: p.dim }),
-          el("feFuncB", { type: "linear", slope: p.dim }))]
-      : []),
-  );
 }
 
 /** Shared <defs> for filters used through CSS `filter` (works in every engine, unlike backdrop). */
@@ -271,60 +226,48 @@ export function ensureLensBackdropFilter(w: number, h: number) {
   );
 }
 
+/**
+ * Clear glass for the bars: almost no blur, with the rim bending what's behind it. One
+ * displacement pass only (no blur, no colour fringe), sized once per shape, so it stays smooth
+ * over scrolling content where the heavier multi-pass filter made the bars shimmer.
+ */
 export function LiquidGlass() {
   useEffect(() => {
     if (!supported()) return;
     document.documentElement.dataset.liquidGlass = "";
-
-    const svg = el("svg", { width: 0, height: 0, "aria-hidden": "true", style: "position:absolute;width:0;height:0;overflow:hidden" });
-    const defs = el("defs", {});
-    svg.appendChild(defs);
-    document.body.appendChild(svg);
-    const made = new Set<string>();
-
-    const apply = (node: HTMLElement) => {
-      const rect = node.getBoundingClientRect();
-      // Untransformed size: transforms (press, lens) scale the filter along with the element.
-      const w = Math.round(node.offsetWidth || rect.width);
-      const h = Math.round(node.offsetHeight || rect.height);
-      if (w < 8 || h < 8) return;
-      const radius = Math.min(parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0, w / 2, h / 2);
-      const kind: Kind = node.classList.contains("glass-bar") ? "bar" : node.classList.contains("glass-clear") ? "clear" : "frosted";
-      const id = `lg-${kind}-${w}x${h}-${Math.round(radius)}`;
-      if (!made.has(id)) {
-        made.add(id);
-        defs.appendChild(buildFilter(id, w, h, Math.max(radius, 0.5), kind));
+    const defs = sharedDefs();
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) {
+        const node = e.target as HTMLElement;
+        const w = node.offsetWidth;
+        const h = node.offsetHeight;
+        if (w < 8 || h < 8) continue;
+        const r = Math.min(parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0, w / 2, h / 2);
+        const id = `lg-bar-${w}x${h}`;
+        if (!document.getElementById(id)) {
+          defs.appendChild(
+            el(
+              "filter",
+              { id, x: 0, y: 0, width: w, height: h, filterUnits: "userSpaceOnUse", primitiveUnits: "userSpaceOnUse", "color-interpolation-filters": "sRGB" },
+              el("feImage", { href: drawMap(w, h, Math.max(r, 0.5), Math.min(r * 0.8, 16)), x: 0, y: 0, width: w, height: h, preserveAspectRatio: "none", result: "map" }),
+              el("feDisplacementMap", { in: "SourceGraphic", in2: "map", scale: 36, xChannelSelector: "R", yChannelSelector: "G" }),
+            ),
+          );
+        }
+        const v = `blur(1px) url(#${id}) saturate(1.8)`;
+        if (node.dataset.lg !== id) { node.dataset.lg = id; node.style.backdropFilter = v; }
       }
-      const value = `url(#${id})`;
-      if (node.style.backdropFilter !== value) node.style.backdropFilter = value;
-    };
-
-    const ro = new ResizeObserver((entries) => entries.forEach((e) => apply(e.target as HTMLElement)));
-    const watched = new WeakSet<Element>();
-    const scan = () => {
-      document.querySelectorAll<HTMLElement>(SELECTOR).forEach((node) => {
-        if (watched.has(node)) return;
-        watched.add(node);
-        ro.observe(node);
-      });
-    };
-
-    let queued = 0;
-    const mo = new MutationObserver(() => {
-      if (queued) return;
-      queued = requestAnimationFrame(() => { queued = 0; scan(); });
     });
+    const seen = new WeakSet<Element>();
+    const scan = () => document.querySelectorAll<HTMLElement>(".glass-bar").forEach((n) => { if (!seen.has(n)) { seen.add(n); ro.observe(n); } });
+    let q = 0;
+    let started = false;
+    const mo = new MutationObserver(() => { if (!q && started) q = requestAnimationFrame(() => { q = 0; scan(); }); });
     mo.observe(document.body, { childList: true, subtree: true });
-    scan();
-
-    return () => {
-      mo.disconnect();
-      ro.disconnect();
-      cancelAnimationFrame(queued);
-      svg.remove();
-      delete document.documentElement.dataset.liquidGlass;
-    };
+    // Wait out hydration (the Suspense-wrapped nav hydrates late): touching a React-owned node
+    // before then is a hydration mismatch.
+    const start = setTimeout(() => { started = true; scan(); }, 1500);
+    return () => { clearTimeout(start); mo.disconnect(); ro.disconnect(); cancelAnimationFrame(q); delete document.documentElement.dataset.liquidGlass; };
   }, []);
-
   return null;
 }
