@@ -118,7 +118,15 @@ actor SupabaseService {
         }
         
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        // Postgres (and the web app) may send fractional seconds, which .iso8601 rejects.
+        decoder.dateDecodingStrategy = .custom { d in
+            let str = try d.singleValueContainer().decode(String.self)
+            let plain = ISO8601DateFormatter()
+            let frac = ISO8601DateFormatter()
+            frac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = plain.date(from: str) ?? frac.date(from: str) { return date }
+            throw DecodingError.dataCorrupted(.init(codingPath: d.codingPath, debugDescription: "Bad date \(str)"))
+        }
         return try decoder.decode(T.self, from: data)
     }
     
@@ -126,7 +134,8 @@ actor SupabaseService {
         endpoint: String,
         method: String = "POST",
         body: Data? = nil,
-        queryItems: [URLQueryItem] = []
+        queryItems: [URLQueryItem] = [],
+        prefer: String? = nil
     ) async throws {
         guard isConfigured else {
             throw SupabaseError.notConfigured
@@ -153,6 +162,8 @@ actor SupabaseService {
             request.addValue("Bearer \(supabaseAnonKey)", forHTTPHeaderField: "Authorization")
         }
         
+        if let prefer { request.addValue(prefer, forHTTPHeaderField: "Prefer") }
+        
         if let body = body {
             request.httpBody = body
         }
@@ -171,191 +182,122 @@ actor SupabaseService {
         }
     }
     
-    // MARK: - Sync Media Items
-    
-    /// Fetch all items from a specific list type
-    func fetchItems(listType: SyncListType) async throws -> [SyncedMediaItem] {
-        let currentSyncId = await getSyncId()
-        let queryItems = [
-            URLQueryItem(name: "device_id", value: "eq.\(currentSyncId)"),
-            URLQueryItem(name: "list_type", value: "eq.\(listType.rawValue)"),
-            URLQueryItem(name: "order", value: "added_at.desc")
-        ]
-        
-        return try await request(endpoint: "media_items", queryItems: queryItems)
+    // MARK: - Per-user list tables (shared with the web app)
+    // user_list_items / user_custom_lists / user_custom_list_items, locked by RLS to user_id = auth.uid().
+    // Uploads insert only what the account is missing and delete only what the person removed.
+
+    /// The signed-in account id. These tables are per account, so there is no device-ID fallback.
+    private func requireUserId() async throws -> String {
+        let authed = await isAuthenticated()
+        let id: String? = await MainActor.run { AuthService.shared.userId }
+        guard authed, let id, !id.isEmpty else {
+            throw SupabaseError.apiError("Sign in to sync your lists.")
+        }
+        return id
     }
-    
+
+    private static let pageSize = 1000
+
+    private func fetchAll<T: Decodable>(_ table: String, userId: String, order: String) async throws -> [T] {
+        var out: [T] = []
+        var offset = 0
+        while true {
+            let page: [T] = try await request(endpoint: table, queryItems: [
+                URLQueryItem(name: "user_id", value: "eq.\(userId)"),
+                URLQueryItem(name: "order", value: order),
+                URLQueryItem(name: "limit", value: String(Self.pageSize)),
+                URLQueryItem(name: "offset", value: String(offset))
+            ])
+            out.append(contentsOf: page)
+            if page.count < Self.pageSize { break }
+            offset += Self.pageSize
+        }
+        return out
+    }
+
+    /// Insert rows, silently skipping ones the account already has.
+    private func insertMissing<E: Encodable>(_ table: String, _ rows: [E]) async throws {
+        guard !rows.isEmpty else { return }
+        let body = try Self.encoder.encode(rows)
+        try await requestNoResponse(endpoint: table, method: "POST", body: body, prefer: "resolution=ignore-duplicates,return=minimal")
+    }
+
+    /// Whole-second ISO8601 (no fractions) so the web app and older decoders read it.
+    private static let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }()
+
+    private func syncedItem(_ item: SavedMediaItem, userId: String, listType: SyncListType) -> SyncedMediaItem {
+        SyncedMediaItem(
+            userId: userId, listType: listType.rawValue, mediaId: item.mediaId, mediaType: item.mediaType.rawValue,
+            title: item.title, posterPath: item.posterPath, backdropPath: item.backdropPath, year: item.year,
+            releaseDate: item.releaseDate, voteAverage: item.voteAverage, overview: item.overview, addedAt: item.addedAt
+        )
+    }
+
     /// Add an item to a list
     func addItem(_ item: SavedMediaItem, listType: SyncListType) async throws {
-        let currentSyncId = await getSyncId()
-        let syncItem = SyncedMediaItem(
-            id: nil,
-            deviceId: currentSyncId,
-            listType: listType.rawValue,
-            mediaId: item.mediaId,
-            mediaType: item.mediaType.rawValue,
-            title: item.title,
-            posterPath: item.posterPath,
-            backdropPath: item.backdropPath,
-            year: item.year,
-            releaseDate: item.releaseDate,
-            voteAverage: item.voteAverage,
-            overview: item.overview,
-            addedAt: item.addedAt
-        )
-        
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        let body = try encoder.encode(syncItem)
-        
-        try await requestNoResponse(endpoint: "media_items", method: "POST", body: body)
+        let userId = try await requireUserId()
+        try await insertMissing("user_list_items", [syncedItem(item, userId: userId, listType: listType)])
     }
-    
+
     /// Remove an item from a list
     func removeItem(mediaId: Int, mediaType: MediaType, listType: SyncListType) async throws {
-        let currentSyncId = await getSyncId()
-        let queryItems = [
-            URLQueryItem(name: "device_id", value: "eq.\(currentSyncId)"),
+        let userId = try await requireUserId()
+        try await requestNoResponse(endpoint: "user_list_items", method: "DELETE", queryItems: [
+            URLQueryItem(name: "user_id", value: "eq.\(userId)"),
             URLQueryItem(name: "list_type", value: "eq.\(listType.rawValue)"),
             URLQueryItem(name: "media_id", value: "eq.\(mediaId)"),
             URLQueryItem(name: "media_type", value: "eq.\(mediaType.rawValue)")
-        ]
-        
-        try await requestNoResponse(endpoint: "media_items", method: "DELETE", queryItems: queryItems)
+        ])
     }
-    
-    /// Sync all local data to cloud (full upload)
+
+    /// Push local titles the account doesn't have yet. Never deletes: removals go through `removeItem`.
     func uploadAllData(
         wantToWatch: [SavedMediaItem],
         watched: [SavedMediaItem],
         liked: [SavedMediaItem]
     ) async throws {
-        let currentSyncId = await getSyncId()
-        
-        // Validate syncId is not empty
-        guard !currentSyncId.isEmpty else {
-            throw SupabaseError.apiError("User ID is empty. Please sign in or try again.")
+        let userId = try await requireUserId()
+        let remote: [SyncedMediaItem] = try await fetchAll("user_list_items", userId: userId, order: "list_type.asc,media_type.asc,media_id.asc")
+        var have = Set(remote.map { "\($0.listType)-\($0.mediaType)-\($0.mediaId)" })
+
+        var missing: [SyncedMediaItem] = []
+        for (items, type) in [(wantToWatch, SyncListType.wantToWatch), (watched, .watched), (liked, .liked)] {
+            for item in items {
+                let key = "\(type.rawValue)-\(item.mediaType.rawValue)-\(item.mediaId)"
+                guard have.insert(key).inserted else { continue }
+                missing.append(syncedItem(item, userId: userId, listType: type))
+            }
         }
-        
-        // First, delete all existing items for this user/device
-        let deleteQuery = [URLQueryItem(name: "device_id", value: "eq.\(currentSyncId)")]
-        do {
-            try await requestNoResponse(endpoint: "media_items", method: "DELETE", queryItems: deleteQuery)
-        } catch {
-            print("Warning: Could not delete existing media_items: \(error)")
-            // Continue anyway - the table might not exist or be empty
-        }
-        
-        // Upload all items - deduplicate by (list_type, media_id, media_type) to avoid unique constraint violations
-        var seenKeys = Set<String>()
-        var allItems: [SyncedMediaItem] = []
-        
-        for item in wantToWatch {
-            let key = "\(SyncListType.wantToWatch.rawValue)-\(item.mediaId)-\(item.mediaType.rawValue)"
-            guard !seenKeys.contains(key) else { continue }
-            seenKeys.insert(key)
-            
-            allItems.append(SyncedMediaItem(
-                id: nil,
-                deviceId: currentSyncId,
-                listType: SyncListType.wantToWatch.rawValue,
-                mediaId: item.mediaId,
-                mediaType: item.mediaType.rawValue,
-                title: item.title,
-                posterPath: item.posterPath,
-                backdropPath: item.backdropPath,
-                year: item.year,
-                releaseDate: item.releaseDate,
-                voteAverage: item.voteAverage,
-                overview: item.overview,
-                addedAt: item.addedAt
-            ))
-        }
-        
-        for item in watched {
-            let key = "\(SyncListType.watched.rawValue)-\(item.mediaId)-\(item.mediaType.rawValue)"
-            guard !seenKeys.contains(key) else { continue }
-            seenKeys.insert(key)
-            
-            allItems.append(SyncedMediaItem(
-                id: nil,
-                deviceId: currentSyncId,
-                listType: SyncListType.watched.rawValue,
-                mediaId: item.mediaId,
-                mediaType: item.mediaType.rawValue,
-                title: item.title,
-                posterPath: item.posterPath,
-                backdropPath: item.backdropPath,
-                year: item.year,
-                releaseDate: item.releaseDate,
-                voteAverage: item.voteAverage,
-                overview: item.overview,
-                addedAt: item.addedAt
-            ))
-        }
-        
-        for item in liked {
-            let key = "\(SyncListType.liked.rawValue)-\(item.mediaId)-\(item.mediaType.rawValue)"
-            guard !seenKeys.contains(key) else { continue }
-            seenKeys.insert(key)
-            
-            allItems.append(SyncedMediaItem(
-                id: nil,
-                deviceId: currentSyncId,
-                listType: SyncListType.liked.rawValue,
-                mediaId: item.mediaId,
-                mediaType: item.mediaType.rawValue,
-                title: item.title,
-                posterPath: item.posterPath,
-                backdropPath: item.backdropPath,
-                year: item.year,
-                releaseDate: item.releaseDate,
-                voteAverage: item.voteAverage,
-                overview: item.overview,
-                addedAt: item.addedAt
-            ))
-        }
-        
-        if !allItems.isEmpty {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            let body = try encoder.encode(allItems)
-            
-            try await requestNoResponse(endpoint: "media_items", method: "POST", body: body)
+        for start in stride(from: 0, to: missing.count, by: 500) {
+            try await insertMissing("user_list_items", Array(missing[start..<min(start + 500, missing.count)]))
         }
     }
-    
+
     /// Download all data from cloud (full download)
     func downloadAllData() async throws -> (wantToWatch: [SavedMediaItem], watched: [SavedMediaItem], liked: [SavedMediaItem]) {
-        let currentSyncId = await getSyncId()
-        let queryItems = [
-            URLQueryItem(name: "device_id", value: "eq.\(currentSyncId)"),
-            URLQueryItem(name: "order", value: "added_at.desc")
-        ]
-        
-        let items: [SyncedMediaItem] = try await request(endpoint: "media_items", queryItems: queryItems)
-        
+        let userId = try await requireUserId()
+        let items: [SyncedMediaItem] = try await fetchAll("user_list_items", userId: userId, order: "added_at.desc,media_id.asc")
+
         var wantToWatch: [SavedMediaItem] = []
         var watched: [SavedMediaItem] = []
         var liked: [SavedMediaItem] = []
-        
+
         for item in items {
             guard let savedItem = item.toSavedMediaItem() else { continue }
-            
             switch item.listType {
-            case SyncListType.wantToWatch.rawValue:
-                wantToWatch.append(savedItem)
-            case SyncListType.watched.rawValue:
-                watched.append(savedItem)
-            case SyncListType.liked.rawValue:
-                liked.append(savedItem)
-            default:
-                break
+            case SyncListType.wantToWatch.rawValue: wantToWatch.append(savedItem)
+            case SyncListType.watched.rawValue: watched.append(savedItem)
+            case SyncListType.liked.rawValue: liked.append(savedItem)
+            default: break
             }
         }
-        
         return (wantToWatch, watched, liked)
     }
+
     
     // MARK: - User Settings Sync
     
@@ -455,116 +397,149 @@ actor SupabaseService {
     }
     
     // MARK: - Custom Lists Sync
-    
-    /// Upload custom lists to cloud
+
+    /// What the account held at the last successful custom-list sync: list id (lowercased) -> title keys.
+    /// A list or title that is in here but gone locally was removed by the person, so it is deleted remotely.
+    private static let customBaseKey = "supabase_custom_lists_base"
+
+    private func loadCustomBase() -> [String: [String]]? {
+        UserDefaults.standard.dictionary(forKey: Self.customBaseKey) as? [String: [String]]
+    }
+
+    /// Upload custom lists: create missing lists, add missing titles, delete only what the person removed.
     func uploadCustomLists(_ lists: [CustomList]) async throws {
-        let currentSyncId = await getSyncId()
-        guard !currentSyncId.isEmpty else {
-            throw SupabaseError.apiError("User ID is empty.")
-        }
-        
-        // Delete existing
-        let deleteQuery = [URLQueryItem(name: "user_id", value: "eq.\(currentSyncId)")]
-        do {
-            try await requestNoResponse(endpoint: "custom_lists", method: "DELETE", queryItems: deleteQuery)
-        } catch { print("Warning: Could not delete existing custom_lists: \(error)") }
-        do {
-            try await requestNoResponse(endpoint: "custom_list_items", method: "DELETE", queryItems: deleteQuery)
-        } catch { print("Warning: Could not delete existing custom_list_items: \(error)") }
-        
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        
+        let userId = try await requireUserId()
+
+        let remoteLists: [SyncedCustomList] = try await fetchAll("user_custom_lists", userId: userId, order: "created_at.asc,list_id.asc")
+        let remoteItems: [SyncedCustomListItem] = remoteLists.isEmpty ? [] :
+            try await fetchAll("user_custom_list_items", userId: userId, order: "list_id.asc,media_type.asc,media_id.asc")
+
+        let base = loadCustomBase()
+        let remoteById = Dictionary(remoteLists.map { ($0.listId.lowercased(), $0) }, uniquingKeysWith: { a, _ in a })
+        let itemsByList = Dictionary(grouping: remoteItems, by: { $0.listId.lowercased() })
+        var newBase: [String: [String]] = [:]
+        var seen = Set<String>()
+
         for list in lists {
-            let syncList = SyncedCustomList(
-                userId: currentSyncId,
-                listId: list.id,
-                name: list.name,
-                description: list.description,
-                iconName: list.iconName,
-                displayStyle: list.displayStyle.rawValue,
-                createdAt: list.createdAt,
-                updatedAt: list.updatedAt
-            )
-            
-            let body = try encoder.encode([syncList])
-            try await requestNoResponse(endpoint: "custom_lists", method: "POST", body: body)
-            
-            // Upload list items
-            if !list.items.isEmpty {
-                let syncItems = list.items.enumerated().map { index, item in
-                    SyncedCustomListItem(
-                        userId: currentSyncId,
-                        listId: list.id,
-                        mediaId: item.mediaId,
-                        mediaType: item.mediaType.rawValue,
-                        title: item.title,
-                        posterPath: item.posterPath,
-                        backdropPath: item.backdropPath,
-                        year: item.year,
-                        releaseDate: item.releaseDate,
-                        voteAverage: item.voteAverage,
-                        overview: item.overview,
-                        sortOrder: index,
-                        addedAt: item.addedAt
-                    )
-                }
-                
-                let itemsBody = try encoder.encode(syncItems)
-                try await requestNoResponse(endpoint: "custom_list_items", method: "POST", body: itemsBody)
+            let lid = list.id.lowercased()
+            seen.insert(lid)
+
+            guard let remote = remoteById[lid] else {
+                if base?[lid] != nil { continue }  // deleted on the account since the last sync
+                try await insertMissing("user_custom_lists", [SyncedCustomList(
+                    userId: userId, listId: list.id, name: list.name, description: list.description,
+                    iconName: list.iconName, displayStyle: list.displayStyle.rawValue,
+                    createdAt: list.createdAt, updatedAt: list.updatedAt
+                )])
+                try await insertMissing("user_custom_list_items", customRows(list, userId: userId, only: nil, firstSort: 0))
+                newBase[lid] = list.items.map(\.id)
+                continue
+            }
+
+            let remoteRows = itemsByList[lid] ?? []
+            let remoteKeys = Set(remoteRows.map { "\($0.mediaType)-\($0.mediaId)" })
+            let localKeys = Set(list.items.map(\.id))
+            let baseKeys = Set(base?[lid] ?? [])
+
+            // Name changed here since the last sync -> push it (only name/updated_at; icon etc. stay).
+            if base?[lid] != nil, remote.name != list.name, baseName(for: lid) == remote.name {
+                try await requestNoResponse(endpoint: "user_custom_lists", method: "PATCH", body: try Self.encoder.encode(["name": list.name, "updated_at": isoNow()]), queryItems: [
+                    URLQueryItem(name: "user_id", value: "eq.\(userId)"),
+                    URLQueryItem(name: "list_id", value: "eq.\(remote.listId)")
+                ])
+            }
+
+            let toAdd = Set(localKeys.subtracting(remoteKeys).subtracting(baseKeys))
+            let toRemove = remoteKeys.intersection(baseKeys).subtracting(localKeys)
+            let firstSort = (remoteRows.map(\.sortOrder).max() ?? -1) + 1
+            try await insertMissing("user_custom_list_items", customRows(list, userId: userId, only: toAdd, firstSort: firstSort))
+            for row in remoteRows where toRemove.contains("\(row.mediaType)-\(row.mediaId)") {
+                try await requestNoResponse(endpoint: "user_custom_list_items", method: "DELETE", queryItems: [
+                    URLQueryItem(name: "user_id", value: "eq.\(userId)"),
+                    URLQueryItem(name: "list_id", value: "eq.\(remote.listId)"),
+                    URLQueryItem(name: "media_type", value: "eq.\(row.mediaType)"),
+                    URLQueryItem(name: "media_id", value: "eq.\(row.mediaId)")
+                ])
+            }
+            newBase[lid] = Array(remoteKeys.subtracting(toRemove).union(toAdd))
+        }
+
+        // Lists the account has that this device doesn't: removed here if the base knew them, else new from elsewhere.
+        for remote in remoteLists {
+            let lid = remote.listId.lowercased()
+            guard !seen.contains(lid) else { continue }
+            if base?[lid] != nil {
+                try await requestNoResponse(endpoint: "user_custom_list_items", method: "DELETE", queryItems: [
+                    URLQueryItem(name: "user_id", value: "eq.\(userId)"), URLQueryItem(name: "list_id", value: "eq.\(remote.listId)")
+                ])
+                try await requestNoResponse(endpoint: "user_custom_lists", method: "DELETE", queryItems: [
+                    URLQueryItem(name: "user_id", value: "eq.\(userId)"), URLQueryItem(name: "list_id", value: "eq.\(remote.listId)")
+                ])
+            } else {
+                newBase[lid] = (itemsByList[lid] ?? []).map { "\($0.mediaType)-\($0.mediaId)" }
             }
         }
+
+        UserDefaults.standard.set(newBase, forKey: Self.customBaseKey)
+        UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: remoteLists.map { ($0.listId.lowercased(), $0.name) }).merging(
+            lists.map { ($0.id.lowercased(), $0.name) }, uniquingKeysWith: { _, new in new }), forKey: Self.customBaseKey + "_names")
     }
-    
+
+    private func baseName(for lid: String) -> String? {
+        (UserDefaults.standard.dictionary(forKey: Self.customBaseKey + "_names") as? [String: String])?[lid]
+    }
+
+    private func isoNow() -> String {
+        ISO8601DateFormatter().string(from: Date())
+    }
+
+    private func customRows(_ list: CustomList, userId: String, only: Set<String>?, firstSort: Int) -> [SyncedCustomListItem] {
+        var rows: [SyncedCustomListItem] = []
+        for item in list.items where only?.contains(item.id) ?? true {
+            rows.append(SyncedCustomListItem(
+                userId: userId, listId: list.id, mediaId: item.mediaId, mediaType: item.mediaType.rawValue,
+                title: item.title, posterPath: item.posterPath, backdropPath: item.backdropPath, year: item.year,
+                releaseDate: item.releaseDate, voteAverage: item.voteAverage, overview: item.overview,
+                sortOrder: firstSort + rows.count, addedAt: item.addedAt
+            ))
+        }
+        return rows
+    }
+
     /// Download custom lists from cloud
     func downloadCustomLists() async throws -> [CustomList] {
-        let currentSyncId = await getSyncId()
-        
-        let listQuery = [
-            URLQueryItem(name: "user_id", value: "eq.\(currentSyncId)"),
-            URLQueryItem(name: "order", value: "created_at.asc")
-        ]
-        let lists: [SyncedCustomList] = try await request(endpoint: "custom_lists", queryItems: listQuery)
-        
-        let itemsQuery = [
-            URLQueryItem(name: "user_id", value: "eq.\(currentSyncId)"),
-            URLQueryItem(name: "order", value: "sort_order.asc")
-        ]
-        let allItems: [SyncedCustomListItem] = try await request(endpoint: "custom_list_items", queryItems: itemsQuery)
-        
+        let userId = try await requireUserId()
+        let lists: [SyncedCustomList] = try await fetchAll("user_custom_lists", userId: userId, order: "created_at.asc,list_id.asc")
+        let allItems: [SyncedCustomListItem] = lists.isEmpty ? [] :
+            try await fetchAll("user_custom_list_items", userId: userId, order: "list_id.asc,sort_order.asc")
         let itemsByList = Dictionary(grouping: allItems, by: { $0.listId })
-        
-        return lists.map { list in
-            var customList = CustomList(name: list.name, description: list.description, iconName: list.iconName ?? "folder.fill", displayStyle: CustomList.DisplayStyle(rawValue: list.displayStyle ?? "row") ?? .row)
-            // Override the auto-generated ID with the synced one
-            customList = CustomList(
+
+        let result = lists.map { list in
+            CustomList(
                 id: list.listId,
                 name: list.name,
                 description: list.description,
                 iconName: list.iconName ?? "folder.fill",
                 displayStyle: CustomList.DisplayStyle(rawValue: list.displayStyle ?? "row") ?? .row,
-                items: itemsByList[list.listId]?.compactMap { item in
+                items: (itemsByList[list.listId] ?? []).sorted { ($0.addedAt ?? .distantPast) > ($1.addedAt ?? .distantPast) }.compactMap { item in
                     guard let mediaType = MediaType(rawValue: item.mediaType) else { return nil }
                     return SavedMediaItem(
-                        id: "\(item.mediaType)-\(item.mediaId)",
-                        mediaId: item.mediaId,
-                        mediaType: mediaType,
-                        title: item.title,
-                        posterPath: item.posterPath,
-                        backdropPath: item.backdropPath,
-                        year: item.year,
-                        releaseDate: item.releaseDate,
-                        voteAverage: item.voteAverage,
-                        overview: item.overview,
-                        addedAt: item.addedAt ?? Date()
+                        id: "\(item.mediaType)-\(item.mediaId)", mediaId: item.mediaId, mediaType: mediaType,
+                        title: item.title, posterPath: item.posterPath, backdropPath: item.backdropPath,
+                        year: item.year, releaseDate: item.releaseDate, voteAverage: item.voteAverage,
+                        overview: item.overview, addedAt: item.addedAt ?? Date()
                     )
-                } ?? [],
+                },
                 createdAt: list.createdAt ?? Date(),
                 updatedAt: list.updatedAt ?? Date()
             )
-            return customList
         }
+        // What we just read is what the account holds: the next upload's baseline.
+        UserDefaults.standard.set(Dictionary(result.map { ($0.id.lowercased(), $0.items.map(\.id)) }, uniquingKeysWith: { a, _ in a }), forKey: Self.customBaseKey)
+        UserDefaults.standard.set(Dictionary(result.map { ($0.id.lowercased(), $0.name) }, uniquingKeysWith: { a, _ in a }), forKey: Self.customBaseKey + "_names")
+        return result
     }
+
     
     /// Get last sync timestamp
     func getLastSyncTime() -> Date? {
@@ -591,8 +566,7 @@ enum SyncListType: String, CaseIterable {
 
 // MARK: - Synced Media Item (Supabase table model)
 struct SyncedMediaItem: Codable {
-    let id: Int?
-    let deviceId: String
+    let userId: String
     let listType: String
     let mediaId: Int
     let mediaType: String
@@ -606,8 +580,7 @@ struct SyncedMediaItem: Codable {
     let addedAt: Date
     
     enum CodingKeys: String, CodingKey {
-        case id
-        case deviceId = "device_id"
+        case userId = "user_id"
         case listType = "list_type"
         case mediaId = "media_id"
         case mediaType = "media_type"
@@ -624,8 +597,7 @@ struct SyncedMediaItem: Codable {
     // Explicitly encode all keys (including nil as null) to avoid PGRST102
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encodeIfPresent(id, forKey: .id)
-        try container.encode(deviceId, forKey: .deviceId)
+        try container.encode(userId, forKey: .userId)
         try container.encode(listType, forKey: .listType)
         try container.encode(mediaId, forKey: .mediaId)
         try container.encode(mediaType, forKey: .mediaType)
