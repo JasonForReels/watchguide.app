@@ -66,6 +66,23 @@ WatchGuide installs as an app from Chrome, Samsung Internet or Edge on Android (
 
 Android only offers installation over HTTPS (or `localhost`), so testing on a phone needs the deployed site or a tunnel.
 
+## Reminders (web push)
+
+Settings > Reminders turns on browser notifications for new episodes of shows you follow (Want to Watch, or any show with watched episodes) and films you saved on their release day. No account is needed: a device is identified by its push subscription, and the browser re-sends its followed TMDB IDs (`src/lib/push-client.ts`, mounted in `PWA`) whenever the lists change. The permission prompt only appears after tapping the switch. iPhone and iPad need WatchGuide added to the Home Screen first (the Settings row explains this).
+
+- `public/sw.js`: `push` and `notificationclick` handlers
+- `src/app/api/push/sync` and `unsubscribe`: store or delete a device (endpoint must be a known push service)
+- `src/lib/push-store.ts`: Upstash Redis over REST, one record per device, plus an index set. Falls back to memory in local dev
+- `src/app/api/cron/reminders`: daily Vercel Cron (`vercel.json`, 13:00 UTC). Checks `tv/{id}` (next or last episode air date) and `movie/{id}` (release date) for today's UTC date, sends with `web-push`, and deletes devices that answer 404 or 410. `?date=YYYY-MM-DD` overrides today for testing
+
+Setup:
+
+1. Vercel > Storage > Marketplace > Upstash Redis (free tier). Connecting it to the project adds `KV_REST_API_URL` and `KV_REST_API_TOKEN`.
+2. `npx web-push generate-vapid-keys`, then add `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (`mailto:you@yourdomain`) to Production env vars. Add a long random `CRON_SECRET`; Vercel sends it as a Bearer token to the cron route.
+3. `npx vercel deploy --prod` from `web/`. Env vars only apply to new deployments, and `NEXT_PUBLIC_` values are baked in at build.
+
+Test the cron by hand: `curl -H "Authorization: Bearer $CRON_SECRET" "https://app.watchguide.app/api/cron/reminders?date=2026-12-18"`.
+
 ## Not ported
 
 Apple-only features are left out on purpose: Siri and Shortcuts intents, widgets, Live Activities, Visual Intelligence and the scanner, Wallet passes, CloudKit, StoreKit purchases, Apple Intelligence, and Atlas voice.

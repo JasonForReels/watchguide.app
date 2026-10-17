@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
+import { usePushSync } from "@/lib/push-client";
 
 interface InstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -13,6 +14,7 @@ const listeners = new Set<() => void>();
 
 /** Registers the service worker and keeps the Android browser bar in step with the theme. */
 export function PWA() {
+  usePushSync();
   useEffect(() => {
     if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
       navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" }).catch(() => {});

@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronRight, Download, Film, Gift, Upload } from "lucide-react";
+import { Bell, Check, ChevronRight, Download, Film, Gift, Upload } from "lucide-react";
 import { ProCard } from "@/components/pro-gate";
 import { PageHeader } from "@/components/rail";
 import { REGIONS } from "@/lib/catalog";
+import { disablePush, enablePush, pushStatus, subscribeToPush, VAPID_PUBLIC_KEY, type PushStatus } from "@/lib/push-client";
 import { actions, getState, useHydrated, useStore } from "@/lib/store";
 import { PACKS, THEMES, themeById, type Theme } from "@/lib/themes";
 
@@ -151,6 +152,8 @@ export function SettingsView() {
           ))}
         </Section>
 
+        <Reminders />
+
         <Section title="Streaming" footer="Your region decides which services and release dates you see.">
           <label className="flex items-center justify-between px-5 py-3.5">
             <span>Region</span>
@@ -204,5 +207,47 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
     >
       <span className={`absolute top-[2px] left-[2px] size-[27px] rounded-full bg-white shadow-md transition-transform duration-200 ${on ? "translate-x-5" : ""}`} />
     </button>
+  );
+}
+
+const REMINDER_NOTE: Record<PushStatus, string> = {
+  unsupported: "This browser can't show notifications.",
+  "needs-install": "On iPhone and iPad, notifications only work once WatchGuide is added to your Home Screen: tap Share, then Add to Home Screen, and open it from there.",
+  denied: "Notifications are blocked for this site. Allow them in your browser's site settings, then come back.",
+  off: "Get a notification the day a show you follow has a new episode, or a film you saved is released. No account needed; this device is remembered by its notification subscription.",
+  on: "On for this device. Reminders follow your Watching and Want to Watch lists and update when you change them.",
+};
+
+function Reminders() {
+  const [status, setStatus] = useState<PushStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const refresh = () => void pushStatus().then(setStatus);
+    refresh();
+    return subscribeToPush(refresh);
+  }, []);
+
+  const toggle = async (on: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(on ? await enablePush() : await disablePush());
+    } catch (e) {
+      setError((e as Error).message || "Couldn't change reminders.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const usable = status === "off" || status === "on";
+  return (
+    <Section title="Reminders" footer={error ?? (status ? REMINDER_NOTE[status] : undefined)}>
+      <div className="flex items-center justify-between gap-4 px-5 py-3.5">
+        <span className="flex items-center gap-3"><Bell className="size-4 text-accent" /> Episode and release reminders</span>
+        <Switch on={status === "on"} onChange={(v) => { if (usable && !busy && VAPID_PUBLIC_KEY) void toggle(v); }} label="Episode and release reminders" />
+      </div>
+    </Section>
   );
 }
