@@ -7,12 +7,15 @@
  * entitlement, so a web purchase is the same Pro. Paddle.js opens the checkout; when it
  * completes we hand the transaction to RevenueCat through /api/pro, which unlocks Pro at once
  * (Paddle's webhook reaches RevenueCat too, and the two agree on the same transaction).
- * There are no accounts yet, so each browser gets an anonymous RevenueCat user ID; a web
- * purchase unlocks Pro in that browser. Linking it to the iOS app needs sign-in (see README).
+ * Pro belongs to the signed-in account (the same Supabase accounts as the iOS app, see auth.ts).
+ * The account's user ID is the RevenueCat app user ID, so a web purchase shows up in the
+ * iPhone app too, and signing out of the browser takes Pro away from that browser.
  */
 
 import { useSyncExternalStore } from "react";
 import type { Paddle } from "@paddle/paddle-js";
+import { getAccessToken, onAuthChange, signOut } from "@/lib/auth";
+import type { AuthUser } from "@/lib/auth";
 
 /** The entitlement every Pro product is attached to in RevenueCat (ScoutSubscriptionService.proEntitlementID). */
 export const PRO_ENTITLEMENT = "watchguide_pro";
@@ -28,7 +31,6 @@ const PRICE_IDS = {
 } as const;
 const ENABLED = !!CLIENT_TOKEN && !!(PRICE_IDS.annual || PRICE_IDS.monthly);
 
-const USER_KEY = "watchguide.rc_user";
 const PRO_CACHE_KEY = "watchguide.pro";
 
 export type ProStatus = "unavailable" | "loading" | "free" | "pro";
@@ -53,17 +55,6 @@ function storage(): Storage | null {
   try { return window.localStorage; } catch { return null; }
 }
 
-/** This browser's anonymous RevenueCat user ID, made once. */
-function userId(): string {
-  const ls = storage();
-  let id = ls?.getItem(USER_KEY) ?? null;
-  if (!id) {
-    id = `$RCAnonymousID:${crypto.randomUUID().replaceAll("-", "")}`;
-    ls?.setItem(USER_KEY, id);
-  }
-  return id;
-}
-
 interface ProReply { pro: boolean; expires: string | null; willRenew: boolean; managementURL: string | null; sandbox: boolean }
 
 function apply(r: ProReply) {
@@ -81,7 +72,19 @@ function apply(r: ProReply) {
 export async function refreshPro() {
   if (!ENABLED || typeof window === "undefined") return;
   try {
-    const res = await fetch(`/api/pro?uid=${encodeURIComponent(userId())}`, { cache: "no-store" });
+    const token = await getAccessToken();
+    if (!token) {
+      // Signed out: no Pro on this browser, and nothing cached to trust.
+      storage()?.setItem(PRO_CACHE_KEY, "0");
+      emit({ status: "free", managementURL: null, expires: null, willRenew: false, sandbox: false });
+      return;
+    }
+    const res = await fetch("/api/pro", { cache: "no-store", headers: { Authorization: `Bearer ${token}` } });
+    if (res.status === 401) {
+      storage()?.setItem(PRO_CACHE_KEY, "0");
+      emit({ status: "free", managementURL: null, expires: null, willRenew: false, sandbox: false });
+      return;
+    }
     if (!res.ok) throw new Error(String(res.status));
     apply((await res.json()) as ProReply);
   } catch {
@@ -98,7 +101,11 @@ function start() {
   if (ENABLED && storage()?.getItem(PRO_CACHE_KEY) === "1") emit({ status: "pro" });
   void refreshPro();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) void refreshPro(); });
+  // Sign in or out changes whose Pro this is.
+  onAuthChange(() => void refreshPro());
 }
+
+export { signOut };
 
 /** Current Pro state. Free until hydrated, so server and first client render agree. */
 export function usePro(): ProState & { isPro: boolean } {
@@ -168,16 +175,16 @@ export async function getPlans(): Promise<Plan[]> {
 export type PurchaseOutcome = "purchased" | "cancelled" | { error: string };
 
 /** Opens Paddle's checkout for a plan, then tells RevenueCat so Pro unlocks. */
-export async function buy(plan: PlanId): Promise<PurchaseOutcome> {
+export async function buy(plan: PlanId, user: AuthUser): Promise<PurchaseOutcome> {
   const p = ENABLED ? await loadPaddle() : undefined;
   if (!p || !PRICE_IDS[plan]) return { error: "Purchases aren't set up on this site yet." };
-  const uid = userId();
 
   const done = new Promise<string | null>((resolve) => { onCheckoutDone = resolve; });
   p.Checkout.open({
     items: [{ priceId: PRICE_IDS[plan], quantity: 1 }],
     // RevenueCat reads the buyer's ID from the transaction's custom data (rc_user_id).
-    customData: { rc_user_id: uid },
+    customData: { rc_user_id: user.id },
+    customer: { email: user.email },
     settings: { displayMode: "overlay", theme: "dark", variant: "one-page" },
   });
   const transactionId = await done;
@@ -185,10 +192,12 @@ export async function buy(plan: PlanId): Promise<PurchaseOutcome> {
   if (!transactionId) return "cancelled";
 
   try {
+    const token = await getAccessToken();
+    if (!token) throw new Error("signed out");
     const res = await fetch("/api/pro", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ uid, transactionId }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ transactionId }),
     });
     if (!res.ok) throw new Error(String(res.status));
     const reply = (await res.json()) as ProReply;

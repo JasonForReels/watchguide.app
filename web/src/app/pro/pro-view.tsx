@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { BarChart3, Check, Clapperboard, Film, Folder, Link2, Loader2, Map as MapIcon, MessagesSquare, Sparkles } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { BackButton } from "@/components/rail";
-import { buy, getPlans, usePro } from "@/lib/purchases";
+import { buy, getPlans, signOut, usePro } from "@/lib/purchases";
+import { useAuth } from "@/lib/auth";
+import { AccountForm } from "@/components/account-form";
 import type { Plan } from "@/lib/purchases";
 
 /** Same benefits, same order as WGUnlimitedPaywallView. */
@@ -23,6 +25,7 @@ const money = (amount: number, currency: string) =>
 
 export function ProView() {
   const pro = usePro();
+  const { user, enabled: authEnabled } = useAuth();
   const [plans, setPlans] = useState<Plan[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<"annual" | "monthly">("annual");
@@ -54,10 +57,10 @@ export function ProView() {
   const showsTrial = selected === "annual" && trialDays > 0;
 
   const purchase = async () => {
-    if (!plan) return;
+    if (!plan || !user) return;
     setBusy(true);
     setMessage(null);
-    const result = await buy(plan.id);
+    const result = await buy(plan.id, user);
     setBusy(false);
     if (result === "purchased") setMessage("Welcome to WatchGuide Pro.");
     else if (result !== "cancelled") setMessage(result.error);
@@ -127,25 +130,35 @@ export function ProView() {
             )}
           </div>
 
+          {!user && authEnabled && (
+            <AccountForm reason="Pro belongs to your WatchGuide account, so it works in the app and on the web. Use the same account as the app." />
+          )}
+
           <button
             type="button"
             onClick={purchase}
-            disabled={!plan || busy}
+            disabled={!plan || busy || !user}
             className="press mt-6 flex h-[60px] w-full items-center justify-center gap-2 rounded-full bg-accent text-[19px] font-semibold text-white disabled:opacity-50"
           >
             {busy && <Loader2 className="size-5 animate-spin" />}
-            {showsTrial ? `Start ${trialDays}-day free trial` : plan ? `Continue — ${plan.formatted}/${selected === "annual" ? "year" : "month"}` : "Continue"}
+            {!user ? "Sign in to continue" : showsTrial ? `Start ${trialDays}-day free trial` : plan ? `Continue — ${plan.formatted}/${selected === "annual" ? "year" : "month"}` : "Continue"}
           </button>
           <p className="mt-2 text-center text-[13px] text-muted">
             {showsTrial ? `Free for ${trialDays} days, then ${annualPrice}/year. ` : plan ? `${plan.formatted}/${selected === "annual" ? "year" : "month"}. ` : ""}
             Cancel anytime. Web prices are 15% lower than in the app.
           </p>
           {message && <p className="mt-4 text-center text-[15px]" role="status">{message}</p>}
+          {user && (
+            <p className="mt-4 text-center text-[13px] text-muted">
+              Signed in as {user.email} ·{" "}
+              <button type="button" onClick={signOut} className="font-medium text-tint">Sign out</button>
+            </p>
+          )}
           {pro.sandbox && <p className="mt-3 text-center text-[13px] font-semibold text-accent">Test mode: no real charge.</p>}
 
           <p className="mt-6 text-center text-[12px] leading-relaxed text-faint">
             Subscriptions renew automatically until cancelled. Cancel any time from the link in your receipt email or here once subscribed.
-            Pro bought on the web works in this browser; to use it in the iOS app too, sign-in is coming.
+            Sign in with the same account in the WatchGuide app to use Pro there too.
           </p>
         </>
       )}
