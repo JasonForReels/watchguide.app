@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Bookmark, CalendarDays, ChevronRight, Clapperboard, Compass, Layers3, MessageCircle, PieChart, Settings, UserRound } from "lucide-react";
+import { Bookmark, CalendarDays, ChevronRight, Clapperboard, Compass, Layers3, MessageCircle, PieChart, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { AccountCard } from "@/components/account-card";
 import { ProCard } from "@/components/pro-gate";
 import { InstallButton } from "@/components/pwa";
 import { PageHeader } from "@/components/rail";
@@ -24,7 +25,6 @@ const GROUPS: Row[][] = [
     { href: "/stats", label: "Your Pulse", note: "Stats from your watching", icon: PieChart, color: "#ff375f" },
   ],
   [
-    { href: "/account", label: "Account", note: "Optional. Sign in to use Pro on every device", icon: UserRound, color: "#64d2ff" },
     { href: "/settings", label: "Settings", note: "Themes, region, backup", icon: Settings, color: "#8e8e93" },
   ],
 ];
@@ -33,7 +33,8 @@ export default function MorePage() {
   return (
     <div className="mx-auto max-w-3xl pb-10">
       <PageHeader root title="More" />
-      <ProCard className="mx-4 mb-7 sm:mx-8" />
+      <ProCard className="mx-4 mb-4 sm:mx-8" />
+      <AccountCard className="mx-4 mb-7 sm:mx-8" />
       <InstallButton />
       <div className="space-y-7">
         {GROUPS.map((rows, g) => (

@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { BarChart3, Check, Clapperboard, Film, Folder, Link2, Loader2, Map as MapIcon, MessagesSquare, Sparkles } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { BackButton } from "@/components/rail";
 import { buy, getPlans, signOut, usePro } from "@/lib/purchases";
 import { useAuth } from "@/lib/auth";
-import { AccountForm } from "@/components/account-form";
 import type { Plan } from "@/lib/purchases";
 
 /** Same benefits, same order as WGUnlimitedPaywallView. */
@@ -25,12 +25,12 @@ const money = (amount: number, currency: string) =>
 
 export function ProView() {
   const pro = usePro();
-  const { user, enabled: authEnabled } = useAuth();
+  const { user } = useAuth();
+  const router = useRouter();
   const [plans, setPlans] = useState<Plan[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<"annual" | "monthly">("annual");
   const [busy, setBusy] = useState(false);
-  const [askSignIn, setAskSignIn] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -59,7 +59,7 @@ export function ProView() {
 
   const purchase = async () => {
     if (!user) {
-      setAskSignIn(true);
+      router.push("/more");
       return;
     }
     if (!plan) return;
@@ -135,10 +135,6 @@ export function ProView() {
             )}
           </div>
 
-          {!user && authEnabled && askSignIn && (
-            <AccountForm reason="Pro belongs to your WatchGuide account, so it works in the app and on the web. Use the same account as the app." />
-          )}
-
           <button
             type="button"
             onClick={purchase}
@@ -153,6 +149,11 @@ export function ProView() {
             Cancel anytime. Web prices are 15% lower than in the app.
           </p>
           {message && <p className="mt-4 text-center text-[15px]" role="status">{message}</p>}
+          {!user && (
+            <p className="mt-3 text-center text-[13px] text-muted">
+              Pro goes on your WatchGuide account. You&apos;ll sign in on the More tab, then come back here.
+            </p>
+          )}
           {user && (
             <p className="mt-4 text-center text-[13px] text-muted">
               Signed in as {user.email} ·{" "}

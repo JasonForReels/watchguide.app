@@ -5,7 +5,7 @@ import { Loader2 } from "lucide-react";
 import { signIn, signUp } from "@/lib/auth";
 
 /** Email and password sign-in, the same accounts as the WatchGuide iOS app. */
-export function AccountForm({ reason }: { reason: string }) {
+export function AccountForm({ reason, bare = false }: { reason: string; bare?: boolean }) {
   const [mode, setMode] = useState<"in" | "up">("in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,7 +24,7 @@ export function AccountForm({ reason }: { reason: string }) {
   const field = "h-12 w-full rounded-[14px] bg-bg px-4 text-[17px] outline-none ring-1 ring-line focus:ring-tint";
 
   return (
-    <form onSubmit={submit} className="mt-6 rounded-[22px] bg-surface p-4">
+    <form onSubmit={submit} className={bare ? "" : "mt-6 rounded-[22px] bg-surface p-4"}>
       <p className="text-[17px] font-semibold">{mode === "in" ? "Sign in" : "Create your account"}</p>
       <p className="mt-1 text-[14px] text-muted">{reason}</p>
       <div className="mt-3 space-y-2">
