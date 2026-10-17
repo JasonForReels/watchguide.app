@@ -33,8 +33,8 @@ export default function MorePage() {
   return (
     <div className="mx-auto max-w-3xl pb-10">
       <PageHeader root title="More" />
-      <ProCard className="mx-4 mb-4 sm:mx-8" />
-      <AccountCard className="mx-4 mb-7 sm:mx-8" />
+      <AccountCard className="mx-4 mb-4 sm:mx-8" />
+      <ProCard className="mx-4 mb-7 sm:mx-8" />
       <InstallButton />
       <div className="space-y-7">
         {GROUPS.map((rows, g) => (

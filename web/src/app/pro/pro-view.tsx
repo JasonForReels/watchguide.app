@@ -151,7 +151,7 @@ export function ProView() {
           {message && <p className="mt-4 text-center text-[15px]" role="status">{message}</p>}
           {!user && (
             <p className="mt-3 text-center text-[13px] text-muted">
-              Pro goes on your WatchGuide account. You&apos;ll sign in on the More tab, then come back here.
+              Pro goes on your WatchGuide account, the same one as the app. Sign in on the More tab, then come back here.
             </p>
           )}
           {user && (

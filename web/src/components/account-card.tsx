@@ -8,8 +8,8 @@ import { useAuth } from "@/lib/auth";
 import { signOut, usePro } from "@/lib/purchases";
 
 /**
- * Sign in or sign up, on the More tab. WatchGuide is free without an account; the account is
- * only what ties Pro to you, so it works in the iPhone app and on the web.
+ * Sign in or sign up, on the More tab. It is the same account as the iPhone app: it is what
+ * lets your lists, StreamQ and picks follow you between devices, and what Pro belongs to.
  */
 export function AccountCard({ className = "" }: { className?: string }) {
   const { user, enabled } = useAuth();
@@ -42,7 +42,7 @@ export function AccountCard({ className = "" }: { className?: string }) {
           {pro.managementURL ? (
             <a href={pro.managementURL} target="_blank" rel="noreferrer" className="font-medium text-tint">Manage subscription</a>
           ) : (
-            <span className="text-muted">Use the same account in the app</span>
+            <span className="text-muted">Signed in with the same account as the app</span>
           )}
           <button type="button" onClick={signOut} className="font-medium text-red-400">Sign out</button>
         </div>
@@ -56,13 +56,13 @@ export function AccountCard({ className = "" }: { className?: string }) {
         <span className="grid size-10 shrink-0 place-items-center rounded-full bg-tint/15 text-tint"><UserRound className="size-5" /></span>
         <span className="min-w-0 flex-1">
           <span className="block text-[17px] font-semibold">Sign in or create an account</span>
-          <span className="block text-[13px] text-muted">Optional. Only needed for WatchGuide Pro.</span>
+          <span className="block text-[13px] text-muted">Keep your lists, StreamQ and picks on every device, and use Pro anywhere.</span>
         </span>
         <ChevronDown className={`size-5 shrink-0 text-faint transition ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div className="px-4 pb-4">
-          <AccountForm reason="Use the same account as the WatchGuide app, so Pro works on both." bare />
+          <AccountForm reason="Use the same account as the WatchGuide app, so your lists, StreamQ, picks and Pro are the same on both." bare />
         </div>
       )}
     </div>
