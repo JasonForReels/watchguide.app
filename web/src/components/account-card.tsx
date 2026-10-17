@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Check, ChevronDown, UserRound } from "lucide-react";
+import { Check, ChevronDown, CloudAlert, RefreshCw, UserRound, X } from "lucide-react";
 import { AccountForm } from "@/components/account-form";
 import { useAuth } from "@/lib/auth";
 import { signOut, usePro } from "@/lib/purchases";
+import { dismissSyncNotice, syncNow, useSyncStatus } from "@/lib/sync";
 
 /**
  * Sign in or sign up, on the More tab. It is the same account as the iPhone app: it is what
@@ -14,6 +15,7 @@ import { signOut, usePro } from "@/lib/purchases";
 export function AccountCard({ className = "" }: { className?: string }) {
   const { user, enabled } = useAuth();
   const pro = usePro();
+  const sync = useSyncStatus();
   const [open, setOpen] = useState(false);
 
   if (!enabled) return null;
@@ -38,6 +40,22 @@ export function AccountCard({ className = "" }: { className?: string }) {
             </p>
           </div>
         </div>
+        <div className="mt-3 flex items-center gap-2 border-t border-line pt-3 text-[13px] text-muted">
+          {sync.phase === "error" ? <CloudAlert className="size-4 shrink-0 text-red-400" /> : <RefreshCw className={`size-4 shrink-0 ${sync.phase === "syncing" ? "animate-spin" : ""}`} />}
+          <span className="min-w-0 flex-1" aria-live="polite">
+            {sync.phase === "syncing" && "Syncing…"}
+            {sync.phase === "synced" && `Synced${sync.lastSyncAt ? ` · ${new Date(sync.lastSyncAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : ""}`}
+            {sync.phase === "error" && (sync.error ?? "Couldn't sync.")}
+            {sync.phase === "off" && "Sync paused"}
+          </span>
+          <button type="button" onClick={syncNow} disabled={sync.phase === "syncing"} className="font-medium text-tint disabled:opacity-40">Sync now</button>
+        </div>
+        {sync.notice && (
+          <div className="mt-3 flex items-start gap-2 rounded-xl bg-tint/10 p-3 text-[13px]">
+            <p className="flex-1">{sync.notice}</p>
+            <button type="button" onClick={dismissSyncNotice} aria-label="Dismiss" className="text-muted"><X className="size-4" /></button>
+          </div>
+        )}
         <div className="mt-3 flex items-center justify-between border-t border-line pt-3 text-[15px]">
           {pro.managementURL ? (
             <a href={pro.managementURL} target="_blank" rel="noreferrer" className="font-medium text-tint">Manage subscription</a>

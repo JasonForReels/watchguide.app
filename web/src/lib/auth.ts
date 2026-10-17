@@ -118,6 +118,12 @@ export function signOut() {
   save(null);
 }
 
+/** The signed-in user right now, outside React. */
+export function getUser(): AuthUser | null {
+  load();
+  return session?.user ?? null;
+}
+
 /** A valid access token, refreshed when it is about to expire. Null when signed out. */
 export async function getAccessToken(): Promise<string | null> {
   load();

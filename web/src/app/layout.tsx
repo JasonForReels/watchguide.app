@@ -5,6 +5,7 @@ import { ActiveNav, Nav } from "@/components/nav";
 import { LiquidGlass } from "@/components/liquid-glass";
 import { PWA } from "@/components/pwa";
 import { ThemeSync } from "@/components/theme-sync";
+import { SyncStarter } from "@/components/sync-starter";
 import { THEMES, themeCSS } from "@/lib/themes";
 import "./globals.css";
 
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-dvh">
         <ThemeSync />
+        <SyncStarter />
         <PWA />
         <LiquidGlass />
         <Suspense fallback={<Nav />}>

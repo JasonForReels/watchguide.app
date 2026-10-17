@@ -103,13 +103,40 @@ function load() {
   });
 }
 
-function set(next: State | ((s: State) => State)) {
+const changeHooks = new Set<() => void>();
+
+/** Calls back after a change made on this device (not one applied by account sync). */
+export function onLocalChange(cb: () => void): () => void {
+  changeHooks.add(cb);
+  return () => changeHooks.delete(cb);
+}
+
+function set(next: State | ((s: State) => State), fromSync = false) {
   load();
   state = typeof next === "function" ? next(state) : next;
   try {
     window.localStorage.setItem(KEY, JSON.stringify(state));
   } catch {}
   listeners.forEach((l) => l());
+  if (!fromSync) changeHooks.forEach((h) => h());
+}
+
+const resetHooks = new Set<() => void>();
+
+/** Calls back after the whole local copy is wiped on purpose (Reset in Settings). */
+export function onLocalReset(cb: () => void): () => void {
+  resetHooks.add(cb);
+  return () => resetHooks.delete(cb);
+}
+
+/** Account sync writes through here so it doesn't count as a local edit. */
+export function applySynced(fn: (s: State) => State) {
+  set(fn, true);
+}
+
+/** Wipes this browser's copy (account switch). Not a local edit, so it is never pushed. */
+export function clearLocalData() {
+  set(initial, true);
 }
 
 function subscribe(l: () => void) {
@@ -180,7 +207,8 @@ export const actions = {
     });
   },
   createList(name: string): string {
-    const id = Math.random().toString(36).slice(2, 10);
+    // A UUID, like the iPhone app, so the same list id works in the account tables.
+    const id = crypto.randomUUID();
     set((s) => ({ ...s, custom: [...s.custom, { id, name: name.trim() || "Untitled list", items: [], createdAt: Date.now() }] }));
     return id;
   },
@@ -261,7 +289,9 @@ export const actions = {
     set({ ...initial, ...parsed, settings: { ...initial.settings, ...parsed.settings } });
   },
   reset() {
-    set(initial);
+    // Wipes this browser only; with an account the next sync brings the account's data back.
+    set(initial, true);
+    resetHooks.forEach((h) => h());
   },
 };
 
