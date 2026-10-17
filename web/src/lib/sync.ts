@@ -14,16 +14,16 @@ import { useSyncExternalStore } from "react";
 import { AUTH_ENABLED, getAccessToken, getUser, onAuthChange } from "./auth";
 import { applySynced, clearLocalData, getState, onLocalChange, onLocalReset, type CustomList, type ListId } from "./store";
 import {
-  customBase, createRemote, isUUID, LIST_IDS, mergeCustom, mergeItems, mergeSettings, pickSynced, SyncError,
+  customBase, createRemote, isUUID, LIST_IDS, mergeCustom, mergeItems, mergeKeys, mergeRatings, mergeSettings, pickSynced, SyncError,
   type CustomBase, type Remote, type SyncedSettings,
 } from "./sync-core";
 
 /**
- * Lists and custom lists are off: the live `media_items`, `custom_lists` and `custom_list_items`
- * tables are a shared title catalog with a different shape from what the iOS code writes, so there
- * is no per-user table to sync into yet. Flip to true once tables matching sync-core exist.
+ * Lists, ratings and episodes sync into per-user tables that must exist first (web/sync-tables.sql).
+ * Until the owner has run it every request gets a "table missing" error, shown in the account card,
+ * and nothing is written.
  */
-const SYNC_LISTS = false;
+const SYNC_LISTS = true;
 
 const META_KEY = "watchguide.sync.v1";
 const URL_BASE = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/+$/, "");
@@ -37,6 +37,8 @@ interface Meta {
   userId: string; // the account this browser's data belongs to; kept after sign-out so a different account clears it
   lists?: Record<ListId, string[]>;
   custom?: CustomBase;
+  ratings?: Record<string, number>;
+  episodes?: string[];
   settings?: SyncedSettings;
   lastSyncAt?: number;
   notice?: string | null;
@@ -133,6 +135,29 @@ async function reconcile(remote: Remote, userId: string): Promise<void> {
     for (const [listId, keys] of removals) await remote.removeListItems(listId, keys);
     pulled += m.pulled; pushed += m.pushed;
     next.custom = customBase(m.merged);
+  });
+
+  const episodeKeys = (eps: Record<string, string[]>) => Object.entries(eps).flatMap(([id, codes]) => codes.map((c) => `${id}:${c}`));
+  await guard("Ratings", async () => {
+    const theirs = await remote.fetchRatings();
+    still();
+    const m = mergeRatings(getState().ratings, theirs, base.ratings ?? null);
+    applySynced((s) => ({ ...s, ratings: m.merged }));
+    await remote.setRatings(m.set);
+    await remote.clearRatings(m.clear);
+    next.ratings = m.merged;
+  });
+
+  await guard("Episodes", async () => {
+    const theirs = await remote.fetchEpisodes();
+    still();
+    const m = mergeKeys(episodeKeys(getState().episodes), theirs, base.episodes ? new Set(base.episodes) : null);
+    const eps: Record<string, string[]> = {};
+    for (const k of m.merged) { const [id, code] = k.split(":"); (eps[id] ??= []).push(code); }
+    applySynced((s) => ({ ...s, episodes: eps }));
+    await remote.addEpisodes(m.add);
+    await remote.removeEpisodes(m.removeKeys);
+    next.episodes = m.merged;
   });
 
   await guard("Settings", async () => {
