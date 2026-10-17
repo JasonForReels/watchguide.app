@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Bookmark, CalendarDays, ChevronRight, Clapperboard, Compass, Layers3, MessageCircle, PieChart, Settings } from "lucide-react";
+import { Bookmark, CalendarDays, ChevronRight, Clapperboard, Compass, Layers3, MessageCircle, PieChart, Settings, UserRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ProCard } from "@/components/pro-gate";
 import { InstallButton } from "@/components/pwa";
@@ -24,6 +24,7 @@ const GROUPS: Row[][] = [
     { href: "/stats", label: "Your Pulse", note: "Stats from your watching", icon: PieChart, color: "#ff375f" },
   ],
   [
+    { href: "/account", label: "Account", note: "Optional. Sign in to use Pro on every device", icon: UserRound, color: "#64d2ff" },
     { href: "/settings", label: "Settings", note: "Themes, region, backup", icon: Settings, color: "#8e8e93" },
   ],
 ];

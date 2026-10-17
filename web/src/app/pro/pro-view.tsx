@@ -30,6 +30,7 @@ export function ProView() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<"annual" | "monthly">("annual");
   const [busy, setBusy] = useState(false);
+  const [askSignIn, setAskSignIn] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -57,7 +58,11 @@ export function ProView() {
   const showsTrial = selected === "annual" && trialDays > 0;
 
   const purchase = async () => {
-    if (!plan || !user) return;
+    if (!user) {
+      setAskSignIn(true);
+      return;
+    }
+    if (!plan) return;
     setBusy(true);
     setMessage(null);
     const result = await buy(plan.id, user);
@@ -130,14 +135,14 @@ export function ProView() {
             )}
           </div>
 
-          {!user && authEnabled && (
+          {!user && authEnabled && askSignIn && (
             <AccountForm reason="Pro belongs to your WatchGuide account, so it works in the app and on the web. Use the same account as the app." />
           )}
 
           <button
             type="button"
             onClick={purchase}
-            disabled={!plan || busy || !user}
+            disabled={!plan || busy}
             className="press mt-6 flex h-[60px] w-full items-center justify-center gap-2 rounded-full bg-accent text-[19px] font-semibold text-white disabled:opacity-50"
           >
             {busy && <Loader2 className="size-5 animate-spin" />}
