@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CircleEllipsis, Flame, Popcorn, Search, Settings, SlidersHorizontal, Tv } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { ensureLensBackdropFilter, ensureLensFilter, lensBackdropId, lensFilterId, supported } from "./liquid-glass";
+import { ensureLensBackdropFilter, lensBackdropId, supported } from "./liquid-glass";
 
 interface Item {
   href: string;
@@ -193,12 +193,10 @@ function TabBar({ active, variant }: { active: number; variant: "top" | "bottom"
   // The lens rises a little above and below the bar, like the iOS droplet.
   const LENS_OVERHANG = 6;
   const lensH = barHeight + LENS_OVERHANG * 2;
-  const lensFilter = lensFilterId(width, lensH);
   const lensBackdrop = lensBackdropId(width, lensH);
   useLayoutEffect(() => {
     if (!dragging) return;
     if (seeThrough) ensureLensBackdropFilter(width, lensH);
-    else ensureLensFilter(width, lensH);
   }, [dragging, width, lensH, seeThrough]);
 
   const content = (i: number, on: boolean) => {
@@ -240,16 +238,16 @@ function TabBar({ active, variant }: { active: number; variant: "top" | "bottom"
       onPointerCancel={(e) => finish(e, false)}
       onClickCapture={(e) => { if (justDragged.current) { e.preventDefault(); e.stopPropagation(); } }}
       className={`glass-bar relative touch-none rounded-full select-none ${rowClass}`}
-      style={{ transform: dragging ? "scale(1.03)" : "scale(1)", transition: `transform 0.35s ${SPRING}` }}
+      style={{ transform: dragging ? "scale(1.03)" : seeThrough ? "scale(1)" : undefined, transition: `transform 0.35s ${SPRING}` }}
     >
-      {showPill && !dragging && (
+      {showPill && (!dragging || !seeThrough) && (
         <span
           aria-hidden
           className="pointer-events-none absolute top-1 bottom-1 rounded-full bg-text/10"
           style={{
             left,
             width,
-            transition: mounted ? `left 0.45s ${SPRING}, width 0.3s ${SPRING}` : "none",
+            transition: dragging ? "left 0.06s linear" : mounted ? `left 0.45s ${SPRING}, width 0.3s ${SPRING}` : "none",
           }}
         />
       )}
@@ -268,37 +266,6 @@ function TabBar({ active, variant }: { active: number; variant: "top" | "bottom"
         </Link>
       ))}
 
-      {/*
-        Fallback lens (no SVG backdrop filters): it can't see through the bar's glass, so it
-        carries its own copy of the tab row, lined up with the real one, scaled up around the lens
-        centre and bent at the rim by an SVG displacement filter.
-      */}
-      {dragging && showPill && !seeThrough && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute z-20 overflow-hidden rounded-full"
-          style={{ ...lensFrame, background: "color-mix(in oklab, var(--surface), var(--text) 9%)" }}
-        >
-          <span className="absolute inset-0" style={{ filter: `url(#${lensFilter})` }}>
-            <span
-              className={`absolute ${rowClass}`}
-              style={{
-                left: -left,
-                top: LENS_OVERHANG,
-                width: barWidth,
-                height: barHeight,
-                transform: "scale(1.16)",
-                transformOrigin: `${left + width / 2}px ${barHeight / 2}px`,
-              }}
-            >
-              {TABS.map(({ href }, i) => (
-                <span key={href} className={itemClass(i, i === hovered)}>{content(i, i === hovered)}</span>
-              ))}
-            </span>
-          </span>
-          {sheen}
-        </span>
-      )}
     </nav>
 
     {/*

@@ -218,10 +218,26 @@ html {
 }
 
 /*
- * Safari, Firefox and iOS browsers cannot bend the backdrop, so the bars there are frosted
- * glass: a heavy blur over the page instead of the clear lens Chromium gets.
+ * Safari, Firefox and iOS browsers: frosted, not refractive. Live blur lags in WebKit when many
+ * surfaces do it, so only the tab bar (one element, small radius) blurs; cards and buttons are
+ * translucent tints. No lens, sheen or reflection. The full Liquid Glass look is Chromium on the
+ * web, and the native app everywhere else.
  */
-:root:not([data-liquid-glass]) .glass-bar {
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
+:root:not([data-liquid-glass]) :is(.glass, .glass-clear, .glass-bar) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transform: none;
+  isolation: auto;
+  background: color-mix(in oklab, var(--surface) 82%, transparent);
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.14), 0 4px 14px rgb(0 0 0 / 0.18);
 }
+:root:not([data-liquid-glass]) .glass-clear { background: rgb(60 60 66 / 0.6); }
+:root:not([data-liquid-glass]) .glass-bar {
+  background: rgb(118 118 128 / 0.34);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  backdrop-filter: blur(20px) saturate(170%);
+}
+/* The edge fade darkens what is under the bar to near-black, which hides the frost. Lighter here. */
+:root:not([data-liquid-glass]) .scroll-edge-bottom { background: linear-gradient(to top, rgb(0 0 0 / 0.28), transparent); }
+:root[data-scheme="light"]:not([data-liquid-glass]) .glass-bar { background: rgb(255 255 255 / 0.55); }
+:root:not([data-liquid-glass]) :is(.glass, .glass-clear, .glass-bar)::before { display: none; }
