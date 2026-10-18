@@ -8,8 +8,9 @@ import { useEffect } from "react";
  * iOS 26 glass doesn't just blur what's behind it: the rim acts like a lens, bending the
  * background inward, with a slight colour fringe and a lift in saturation. The web can do that
  * with an SVG displacement filter used as a `backdrop-filter`, which only Chromium renders
- * (Chrome on Android, desktop Chrome and Edge). Everywhere else the frosted CSS fallback in
- * globals.css stays in place.
+ * (Chrome on Android, desktop Chrome and Edge). Everywhere else (Safari, Firefox, iOS browsers) the CSS
+ * rim in globals.css stands in: a glass bevel with edge dispersion, since those engines cannot
+ * bend live backdrops.
  *
  * Each surface gets a displacement map drawn for its exact size and corner radius, so capsules,
  * circles and cards all refract along their own edges. Maps are cached by shape.
@@ -242,6 +243,8 @@ export function LiquidGlass() {
         const w = node.offsetWidth;
         const h = node.offsetHeight;
         if (w < 8 || h < 8) continue;
+        // Big cards would need a big displacement map per size; they keep the CSS rim instead.
+        if (!node.classList.contains("glass-bar") && w * h > 120000) continue;
         const r = Math.min(parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0, w / 2, h / 2);
         const id = `lg-bar-${w}x${h}`;
         if (!document.getElementById(id)) {
@@ -259,7 +262,7 @@ export function LiquidGlass() {
       }
     });
     const seen = new WeakSet<Element>();
-    const scan = () => document.querySelectorAll<HTMLElement>(".glass-bar").forEach((n) => { if (!seen.has(n)) { seen.add(n); ro.observe(n); } });
+    const scan = () => document.querySelectorAll<HTMLElement>(".glass-bar, .glass-clear, .glass").forEach((n) => { if (!seen.has(n)) { seen.add(n); ro.observe(n); } });
     let q = 0;
     let started = false;
     const mo = new MutationObserver(() => { if (!q && started) q = requestAnimationFrame(() => { q = 0; scan(); }); });

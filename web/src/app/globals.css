@@ -216,3 +216,12 @@ html {
   25% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   100% { opacity: 0; transform: translate(-50%, -50%) scale(1.1); }
 }
+
+/*
+ * Safari, Firefox and iOS browsers cannot bend the backdrop, so the bars there are frosted
+ * glass: a heavy blur over the page instead of the clear lens Chromium gets.
+ */
+:root:not([data-liquid-glass]) .glass-bar {
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
