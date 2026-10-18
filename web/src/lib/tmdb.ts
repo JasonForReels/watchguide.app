@@ -30,7 +30,7 @@ export function isAllowedPath(path: string): boolean {
  */
 export async function tmdb<T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> {
   "use cache";
-  cacheLife("hours");
+  cacheLife("days");
   const key = process.env.TMDB_API_KEY;
   if (!key) throw new Error("TMDB_API_KEY is not set. Copy .env.example to .env.local and add it.");
   const url = new URL(`${BASE}/${path}`);

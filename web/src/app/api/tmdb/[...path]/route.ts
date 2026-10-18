@@ -11,7 +11,7 @@ export async function GET(request: Request, { params }: RouteContext<"/api/tmdb/
   try {
     const data = await tmdb(path, query);
     return Response.json(data, {
-      headers: { "Cache-Control": "public, max-age=300, s-maxage=3600" },
+      headers: { "Cache-Control": "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800" },
     });
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 502 });

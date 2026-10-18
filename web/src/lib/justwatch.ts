@@ -8,7 +8,7 @@ export async function justwatch(path: string, query: Record<string, string> = {}
   for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
   const res = await fetch(url, {
     headers: { "x-rapidapi-key": key, "x-rapidapi-host": HOST },
-    next: { revalidate: 3600 },
+    next: { revalidate: 86400 },
   });
   if (!res.ok) throw new Error(`JustWatch ${res.status}`);
   return res.json();
