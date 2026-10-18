@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { cacheLife } from "next/cache";
 import { PageHeader } from "@/components/rail";
 import { HUBS, type Hub } from "@/lib/catalog";
 import { img } from "@/lib/media";
@@ -15,9 +14,9 @@ async function cover(h: Hub) {
   return items.find((i) => i.backdrop_path)?.backdrop_path ?? null;
 }
 
+export const revalidate = 86400;
+
 export default async function HubsPage() {
-  "use cache";
-  cacheLife("days");
   const covers = await Promise.all(HUBS.map(cover));
   const studios = HUBS.map((h, i) => ({ h, cover: covers[i] }));
 

@@ -1,5 +1,4 @@
 import "server-only";
-import { cacheLife } from "next/cache";
 import type { CollectionDetails, MediaItem, MediaType, Paged, PersonDetails, SeasonDetails, TitleDetails } from "./types";
 
 const BASE = "https://api.themoviedb.org/3";
@@ -29,8 +28,6 @@ export function isAllowedPath(path: string): boolean {
  * any page or the proxy share one entry for an hour.
  */
 export async function tmdb<T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> {
-  "use cache";
-  cacheLife("days");
   const key = process.env.TMDB_API_KEY;
   if (!key) throw new Error("TMDB_API_KEY is not set. Copy .env.example to .env.local and add it.");
   const url = new URL(`${BASE}/${path}`);
@@ -39,7 +36,7 @@ export async function tmdb<T>(path: string, params: Record<string, string | numb
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
   }
-  const res = await fetch(url);
+  const res = await fetch(url, { next: { revalidate: 86400 } });
   if (!res.ok) throw new Error(`TMDB ${res.status} for ${path}`);
   return res.json() as Promise<T>;
 }

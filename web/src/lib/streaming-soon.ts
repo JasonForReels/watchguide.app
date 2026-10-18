@@ -1,4 +1,3 @@
-import { cacheLife } from "next/cache";
 import { list, tmdbSafe } from "@/lib/tmdb";
 import type { MediaItem, MediaType } from "@/lib/types";
 
@@ -6,8 +5,6 @@ const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISO
 
 /** Movies with a digital or TV release, and series premiering, in the next 60 days (any service). */
 export async function comingToStreaming(): Promise<MediaItem[]> {
-  "use cache";
-  cacheLife("hours");
   const [movies, shows] = await Promise.all([
     list("discover/movie", {
       region: "US",
@@ -56,8 +53,6 @@ interface Listing { title: string; date: string; tmdbId?: number; type?: string 
 
 /** Titles leaving the main US services soon. Empty unless SUPABASE_URL and SUPABASE_ANON_KEY are set. */
 export async function leavingSoon(): Promise<LeavingEntry[]> {
-  "use cache";
-  cacheLife("hours");
   const base = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_ANON_KEY;
   if (!base || !key) return [];
@@ -73,7 +68,7 @@ export async function leavingSoon(): Promise<LeavingEntry[]> {
         url.searchParams.set("expires_at", `gt.${new Date().toISOString()}`);
         url.searchParams.set("select", "response_data");
         url.searchParams.set("limit", "1");
-        const res = await fetch(url, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
+        const res = await fetch(url, { headers: { apikey: key, Authorization: `Bearer ${key}` }, next: { revalidate: 3600 } });
         if (!res.ok) return;
         const rows = (await res.json()) as { response_data?: { listings?: Listing[] } }[];
         for (const l of rows[0]?.response_data?.listings ?? []) {

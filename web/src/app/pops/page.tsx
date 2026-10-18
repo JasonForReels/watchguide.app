@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { cacheLife } from "next/cache";
 import { dedupe, typeOf } from "@/lib/media";
 import { list, tmdbSafe } from "@/lib/tmdb";
 import type { Video } from "@/lib/types";
@@ -7,10 +6,9 @@ import { PopsFeed, type Pop } from "./pops-feed";
 
 export const metadata: Metadata = { title: "Pops", description: "Trailers and clips from what everyone's watching." };
 
-export default async function PopsPage() {
-  "use cache";
-  cacheLife("hours");
+export const revalidate = 3600;
 
+export default async function PopsPage() {
   const [day, week] = await Promise.all([list("trending/all/day"), list("trending/all/week")]);
   const items = dedupe([...day, ...week]).filter((i) => i.media_type !== "person" && i.backdrop_path).slice(0, 18);
   const pops = await Promise.all(

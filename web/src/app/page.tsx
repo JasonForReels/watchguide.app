@@ -1,4 +1,3 @@
-import { cacheLife } from "next/cache";
 import { BackdropCard, PersonCard, PosterCard } from "@/components/cards";
 import { BecauseYouLiked, Chapter, RankedRail, Spotlight, UpNextRail, WatchlistRail } from "@/components/browse-blocks";
 import { CantDecide, Hero, type HeroSlide } from "@/components/hero";
@@ -25,10 +24,9 @@ async function heroSlides(items: MediaItem[]): Promise<HeroSlide[]> {
   );
 }
 
-export default async function BrowsePage() {
-  "use cache";
-  cacheLife("hours");
+export const revalidate = 3600;
 
+export default async function BrowsePage() {
   const [trendingDay, trendingWeek, popularMovies, popularTV, nowPlaying, onAir, upcoming, topMovies, topTV, people, streamingSoon, leaving] =
     await Promise.all([
       list("trending/all/day"),

@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "watchguide-web",
+  "main": "worker.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  "triggers": { "crons": ["0 13 * * *"] },
+  // Replace the id with the real namespace (wrangler kv namespace create NEXT_INC_CACHE_KV).
+  "kv_namespaces": [{ "binding": "NEXT_INC_CACHE_KV", "id": "local-dev-placeholder" }]
+}

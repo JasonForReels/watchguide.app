@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { cacheLife } from "next/cache";
 import { notFound } from "next/navigation";
 import { BackdropCard, PosterCard } from "@/components/cards";
 import { Rail } from "@/components/rail";
@@ -18,9 +17,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: hub?.name ?? "Hub" };
 }
 
+export const revalidate = 3600;
+
 async function HubContent({ slug }: { slug: string }) {
-  "use cache";
-  cacheLife("hours");
   const hub = hubBySlug(slug);
   if (!hub) notFound();
 
