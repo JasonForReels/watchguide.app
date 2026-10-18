@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: hub?.name ?? "Hub" };
 }
 
-export const revalidate = 3600;
+export const revalidate = 86400;
 
 async function HubContent({ slug }: { slug: string }) {
   const hub = hubBySlug(slug);

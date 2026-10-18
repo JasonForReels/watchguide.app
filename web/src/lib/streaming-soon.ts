@@ -68,7 +68,7 @@ export async function leavingSoon(): Promise<LeavingEntry[]> {
         url.searchParams.set("expires_at", `gt.${new Date().toISOString()}`);
         url.searchParams.set("select", "response_data");
         url.searchParams.set("limit", "1");
-        const res = await fetch(url, { headers: { apikey: key, Authorization: `Bearer ${key}` }, next: { revalidate: 3600 } });
+        const res = await fetch(url, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
         if (!res.ok) return;
         const rows = (await res.json()) as { response_data?: { listings?: Listing[] } }[];
         for (const l of rows[0]?.response_data?.listings ?? []) {

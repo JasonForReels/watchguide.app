@@ -7,5 +7,5 @@
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   "triggers": { "crons": ["0 13 * * *"] },
   // Replace the id with the real namespace (wrangler kv namespace create NEXT_INC_CACHE_KV).
-  "kv_namespaces": [{ "binding": "NEXT_INC_CACHE_KV", "id": "local-dev-placeholder" }]
+  "kv_namespaces": [{ "binding": "NEXT_INC_CACHE_KV", "id": "8b72a2ecb17140b48acef911a56a141a" }]
 }

@@ -36,7 +36,7 @@ export async function tmdb<T>(path: string, params: Record<string, string | numb
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
   }
-  const res = await fetch(url, { next: { revalidate: 86400 } });
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`TMDB ${res.status} for ${path}`);
   return res.json() as Promise<T>;
 }
