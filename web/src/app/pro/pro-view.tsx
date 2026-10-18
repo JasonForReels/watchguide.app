@@ -169,8 +169,10 @@ export function ProView() {
         </>
       )}
 
-      <p className="mt-4 text-center text-[13px]">
-        <a href="https://www.watchguide.app/#/privacy" target="_blank" rel="noreferrer" className="text-faint hover:text-text">Privacy Policy</a>
+      <p className="mt-4 flex justify-center gap-4 text-[13px]">
+        <a href="https://watchguide.app/terms" target="_blank" rel="noreferrer" className="text-faint hover:text-text">Terms</a>
+        <a href="https://watchguide.app/privacy" target="_blank" rel="noreferrer" className="text-faint hover:text-text">Privacy Policy</a>
+        <a href="https://watchguide.app/refunds" target="_blank" rel="noreferrer" className="text-faint hover:text-text">Refunds</a>
       </p>
     </div>
   );
